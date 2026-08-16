@@ -1,5 +1,13 @@
 import { ModalBuilder, type ButtonInteraction, type InteractionUpdateOptions, type ModalSubmitInteraction, type StringSelectMenuInteraction } from 'discord.js';
 import type { Ctx } from './commands.js';
+/**
+ * Names are cleaned up rather than rejected.
+ *
+ * "my rex" is a perfectly reasonable thing to type, and bouncing it back with a
+ * rules lecture — which then hides whatever the real problem was — is a bad
+ * trade for a label nobody but the owner ever sees.
+ */
+export declare function cleanSlotName(raw: string): string | null;
 export interface PanelOptions {
     selected?: string | null;
     notice?: {

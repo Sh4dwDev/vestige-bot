@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "2.9.0"
+local MOD_VERSION = "3.0.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1106,6 +1106,99 @@ local function handlePlayers(cmd)
         string.format("%d playing", #items), "[" .. table.concat(items, ",") .. "]")
 end
 
+-- ---------------------------------------------------------------------------
+-- Gift
+--
+-- why this works without a live pawn: restore compares only `species` against
+-- whatever the player is playing — the stored classPath is never read back. So
+-- a snapshot can be synthesised for someone who is offline, and they collect it
+-- by spawning that species and releasing it like anything else.
+--
+-- Vitals are deliberately left empty. SetGrowth recomputes and refills every
+-- max vital anyway (see NOTES), so a gifted dinosaur arrives healthy rather
+-- than carrying somebody else's hunger.
+-- ---------------------------------------------------------------------------
+
+local function handleGive(cmd)
+    local args = cmd.args or {}
+    local slot = args.slot
+    local species = args.species
+
+    if not slotNameOk(slot) then
+        writeResult(cmd.id, "give", cmd.steam, false, "that is not a valid slot name")
+        return
+    end
+    if type(species) ~= "string" or species == "" then
+        writeResult(cmd.id, "give", cmd.steam, false, "no species given")
+        return
+    end
+
+    local mine = slotsOf(cmd.steam)
+    if #mine >= MAX_SLOTS then
+        writeResult(cmd.id, "give", cmd.steam, false, string.format(
+            "their storage is full (%d of %d)", #mine, MAX_SLOTS))
+        return
+    end
+    for _, entry in ipairs(mine) do
+        if entry.slot == slot then
+            writeResult(cmd.id, "give", cmd.steam, false, "they already have a slot with that name")
+            return
+        end
+    end
+
+    local growth = tonumber(args.growth) or 1.0
+    if growth > 1 then growth = 1 end
+    if growth < 0.05 then growth = 0.05 end
+
+    local state = {
+        version = SCHEMA_VERSION,
+        steam = cmd.steam,
+        storedAt = os.time(),
+        slot = slot,
+        species = species,
+        classPath = "",
+        growth = growth,
+        isFemale = args.female == true,
+        elderStacks = tonumber(args.elderStacks) or 0,
+        vitals = {}, maxVitals = {}, nutrients = {},
+        mutations = {}, primeData = {}, unlockRequiredMutations = arr({}),
+        giftedBy = tostring(args.by or "an admin"),
+    }
+
+    -- Mutations arrive as a plain list and are laid into the active slots in
+    -- order. Anything past the four active slots is ignored rather than spilling
+    -- into the inherited ones, which are not the admin's to set.
+    if type(args.mutations) == "table" then
+        local n = 0
+        for _, name in ipairs(args.mutations) do
+            if type(name) == "string" and name ~= "" and n < 4 then
+                n = n + 1
+                state.mutations["MutationSlot" .. n] = name
+            end
+        end
+    end
+
+    local ok, err = writeAtomic(savedDir .. slotFile(cmd.steam, slot), encodeValue(state, 0) .. "\n")
+    if not ok then
+        writeResult(cmd.id, "give", cmd.steam, false, "could not write the slot: " .. tostring(err))
+        return
+    end
+
+    local entries = readIndex()
+    entries[#entries + 1] = {
+        steam = cmd.steam, slot = slot, species = species, storedAt = state.storedAt,
+    }
+    if not writeIndex(entries) then
+        os.remove(savedDir .. slotFile(cmd.steam, slot))
+        writeResult(cmd.id, "give", cmd.steam, false, "could not update storage, nothing was changed")
+        return
+    end
+
+    log(string.format("give: %s <- %s (%s, %.0f%%)", cmd.steam, slot, species, growth * 100))
+    writeResult(cmd.id, "give", cmd.steam, true, string.format(
+        "%s added to their archive as %s", species, slot))
+end
+
 local function dispatch(cmd)
     if type(cmd) ~= "table" then return end
 
@@ -1130,6 +1223,7 @@ local function dispatch(cmd)
     elseif verb == "delete" then handleDelete(cmd)
     elseif verb == "slay" then handleSlay(cmd)
     elseif verb == "players" then handlePlayers(cmd)
+    elseif verb == "give" then handleGive(cmd)
     else writeResult(cmd.id, verb, cmd.steam, false, "unknown command: " .. verb) end
 end
 

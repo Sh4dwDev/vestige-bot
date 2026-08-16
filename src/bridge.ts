@@ -16,7 +16,7 @@ import type { Config } from './config.js';
  *   results.ndjson   results out, append-only
  */
 
-export type Verb = 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players';
+export type Verb = 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players' | 'give';
 
 export interface StoredSlot {
   slot: string;

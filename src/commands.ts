@@ -20,7 +20,7 @@ import type { Config } from './config.js';
 import type { Database } from './db.js';
 import { buildCommandsEmbed, buildStorageGuideEmbed } from './guides.js';
 import { refreshPopulationPanel, setPopulationChannel } from './livepanel.js';
-import { showPanel, stopAutoRefresh } from './panel.js';
+import { cleanSlotName, showPanel, stopAutoRefresh } from './panel.js';
 import { buildHubEmbed, hubRows, HUB_MESSAGE_KEY, setHubChannel } from './hub.js';
 import { buildKillsEmbed, setKillfeedChannel } from './kills.js';
 import { postOrEdit } from './pinned.js';
@@ -192,6 +192,24 @@ export const commandData = [
             .addChannelOption((o) =>
               o.setName('channel').setDescription('Where it should live')
                 .addChannelTypes(ChannelType.GuildText).setRequired(true))),
+    )
+    .addSubcommandGroup((g) =>
+      g.setName('give').setDescription('Put a dinosaur into someone’s archive')
+        .addSubcommand((s) =>
+          s.setName('dino').setDescription('Add a dinosaur to a player’s storage')
+            .addUserOption((o) => o.setName('user').setDescription('Who gets it').setRequired(true))
+            .addStringOption((o) =>
+              o.setName('species').setDescription('Exact species, e.g. Tyrannosaurus')
+                .setRequired(true))
+            .addStringOption((o) =>
+              o.setName('slot').setDescription('Slot name they will see (default: gift)'))
+            .addIntegerOption((o) =>
+              o.setName('growth').setDescription('Growth percent, default 100')
+                .setMinValue(5).setMaxValue(100))
+            .addStringOption((o) =>
+              o.setName('mutations').setDescription('Up to 4, comma separated'))
+            .addBooleanOption((o) =>
+              o.setName('female').setDescription('Female? Display only — gender cannot be set'))),
     )
     .addSubcommandGroup((g) =>
       g.setName('species').setDescription('Per-species population caps')
@@ -677,6 +695,68 @@ async function handleKills(ctx: Ctx, i: ChatInputCommandInteraction): Promise<vo
   });
 }
 
+// ------------------------------------------------------------------- give --
+
+/**
+ * Writes a dinosaur straight into someone's archive.
+ *
+ * The recipient does not need to be online — the snapshot is synthesised, and
+ * restore only ever compares the species. They collect it by spawning that
+ * species and pressing Release.
+ */
+async function handleGive(ctx: Ctx, i: ChatInputCommandInteraction): Promise<void> {
+  const user = i.options.getUser('user', true);
+  const link = ctx.db.linkFor(user.id);
+  if (!link) {
+    await i.reply({
+      embeds: [embed(COLORS.warn, 'Not linked',
+        `${user} has not linked a Steam account, and storage is held against the ` +
+        'Steam ID. Ask them to run `/link` first.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const species = i.options.getString('species', true).trim();
+  const rawSlot = i.options.getString('slot') ?? 'gift';
+  const slot = cleanSlotName(rawSlot) ?? 'gift';
+  const growth = (i.options.getInteger('growth') ?? 100) / 100;
+
+  const mutations = (i.options.getString('mutations') ?? '')
+    .split(',')
+    .map((m) => m.trim())
+    .filter(Boolean)
+    .slice(0, 4);
+
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+
+  try {
+    const result = await ctx.mod.run('give', link.steamId, {
+      slot,
+      species,
+      growth,
+      female: i.options.getBoolean('female') ?? false,
+      mutations,
+      by: i.user.tag,
+    });
+
+    await i.editReply({
+      embeds: [result.ok
+        ? embed(COLORS.good, 'Added to their archive',
+            `${user} now has a **${species}** in the slot \`${slot}\`.\n\n` +
+            `Growth **${Math.round(growth * 100)}%**` +
+            (mutations.length ? ` · Mutations: ${mutations.join(', ')}` : '') +
+            '\n\nThey collect it by spawning a ' + species + ' and pressing **Release**. ' +
+            'They do not need to be online now.')
+        : embed(COLORS.bad, 'Could not do that', result.msg)],
+    });
+  } catch (err) {
+    await i.editReply({
+      embeds: [embed(COLORS.bad, 'Something went wrong', describeError(err))],
+    });
+  }
+}
+
 // ---------------------------------------------------------------- species --
 
 async function handleSpecies(
@@ -769,6 +849,7 @@ async function handleAdmin(ctx: Ctx, i: ChatInputCommandInteraction): Promise<vo
   if (group === 'commands') return handleReferencePanel(ctx, i, 'commands');
   if (group === 'status') return handleStatusPanel(ctx, i, action);
 
+  if (group === 'give') return handleGive(ctx, i);
   if (group === 'species') return handleSpecies(ctx, i, action);
 
   if (group === 'slay') {

@@ -34,7 +34,7 @@ const MAX_SLOTS = 3;
  * rules lecture — which then hides whatever the real problem was — is a bad
  * trade for a label nobody but the owner ever sees.
  */
-function cleanSlotName(raw: string): string | null {
+export function cleanSlotName(raw: string): string | null {
   const cleaned = raw
     .trim()
     .replace(/\s+/g, '-')

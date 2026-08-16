@@ -136,6 +136,8 @@ and administration.
 | `/admin points give\|take\|set\|rate` | staff | Adjust balances and the earning rate |
 | `/admin game add\|remove\|list` | staff | In-game admins, via Game.ini |
 | `/admin bot add\|remove\|list` | staff | Who may use `/admin` |
+| `/admin give dino` | staff | Put a dinosaur into someone's archive |
+| `/admin species cap\|clear\|list\|channel` | staff | Per-species population caps and lock notices |
 | `/admin panel channel` | staff | The main player panel — buttons, no commands to learn |
 | `/admin slay cooldown` | staff | Minutes between slays (0 disables) |
 | `/admin population channel\|off` | staff | The self-updating population panel |
@@ -228,6 +230,24 @@ Note the status counts **connected players** while the panel counts **dinosaurs
 playing**. They differ legitimately — somebody sitting on the spawn screen is
 connected but is not a dinosaur — so the two figures are deliberately not
 conflated.
+
+---
+
+## Gifting
+
+`/admin give dino @player Tyrannosaurus` writes a dinosaur straight into their
+archive, with optional growth and up to four mutations.
+
+It works because **restore compares only the species string** — the stored
+`classPath` is never read back. So the snapshot can be synthesised rather than
+captured, and the recipient does not need to be online. They collect it by
+spawning that species and pressing Release.
+
+Vitals are written empty on purpose: `SetGrowth` recomputes and refills every
+max vital during restore, so a gifted dinosaur arrives healthy instead of
+carrying a stranger's hunger.
+
+Gender is recorded for display only — Evrima has no `SetIsFemale`.
 
 ---
 
