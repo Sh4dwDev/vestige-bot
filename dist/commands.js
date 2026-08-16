@@ -4,6 +4,7 @@ import { ARCHIVE_CAP, SERVER, SIGNATURE } from './brand.js';
 import { buildCommandsEmbed, buildStorageGuideEmbed } from './guides.js';
 import { refreshPopulationPanel, setPopulationChannel } from './livepanel.js';
 import { showPanel, stopAutoRefresh } from './panel.js';
+import { buildKillsEmbed, setKillfeedChannel } from './kills.js';
 import { postOrEdit } from './pinned.js';
 import { buildBalanceEmbed, buildLeaderboardEmbed, display, ratePerHour, setRatePerHour, } from './points.js';
 import { nextRestart, restartSettings, setRestartAnnounce, setRestartInterval, setRestartsEnabled, WARNINGS, } from './restarts.js';
@@ -70,6 +71,11 @@ export const commandData = [
         .setDescription('Points you have earned by playing')
         .addSubcommand((s) => s.setName('balance').setDescription('How many points you have'))
         .addSubcommand((s) => s.setName('top').setDescription('Who has the most')),
+    new SlashCommandBuilder()
+        .setName('kills')
+        .setDescription('Kill counts')
+        .addSubcommand((s) => s.setName('top').setDescription('The deadliest players'))
+        .addSubcommand((s) => s.setName('me').setDescription('Your own kills and deaths')),
     // Deliberately not hidden behind setDefaultMemberPermissions: staff who are
     // on the bot's own admin list may not hold Manage Server, and a command they
     // cannot see is a command they cannot use. The check happens in code.
@@ -119,6 +125,11 @@ export const commandData = [
         .addChannelTypes(ChannelType.GuildText).setRequired(true))
         .addRoleOption((o) => o.setName('role').setDescription('Role to ping (optional)')))
         .addSubcommand((s) => s.setName('status').setDescription('Show the restart schedule')))
+        .addSubcommandGroup((g) => g.setName('killfeed').setDescription('Where kills are posted')
+        .addSubcommand((s) => s.setName('channel').setDescription('Post each kill in a channel')
+        .addChannelOption((o) => o.setName('channel').setDescription('Where kills go')
+        .addChannelTypes(ChannelType.GuildText).setRequired(true)))
+        .addSubcommand((s) => s.setName('off').setDescription('Stop posting kills')))
         .addSubcommandGroup((g) => g.setName('points').setDescription('Adjust player points')
         .addSubcommand((s) => s.setName('give').setDescription('Add points to someone')
         .addUserOption((o) => o.setName('user').setDescription('Who').setRequired(true))
@@ -141,6 +152,7 @@ export async function handleCommand(ctx, i) {
         case 'storage': return handleStorage(ctx, i);
         case 'population': return handlePopulation(ctx, i);
         case 'points': return handlePoints(ctx, i);
+        case 'kills': return handleKills(ctx, i);
         case 'admin': return handleAdmin(ctx, i);
         default:
             await i.reply({ content: 'Unknown command.', flags: MessageFlags.Ephemeral });
@@ -358,6 +370,38 @@ async function handleAdminPoints(ctx, i, action) {
         flags: MessageFlags.Ephemeral,
     });
 }
+// ------------------------------------------------------------------ kills --
+/** Steam IDs are the key, so anyone unlinked shows as a partial ID. */
+function steamNamer(ctx) {
+    return (steamId) => {
+        const link = ctx.db.linkBySteam(steamId);
+        return link ? `<@${link.discordId}>` : `\`${steamId.slice(-6)}\``;
+    };
+}
+async function handleKills(ctx, i) {
+    if (i.options.getSubcommand() === 'top') {
+        await i.deferReply();
+        await i.editReply({
+            embeds: [buildKillsEmbed(ctx.db.topKillers(10), ctx.db.killTotals(), steamNamer(ctx))],
+        });
+        return;
+    }
+    const link = ctx.db.linkFor(i.user.id);
+    if (!link) {
+        await i.reply({
+            embeds: [embed(COLORS.warn, 'Link your account first', 'Kills are recorded against your Steam account, so `/link` first.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    const { kills, deaths } = ctx.db.killStats(link.steamId);
+    await i.reply({
+        embeds: [embed(COLORS.info, 'Your record', `**${kills}** kills · **${deaths}** deaths\n\n` +
+                'Only direct attacks count as a kill. Bleeding out, starving, drowning ' +
+                'and AI show as deaths with nobody credited.')],
+        flags: MessageFlags.Ephemeral,
+    });
+}
 // ------------------------------------------------------------------ admin --
 /**
  * Manage Server is the bootstrap: it always works, so the server owner can
@@ -393,6 +437,19 @@ async function handleAdmin(ctx, i) {
         return handleRestarts(ctx, i, action);
     if (group === 'points')
         return handleAdminPoints(ctx, i, action);
+    if (group === 'killfeed') {
+        const channel = action === 'off' ? null : i.options.getChannel('channel', true);
+        setKillfeedChannel(ctx, channel?.id ?? null);
+        await i.reply({
+            embeds: [embed(COLORS.good, channel ? 'Kill feed on' : 'Kill feed off', channel
+                    ? `Kills will be posted in <#${channel.id}> as they happen.\n\n` +
+                        'Deaths with no attacker appear too, marked as such — only direct ' +
+                        'attacks can be credited to anyone.'
+                    : 'Kills are still recorded, they are just not posted.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
     return handleGameAdmin(ctx, i, action);
 }
 async function handleStatusPanel(ctx, i, action) {

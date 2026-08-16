@@ -139,13 +139,15 @@ export class ModBridge {
      * than being pushed to. One read serves both, since the watcher wakes often.
      */
     async chatEvents() {
+        const wanted = new Set(['linkcode', 'discordreq', 'kill']);
         return (await this.#readResults())
-            .filter((entry) => entry.ok && (entry.verb === 'linkcode' || entry.verb === 'discordreq'))
+            .filter((entry) => entry.ok && wanted.has(entry.verb))
             .map((entry) => ({
             id: entry.id,
             verb: entry.verb,
             steam: entry.steam,
             text: entry.msg.trim(),
+            data: entry.data,
         }));
     }
     /** Who is playing what, right now. */

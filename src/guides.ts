@@ -119,6 +119,13 @@ export function buildCommandsEmbed(): EmbedBuilder {
           'on yet.',
       },
       {
+        name: '⚔️  `/kills`',
+        value:
+          '`/kills top` for the deadliest players, `/kills me` for your own record.\n' +
+          'Only direct attacks count — bleeding out, starving and AI show as ' +
+          'deaths with nobody credited.',
+      },
+      {
         name: '💬  In game',
         value:
           '`!discord` — Vesta sends you the invite link\n' +

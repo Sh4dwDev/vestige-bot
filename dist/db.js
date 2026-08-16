@@ -41,6 +41,20 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL
 );
 
+-- One row per death. killer_steam is empty when nothing could be attributed —
+-- bleed, starvation, drowning, AI and falls leave no attacker, so kills and
+-- deaths deliberately do not reconcile.
+CREATE TABLE IF NOT EXISTS kills (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  killer_steam TEXT NOT NULL,
+  victim_steam TEXT NOT NULL,
+  species      TEXT NOT NULL,
+  cause        TEXT NOT NULL,
+  at           TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS kills_killer ON kills (killer_steam);
+CREATE INDEX IF NOT EXISTS kills_victim ON kills (victim_steam);
+
 -- Points are keyed by Steam ID, not Discord: they are earned by being in game,
 -- so an unlinked player still accrues and finds their balance waiting when they
 -- do link. Balance is REAL so a rate that is not a whole number per minute does
@@ -179,6 +193,35 @@ export class Database {
     }
     removeBotAdmin(discordId) {
         return Number(this.#db.prepare('DELETE FROM bot_admins WHERE discord_id = ?').run(discordId).changes) > 0;
+    }
+    // ---- kills -------------------------------------------------------------
+    recordKill(killerSteam, victimSteam, species, cause) {
+        this.#db
+            .prepare('INSERT INTO kills (killer_steam, victim_steam, species, cause, at) VALUES (?, ?, ?, ?, ?)')
+            .run(killerSteam, victimSteam, species, cause, new Date().toISOString());
+    }
+    /** Attributed kills only — an empty killer is a death nobody gets credit for. */
+    topKillers(limit) {
+        const rows = this.#db
+            .prepare(`SELECT killer_steam, COUNT(*) AS n FROM kills WHERE killer_steam <> ''
+         GROUP BY killer_steam ORDER BY n DESC LIMIT ?`)
+            .all(limit);
+        return rows.map((row) => ({ steamId: String(row['killer_steam']), kills: Number(row['n']) }));
+    }
+    killStats(steamId) {
+        const one = (sql) => Number(this.#db.prepare(sql).get(steamId)['n']);
+        return {
+            kills: one("SELECT COUNT(*) AS n FROM kills WHERE killer_steam = ?"),
+            deaths: one('SELECT COUNT(*) AS n FROM kills WHERE victim_steam = ?'),
+        };
+    }
+    /** Totals for the footer, so the attribution gap is visible rather than puzzling. */
+    killTotals() {
+        const one = (sql) => Number(this.#db.prepare(sql).get()['n']);
+        return {
+            total: one('SELECT COUNT(*) AS n FROM kills'),
+            attributed: one("SELECT COUNT(*) AS n FROM kills WHERE killer_steam <> ''"),
+        };
     }
     // ---- points ------------------------------------------------------------
     pointsFor(steamId) {

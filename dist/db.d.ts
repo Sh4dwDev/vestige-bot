@@ -43,6 +43,21 @@ export declare class Database {
     isBotAdmin(discordId: string): boolean;
     addBotAdmin(discordId: string, addedBy: string): void;
     removeBotAdmin(discordId: string): boolean;
+    recordKill(killerSteam: string, victimSteam: string, species: string, cause: string): void;
+    /** Attributed kills only — an empty killer is a death nobody gets credit for. */
+    topKillers(limit: number): Array<{
+        steamId: string;
+        kills: number;
+    }>;
+    killStats(steamId: string): {
+        kills: number;
+        deaths: number;
+    };
+    /** Totals for the footer, so the attribution gap is visible rather than puzzling. */
+    killTotals(): {
+        total: number;
+        attributed: number;
+    };
     pointsFor(steamId: string): {
         balance: number;
         minutes: number;

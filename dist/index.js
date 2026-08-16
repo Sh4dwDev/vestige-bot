@@ -6,6 +6,7 @@ import { announceLinked, describeError, handleCommand } from './commands.js';
 import { loadConfig } from './config.js';
 import { Database } from './db.js';
 import { startPopulationPanel } from './livepanel.js';
+import { buildKillEmbed, killfeedChannel } from './kills.js';
 import { awardOnline } from './points.js';
 import { Panel } from './pterodactyl.js';
 import { startRestartScheduler } from './restarts.js';
@@ -64,7 +65,7 @@ async function main() {
     const client = new Client({ intents: [GatewayIntentBits.Guilds] });
     client.once(Events.ClientReady, (ready) => {
         log(`logged in as ${ready.user.tag}`);
-        startChatWatcher(ctx);
+        startChatWatcher(ctx, ready);
         startServerPoll(ctx, ready);
         startPopulationPanel(ctx, ready, log);
         startRestartScheduler(ctx, ready, log);
@@ -126,7 +127,7 @@ async function dispatch(ctx, interaction) {
  * rather than being pushed to. Events already handled are remembered, because
  * the file keeps them until it rotates.
  */
-function startChatWatcher(ctx) {
+function startChatWatcher(ctx, client) {
     const handled = new Set();
     const lastReply = new Map();
     let primed = false;
@@ -170,7 +171,7 @@ function startChatWatcher(ctx) {
             // — and the event had already been marked handled, so the link was lost
             // for good.
             try {
-                await handleChatEvent(ctx, event, lastReply);
+                await handleChatEvent(ctx, event, lastReply, client);
                 handled.add(event.id);
             }
             catch (err) {
@@ -190,7 +191,29 @@ function startChatWatcher(ctx) {
     void tick();
 }
 /** One chat event. Throwing here means "retry next pass". */
-async function handleChatEvent(ctx, event, lastReply) {
+async function handleChatEvent(ctx, event, lastReply, client) {
+    if (event.verb === 'kill') {
+        const raw = (event.data ?? {});
+        const kill = {
+            killer: String(raw.killer ?? ''),
+            victim: String(raw.victim ?? event.steam),
+            species: String(raw.species ?? event.text),
+            cause: String(raw.cause ?? 'health'),
+        };
+        ctx.db.recordKill(kill.killer, kill.victim, kill.species, kill.cause);
+        const channelId = killfeedChannel(ctx);
+        if (channelId && client) {
+            const channel = await client.channels.fetch(channelId).catch(() => null);
+            if (channel?.isTextBased() && 'send' in channel) {
+                const nameFor = (steamId) => {
+                    const link = ctx.db.linkBySteam(steamId);
+                    return link ? `<@${link.discordId}>` : `\`${steamId.slice(-6)}\``;
+                };
+                await channel.send({ embeds: [buildKillEmbed(kill, nameFor)] });
+            }
+        }
+        return;
+    }
     if (event.verb === 'discordreq') {
         // The chat hook has been seen firing twice for one message, 9 seconds
         // apart — well outside the mod's own dedupe window — so the reply is

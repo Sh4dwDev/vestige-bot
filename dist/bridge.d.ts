@@ -48,6 +48,7 @@ export declare class ModBridge {
         verb: string;
         steam: string;
         text: string;
+        data?: unknown;
     }>>;
     /** Who is playing what, right now. */
     players(): Promise<PlayerRow[]>;

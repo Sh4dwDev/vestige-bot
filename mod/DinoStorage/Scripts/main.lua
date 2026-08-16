@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "2.6.0"
+local MOD_VERSION = "2.7.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1287,10 +1287,9 @@ end
 -- ---------------------------------------------------------------------------
 
 local HIT_WINDOW_SEC = 20
-local HIT_LOG_QUIET_SEC = 5
 
 local lastHit = {}      -- victim steam -> { by = attacker steam, at = unix }
-local hitLogged = {}    -- pair -> unix, purely to keep the log readable
+local lastHealth = {}   -- steam -> last health seen, for the >0 to 0 edge
 local hitSeen = 0
 
 local function steamIdOfPawn(pawn)
@@ -1310,9 +1309,6 @@ local function pruneHits()
     for victim, hit in pairs(lastHit) do
         if hit.at < cutoff then lastHit[victim] = nil end
     end
-    for pair, at in pairs(hitLogged) do
-        if at < cutoff then hitLogged[pair] = nil end
-    end
 end
 
 local function onApplyDamage(selfParam, targetParam)
@@ -1322,16 +1318,60 @@ local function onApplyDamage(selfParam, targetParam)
     -- Self-damage and anything involving AI carries no Steam ID on one side.
     if attacker == "" or victim == "" or attacker == victim then return end
 
-    local now = os.time()
-    lastHit[victim] = { by = attacker, at = now }
+    -- Recorded silently. Only the death is worth a line in the log.
+    lastHit[victim] = { by = attacker, at = os.time() }
     pruneHits()
+end
 
-    -- Combat produces a great many of these; log one line per pair per few
-    -- seconds so the file stays readable while still proving the hook fires.
-    local pair = attacker .. ">" .. victim
-    if (hitLogged[pair] == nil) or ((now - hitLogged[pair]) >= HIT_LOG_QUIET_SEC) then
-        hitLogged[pair] = now
-        log(string.format("hit: %s -> %s", attacker, victim))
+local function emitDeath(steam, pawn, cause)
+    local species = ""
+    if pawn ~= nil then
+        local isDino, _, classPath = dinosaurCheck(pawn)
+        if isDino then species = speciesOf(classPath) end
+    end
+
+    -- Attribution is best-effort by design: only a direct player attack leaves
+    -- a hit, so anything else — bleed, starvation, drowning, AI, a fall — dies
+    -- unattributed. That is a real gap, not a bug to paper over.
+    local killer, hit = "", lastHit[steam]
+    if hit ~= nil and (os.time() - hit.at) <= HIT_WINDOW_SEC then killer = hit.by end
+    lastHit[steam] = nil
+
+    log(killer ~= ""
+        and string.format("kill: %s killed %s (%s)", killer, steam, species)
+        or string.format("death: %s (%s, %s)", steam, species, cause))
+
+    writeResult("kill-" .. steam .. "-" .. tostring(os.time()), "kill", steam, true, species,
+        string.format('{"killer":"%s","victim":"%s","species":"%s","cause":"%s"}',
+            killer, steam, jsonEscape(species), cause))
+end
+
+-- why polling: Evrima fires no death event a server can hook, so the only
+-- reliable signal is health crossing to zero. A pawn that vanishes while it was
+-- last seen alive counts too — on a fast death the corpse can be gone before
+-- the next poll reads it.
+local function watchDeaths()
+    for _, player in ipairs(onlinePlayers()) do
+        local health
+        if player.pawn ~= nil then
+            pcall(function() health = player.pawn:GetHealth() end)
+        end
+
+        local previous = lastHealth[player.steam]
+
+        if type(health) == "number" then
+            if previous ~= nil and previous > 0 and health <= 0 then
+                emitDeath(player.steam, player.pawn, "health")
+                lastHealth[player.steam] = nil
+            else
+                lastHealth[player.steam] = health
+            end
+        elseif previous ~= nil and previous > 0 then
+            -- No pawn, but they were alive a moment ago. Spawn-select after a
+            -- death looks exactly like this, which is the point.
+            emitDeath(player.steam, nil, "vanished")
+            lastHealth[player.steam] = nil
+        end
     end
 end
 
@@ -1364,8 +1404,14 @@ else
             safeCall("onApplyDamage", function() onApplyDamage(a, b) end)
         end)
     end)
-    log(damageHooked and "damage hook registered (kill attribution, stage 1)"
-        or "WARNING: damage hook failed — kills cannot be attributed")
+    log(damageHooked and "damage hook registered (kill attribution)"
+        or "WARNING: damage hook failed — deaths will all be unattributed")
+
+    -- 1.5s: fast enough that a corpse is usually still readable, slow enough
+    -- that it is not walking every controller twice a second.
+    LoopInGameThreadWithDelay(1500, function()
+        safeCall("watchDeaths", watchDeaths)
+    end)
 
     LoopInGameThreadWithDelay(15000, function()
         safeCall("presence", function()

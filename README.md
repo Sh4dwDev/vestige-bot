@@ -131,6 +131,8 @@ and administration.
 | `/slay` | linked | Own dinosaur only — the Steam ID comes from the link table, never from user input |
 | `/population` | anyone | Species, adults, gender split, prime. Names nobody |
 | `/points balance\|top` | linked / anyone | Points earned by playing, and the leaderboard |
+| `/kills top\|me` | anyone / linked | Kill leaderboard, and your own record |
+| `/admin killfeed channel\|off` | staff | Post each kill to a channel |
 | `/admin points give\|take\|set\|rate` | staff | Adjust balances and the earning rate |
 | `/admin game add\|remove\|list` | staff | In-game admins, via Game.ini |
 | `/admin bot add\|remove\|list` | staff | Who may use `/admin` |
@@ -209,6 +211,31 @@ Note the status counts **connected players** while the panel counts **dinosaurs
 playing**. They differ legitimately — somebody sitting on the spawn screen is
 connected but is not a dinosaur — so the two figures are deliberately not
 conflated.
+
+---
+
+## Kills
+
+**Evrima fires no death event a server can hook.** `OnDeath`, `OnPawnDeath`,
+`SetHealth` and `SetIsAlive` all either never fire or fire unreliably on a
+natural death, so detection and attribution have to be split:
+
+| Piece | Mechanism |
+| --- | --- |
+| Who hit whom | Hook `/Script/TheIsle.TICharacterBase:ApplyDamage`, cache attacker per victim |
+| That someone died | Poll pawn health every 1.5 s for a `>0 → 0` edge |
+| Joining them | Credit the cached attacker if the death lands within 20 s |
+
+`ApplyDamage` fires on **direct player attacks only**. Bleeding out, starving,
+drowning, falls and AI produce a real death with **no attacker**, so kills and
+deaths will never reconcile.
+
+That gap is surfaced rather than hidden: unattributed deaths appear in the feed
+as deaths, and the leaderboard footer says how many of the total had an
+attacker. Someone will add the columns up, and it should agree with them.
+
+Catching every damage type needs the C++ path — `PostGameplayEffectExecute` on
+`UAttributeSet` at the vtable level. Not attempted here.
 
 ---
 
