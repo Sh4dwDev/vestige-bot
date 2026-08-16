@@ -40,7 +40,18 @@ export function tally(players) {
     }
     return [...rows.values()].sort((a, b) => b.online - a.online || a.species.localeCompare(b.species));
 }
-const percent = (part, whole) => whole === 0 ? '0%' : `${Math.round((part / whole) * 100)}%`;
+/**
+ * Only used to pick an icon. Getting one wrong is cosmetic, and an unknown
+ * species falls back to the herbivore marker rather than breaking the row.
+ */
+const CARNIVORES = new Set([
+    'Tyrannosaurus', 'Allosaurus', 'Ceratosaurus', 'Carnotaurus', 'Deinosuchus',
+    'Dilophosaurus', 'Herrerasaurus', 'Omniraptor', 'Troodon', 'Baryonyx',
+    'Austroraptor', 'Pteranodon', 'Beipiaosaurus',
+]);
+const icon = (species) => (CARNIVORES.has(species) ? '🦖' : '🦕');
+/** Above this, one field per species stops fitting and the table wins. */
+const FIELD_LIMIT = 9;
 const NAME_WIDTH = 15;
 const BAR_WIDTH = 8;
 const pad = (text, width) => text.length > width ? `${text.slice(0, width - 1)}…` : text.padEnd(width);
@@ -88,20 +99,37 @@ export function buildPopulationEmbed(players, options = {}) {
             .setDescription(`The island is quiet. Nobody is playing a dinosaur right now.${updated}`)
             .setFooter({ text: SIGNATURE });
     }
+    const headline = `**${totals.online}** playing · **${totals.adults}** adult · ` +
+        `**${totals.prime}** prime · **${rows.length}** ` +
+        (rows.length === 1 ? 'species' : 'species');
+    embed.setColor(0x5865f2);
+    // A handful of species reads far better as cards than as a one-row table,
+    // which is what it looked like: mostly empty column headers. Past a certain
+    // count the cards wrap badly and the dense table earns its place again.
+    if (rows.length <= FIELD_LIMIT) {
+        embed
+            .setDescription(headline + updated)
+            .addFields(rows.map((row) => ({
+            name: `${icon(row.species)}  ${row.species}`,
+            value: `**${row.online}** online\n` +
+                `${row.adults} adult · ${row.prime} prime\n` +
+                `♂ ${row.males} · ♀ ${row.females}`,
+            inline: true,
+        })))
+            .setFooter({ text: `Adults are 50% growth for large species, 75% for the rest\n${SIGNATURE}` });
+        return embed;
+    }
     // A very long table would blow the 4096-character description limit, so the
     // tail is trimmed rather than rejected outright by the API.
     const shown = rows.slice(0, 20);
     const hidden = rows.length - shown.length;
     embed
-        .setColor(0x5865f2)
-        .setDescription(`**${totals.online}** playing · **${totals.adults}** adult · ` +
-        `**${totals.prime}** prime (${percent(totals.prime, totals.adults)} of adults) · ` +
-        `**${rows.length}** species\n` +
+        .setDescription(headline + '\n' +
         table(shown, totals.online) +
         (hidden > 0 ? `\n…and ${hidden} more species` : '') +
         updated)
         .setFooter({
-        text: `AD = adults · PR = prime · large species mature at 50% growth, the rest at 75%\n${SIGNATURE}`,
+        text: `ON online · AD adults · PR prime · M/F male and female\n${SIGNATURE}`,
     });
     return embed;
 }

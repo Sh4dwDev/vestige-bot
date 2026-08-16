@@ -59,19 +59,28 @@ fs.rmSync(path.dirname(file), { recursive: true, force: true });
 
 {
   const killed = buildKillEmbed(
-    { killer: A, victim: B, species: 'Tyrannosaurus', cause: 'health' }, name).toJSON();
+    { killer: A, killerSpecies: 'Allosaurus', victim: B, species: 'Tyrannosaurus', cause: 'health' },
+    name).toJSON();
   check('a kill names both sides', /killed/.test(killed.description ?? ''), killed.description);
-  check('a kill shows the victim species', /Tyrannosaurus/.test(killed.description ?? ''));
+  check('a kill shows BOTH species', /Allosaurus/.test(killed.description ?? '') &&
+    /Tyrannosaurus/.test(killed.description ?? ''), killed.description);
+
+  const oneKnown = buildKillEmbed(
+    { killer: A, killerSpecies: '', victim: B, species: 'Tyrannosaurus', cause: 'health' },
+    name).toJSON();
+  check('an unknown killer species leaves no empty brackets',
+    !/\(\)/.test(oneKnown.description ?? ''), oneKnown.description);
 
   const died = buildKillEmbed(
-    { killer: '', victim: B, species: 'Dryosaurus', cause: 'health' }, name).toJSON();
+    { killer: '', killerSpecies: '', victim: B, species: 'Dryosaurus', cause: 'health' },
+    name).toJSON();
   check('an unattributed death does not invent a killer',
     !/killed/.test(died.description ?? '') && /died/.test(died.description ?? ''),
     died.description);
   check('the two are colour coded differently', killed.color !== died.color);
 
   const noSpecies = buildKillEmbed(
-    { killer: '', victim: B, species: '', cause: 'vanished' }, name).toJSON();
+    { killer: '', killerSpecies: '', victim: B, species: '', cause: 'killed' }, name).toJSON();
   check('a missing species does not render empty brackets',
     !/\(\)|\*\*/.test(noSpecies.description ?? ''), noSpecies.description);
 }

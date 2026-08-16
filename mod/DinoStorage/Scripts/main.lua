@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "2.8.0"
+local MOD_VERSION = "2.9.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1311,39 +1311,54 @@ local function pruneHits()
     end
 end
 
+local function speciesOfPawn(pawn)
+    if pawn == nil then return "" end
+    local isDino, _, classPath = dinosaurCheck(pawn)
+    if not isDino then return "" end
+    return speciesOf(classPath)
+end
+
 local function onApplyDamage(selfParam, targetParam)
-    local attacker = steamIdOfPawn(unwrap(selfParam))
+    local attackerPawn = unwrap(selfParam)
+    local attacker = steamIdOfPawn(attackerPawn)
     local victim = steamIdOfPawn(unwrap(targetParam))
 
     -- Self-damage and anything involving AI carries no Steam ID on one side.
     if attacker == "" or victim == "" or attacker == victim then return end
 
-    -- Recorded silently. Only the death is worth a line in the log.
-    lastHit[victim] = { by = attacker, at = os.time() }
+    -- The attacker's species is only readable here, while we hold their pawn.
+    -- By the time the victim dies they may have moved on, and caching the pawn
+    -- itself would be a stale pointer.
+    lastHit[victim] = {
+        by = attacker,
+        at = os.time(),
+        bySpecies = speciesOfPawn(attackerPawn),
+    }
     pruneHits()
 end
 
 local function emitDeath(steam, pawn, cause)
-    local species = ""
-    if pawn ~= nil then
-        local isDino, _, classPath = dinosaurCheck(pawn)
-        if isDino then species = speciesOf(classPath) end
-    end
+    local species = speciesOfPawn(pawn)
 
     -- Attribution is best-effort by design: only a direct player attack leaves
     -- a hit, so anything else — bleed, starvation, drowning, AI, a fall — dies
     -- unattributed. That is a real gap, not a bug to paper over.
-    local killer, hit = "", lastHit[steam]
-    if hit ~= nil and (os.time() - hit.at) <= HIT_WINDOW_SEC then killer = hit.by end
+    local killer, killerSpecies = "", ""
+    local hit = lastHit[steam]
+    if hit ~= nil and (os.time() - hit.at) <= HIT_WINDOW_SEC then
+        killer = hit.by
+        killerSpecies = hit.bySpecies or ""
+    end
     lastHit[steam] = nil
 
     log(killer ~= ""
-        and string.format("kill: %s killed %s (%s)", killer, steam, species)
+        and string.format("kill: %s (%s) killed %s (%s)", killer, killerSpecies, steam, species)
         or string.format("death: %s (%s, %s)", steam, species, cause))
 
     writeResult("kill-" .. steam .. "-" .. tostring(os.time()), "kill", steam, true, species,
-        string.format('{"killer":"%s","victim":"%s","species":"%s","cause":"%s"}',
-            killer, steam, jsonEscape(species), cause))
+        string.format(
+            '{"killer":"%s","killerSpecies":"%s","victim":"%s","species":"%s","cause":"%s"}',
+            killer, jsonEscape(killerSpecies), steam, jsonEscape(species), cause))
 end
 
 -- why polling: Evrima fires no death event a server can hook, so health

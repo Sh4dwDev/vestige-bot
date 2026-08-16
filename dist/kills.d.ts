@@ -4,6 +4,8 @@ export declare function setKillfeedChannel(ctx: Ctx, channelId: string | null): 
 export declare function killfeedChannel(ctx: Ctx): string | null;
 export interface KillEvent {
     killer: string;
+    /** What the killer was playing when they landed the hit. */
+    killerSpecies: string;
     victim: string;
     species: string;
     cause: string;

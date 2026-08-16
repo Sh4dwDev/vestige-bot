@@ -220,6 +220,7 @@ async function handleChatEvent(
     const raw = (event.data ?? {}) as Partial<KillEvent>;
     const kill: KillEvent = {
       killer: String(raw.killer ?? ''),
+      killerSpecies: String(raw.killerSpecies ?? ''),
       victim: String(raw.victim ?? event.steam),
       species: String(raw.species ?? event.text),
       cause: String(raw.cause ?? 'health'),

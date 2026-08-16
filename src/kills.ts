@@ -25,6 +25,8 @@ export function killfeedChannel(ctx: Ctx): string | null {
 
 export interface KillEvent {
   killer: string;
+  /** What the killer was playing when they landed the hit. */
+  killerSpecies: string;
   victim: string;
   species: string;
   cause: string;
@@ -40,12 +42,19 @@ export function buildKillEmbed(
   event: KillEvent,
   nameFor: (steamId: string) => string,
 ): EmbedBuilder {
-  const victim = `${nameFor(event.victim)}${event.species ? ` *(${event.species})*` : ''}`;
+  // Species in brackets, omitted entirely when unknown — empty brackets look
+  // like a bug.
+  const withSpecies = (steamId: string, species: string): string =>
+    `${nameFor(steamId)}${species ? ` *(${species})*` : ''}`;
+
+  const victim = withSpecies(event.victim, event.species);
 
   if (event.killer) {
     return new EmbedBuilder()
       .setColor(0xed4245)
-      .setDescription(`⚔️  ${nameFor(event.killer)} killed ${victim}`)
+      .setDescription(
+        `⚔️  ${withSpecies(event.killer, event.killerSpecies)}  **killed**  ${victim}`,
+      )
       .setTimestamp();
   }
 

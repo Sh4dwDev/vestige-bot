@@ -22,11 +22,14 @@ const CAUSE_TEXT = {
     killed: 'was killed',
 };
 export function buildKillEmbed(event, nameFor) {
-    const victim = `${nameFor(event.victim)}${event.species ? ` *(${event.species})*` : ''}`;
+    // Species in brackets, omitted entirely when unknown — empty brackets look
+    // like a bug.
+    const withSpecies = (steamId, species) => `${nameFor(steamId)}${species ? ` *(${species})*` : ''}`;
+    const victim = withSpecies(event.victim, event.species);
     if (event.killer) {
         return new EmbedBuilder()
             .setColor(0xed4245)
-            .setDescription(`⚔️  ${nameFor(event.killer)} killed ${victim}`)
+            .setDescription(`⚔️  ${withSpecies(event.killer, event.killerSpecies)}  **killed**  ${victim}`)
             .setTimestamp();
     }
     return new EmbedBuilder()
