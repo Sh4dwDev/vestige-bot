@@ -4,6 +4,7 @@ import { ARCHIVE_CAP, SERVER, SIGNATURE } from './brand.js';
 import { buildCommandsEmbed, buildStorageGuideEmbed } from './guides.js';
 import { refreshPopulationPanel, setPopulationChannel } from './livepanel.js';
 import { mutationList, speciesList, suggest } from './catalog.js';
+import { isRemoved, mutationChoices } from './mutations.js';
 import { cleanSlotName, showPanel, stopAutoRefresh } from './panel.js';
 import { addRequest, askEmbed, askRows, cooldownMinutes, delaySeconds, requestFor, } from './teleport.js';
 import { buildHubEmbed, hubRows, HUB_MESSAGE_KEY, setHubChannel } from './hub.js';
@@ -617,6 +618,10 @@ async function handleGive(ctx, i) {
                     ? embed(COLORS.good, 'Added to their archive', `${user} now has a **${species}** in the slot \`${slot}\`.\n\n` +
                         `Growth **${Math.round(growth * 100)}%**` +
                         (mutations.length ? ` · Mutations: ${mutations.join(', ')}` : '') +
+                        (mutations.some(isRemoved)
+                            ? '\n\n⚠️ ' + mutations.filter(isRemoved).join(', ') +
+                                ' no longer exists in this build, so the game will ignore it.'
+                            : '') +
                         '\n\nThey collect it by spawning a ' + species + ' and pressing **Release**. ' +
                         'They do not need to be online now.')
                     : embed(COLORS.bad, 'Could not do that', result.msg)],
@@ -1034,12 +1039,10 @@ async function handleGameAdmin(ctx, i, action) {
  */
 export async function handleAutocomplete(ctx, i) {
     const focused = i.options.getFocused(true);
-    const options = focused.name === 'species'
-        ? await speciesList(ctx)
-        : mutationList(ctx);
-    await i
-        .respond(suggest(options, focused.value).map((name) => ({ name, value: name })))
-        .catch(() => undefined);
+    const choices = focused.name === 'species'
+        ? suggest(await speciesList(ctx), focused.value).map((name) => ({ name, value: name }))
+        : mutationChoices(mutationList(ctx), focused.value);
+    await i.respond(choices).catch(() => undefined);
 }
 export function describeError(err) {
     return err instanceof Error ? err.message : String(err);

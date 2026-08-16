@@ -23,6 +23,7 @@ import type { Database } from './db.js';
 import { buildCommandsEmbed, buildStorageGuideEmbed } from './guides.js';
 import { refreshPopulationPanel, setPopulationChannel } from './livepanel.js';
 import { mutationList, speciesList, suggest } from './catalog.js';
+import { isRemoved, mutationChoices } from './mutations.js';
 import { cleanSlotName, showPanel, stopAutoRefresh } from './panel.js';
 import {
   addRequest,
@@ -899,6 +900,10 @@ async function handleGive(ctx: Ctx, i: ChatInputCommandInteraction): Promise<voi
             `${user} now has a **${species}** in the slot \`${slot}\`.\n\n` +
             `Growth **${Math.round(growth * 100)}%**` +
             (mutations.length ? ` · Mutations: ${mutations.join(', ')}` : '') +
+            (mutations.some(isRemoved)
+              ? '\n\n⚠️ ' + mutations.filter(isRemoved).join(', ') +
+                ' no longer exists in this build, so the game will ignore it.'
+              : '') +
             '\n\nThey collect it by spawning a ' + species + ' and pressing **Release**. ' +
             'They do not need to be online now.')
         : embed(COLORS.bad, 'Could not do that', result.msg)],
@@ -1404,13 +1409,12 @@ export async function handleAutocomplete(
   i: AutocompleteInteraction,
 ): Promise<void> {
   const focused = i.options.getFocused(true);
-  const options = focused.name === 'species'
-    ? await speciesList(ctx)
-    : mutationList(ctx);
 
-  await i
-    .respond(suggest(options, focused.value).map((name) => ({ name, value: name })))
-    .catch(() => undefined);
+  const choices = focused.name === 'species'
+    ? suggest(await speciesList(ctx), focused.value).map((name) => ({ name, value: name }))
+    : mutationChoices(mutationList(ctx), focused.value);
+
+  await i.respond(choices).catch(() => undefined);
 }
 
 export function describeError(err: unknown): string {
