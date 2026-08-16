@@ -18,13 +18,22 @@ import type { Config } from './config.js';
 
 export type Verb =
   | 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players'
-  | 'give' | 'teleport' | 'skin' | 'where' | 'skinget' | 'skinmany';
+  | 'give' | 'teleport' | 'where' | 'skinget' | 'skinmany';
 
 export interface StoredSlot {
   slot: string;
   species: string;
   storedAt: number;
 }
+
+/**
+ * Storage slots per player.
+ *
+ * The **mod** is the authority — it enforces this and refuses a write past it.
+ * This copy only lets the bot say so in words first, so the two must be changed
+ * together. It lives here because this is where the mod's contract lives.
+ */
+export const MAX_SLOTS = 3;
 
 export interface PlayerRow {
   /** Present from mod v3.2.0 on; older payloads omit it. */
@@ -136,10 +145,21 @@ export class ModBridge {
    */
   async #putAtomic(remote: string, body: Buffer): Promise<void> {
     await this.#withClient(async (client) => {
-      const tmp = `${remote}.uploading`;
+      // Unique per write: a fixed temp name means two writers racing on the
+      // same path, and the loser's rename fails with "no such file" because the
+      // winner already moved it. Seen for real with a maintenance script
+      // running alongside the live bot.
+      const tmp = `${remote}.${crypto.randomBytes(4).toString('hex')}.uploading`;
       await client.put(body, tmp);
-      if (await client.exists(remote)) await client.delete(remote).catch(() => undefined);
-      await client.rename(tmp, remote);
+
+      try {
+        if (await client.exists(remote)) await client.delete(remote).catch(() => undefined);
+        await client.rename(tmp, remote);
+      } catch (err) {
+        // Never leave the temp file behind to be mistaken for a real one.
+        await client.delete(tmp).catch(() => undefined);
+        throw err;
+      }
     });
   }
 

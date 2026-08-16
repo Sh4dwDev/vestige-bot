@@ -15,8 +15,8 @@ import { multiplierFor, TIER_LABEL, tierOf } from './tiers.js';
  */
 const DEFAULT_TIER_PRICE = { 1: 300, 2: 600, 3: 1000, 4: 1800 };
 const DEFAULT_MUTATION_PRICE = 200;
-/** Purchases eat one of the three storage slots, so this is the ceiling. */
-export const MAX_SLOTS = 3;
+import { MAX_SLOTS } from './bridge.js';
+export { MAX_SLOTS };
 export function priceOf(ctx, species) {
     const override = Number.parseFloat(ctx.db.getSetting(`shop_price:${species}`) ?? '');
     if (Number.isFinite(override) && override >= 0)

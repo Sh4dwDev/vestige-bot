@@ -1,6 +1,14 @@
 import crypto from 'node:crypto';
 import SftpClient from 'ssh2-sftp-client';
 import { SERVER } from './brand.js';
+/**
+ * Storage slots per player.
+ *
+ * The **mod** is the authority — it enforces this and refuses a write past it.
+ * This copy only lets the bot say so in words first, so the two must be changed
+ * together. It lives here because this is where the mod's contract lives.
+ */
+export const MAX_SLOTS = 3;
 /** store and restore run multi-stage pipelines; list and delete are immediate. */
 const TIMEOUT_MS = {
     store: 30_000,
@@ -85,11 +93,22 @@ export class ModBridge {
      */
     async #putAtomic(remote, body) {
         await this.#withClient(async (client) => {
-            const tmp = `${remote}.uploading`;
+            // Unique per write: a fixed temp name means two writers racing on the
+            // same path, and the loser's rename fails with "no such file" because the
+            // winner already moved it. Seen for real with a maintenance script
+            // running alongside the live bot.
+            const tmp = `${remote}.${crypto.randomBytes(4).toString('hex')}.uploading`;
             await client.put(body, tmp);
-            if (await client.exists(remote))
-                await client.delete(remote).catch(() => undefined);
-            await client.rename(tmp, remote);
+            try {
+                if (await client.exists(remote))
+                    await client.delete(remote).catch(() => undefined);
+                await client.rename(tmp, remote);
+            }
+            catch (err) {
+                // Never leave the temp file behind to be mistaken for a real one.
+                await client.delete(tmp).catch(() => undefined);
+                throw err;
+            }
         });
     }
     async #readResults() {

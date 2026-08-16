@@ -8,12 +8,20 @@ import type { Config } from './config.js';
  *   inbox.ndjson     commands in
  *   results.ndjson   results out, append-only
  */
-export type Verb = 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players' | 'give' | 'teleport' | 'skin' | 'where' | 'skinget' | 'skinmany';
+export type Verb = 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players' | 'give' | 'teleport' | 'where' | 'skinget' | 'skinmany';
 export interface StoredSlot {
     slot: string;
     species: string;
     storedAt: number;
 }
+/**
+ * Storage slots per player.
+ *
+ * The **mod** is the authority — it enforces this and refuses a write past it.
+ * This copy only lets the bot say so in words first, so the two must be changed
+ * together. It lives here because this is where the mod's contract lives.
+ */
+export declare const MAX_SLOTS = 3;
 export interface PlayerRow {
     /** Present from mod v3.2.0 on; older payloads omit it. */
     steam?: string;

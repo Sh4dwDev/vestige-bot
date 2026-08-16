@@ -1,7 +1,7 @@
 import { EmbedBuilder } from 'discord.js';
 import type { Ctx } from './commands.js';
-/** Purchases eat one of the three storage slots, so this is the ceiling. */
-export declare const MAX_SLOTS = 3;
+import { MAX_SLOTS } from './bridge.js';
+export { MAX_SLOTS };
 export declare function priceOf(ctx: Ctx, species: string): number;
 export declare function mutationPrice(ctx: Ctx): number;
 export declare function totalPrice(ctx: Ctx, species: string, mutations: string[]): number;

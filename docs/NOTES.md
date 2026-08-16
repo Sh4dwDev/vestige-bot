@@ -96,6 +96,12 @@ is logged. The tell is on disk: `inbox.ndjson` stops shrinking while
 - **Non-atomic writes to polled files.** SFTP creates a file then fills it; the
   mod polls every 3 s and can read the empty version, silently swallowing the
   command. Upload to a temp name and rename.
+- **A *fixed* temp name is its own race.** Two writers both staging to
+  `inbox.ndjson.uploading` means the loser's rename fails with `no such file`,
+  because the winner already moved it. Observed with a maintenance script run
+  alongside the live bot. The temp name now carries random bytes, and a failed
+  rename deletes its own temp file rather than leaving something that looks
+  like a real one.
 - **`%b{}` over a whole JSON file** matches the outermost braces first and
   yields one entry however many exist. That silently dropped every stored slot
   on the next write. Isolate the array first.

@@ -26,7 +26,7 @@ import type { Ctx } from './commands.js';
  * a panel whose buttons have forgotten what they point at.
  */
 
-const MAX_SLOTS = 3;
+import { MAX_SLOTS } from './bridge.js';
 
 /**
  * Names are cleaned up rather than rejected.
