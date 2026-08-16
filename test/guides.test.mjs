@@ -1,0 +1,77 @@
+// The two reference embeds that sit permanently in a channel.
+//
+// The point of most of these checks is drift: a help panel that quietly stops
+// matching the bot is worse than no help panel, because people trust it.
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+const root = path.resolve(import.meta.dirname, '..');
+const load = (f) => import(pathToFileURL(path.join(root, 'dist', f)).href);
+
+const { buildStorageGuideEmbed, buildCommandsEmbed } = await load('guides.js');
+const { commandData } = await load('commands.js');
+
+const results = [];
+const check = (name, ok, detail = '') => {
+  results.push(ok);
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
+};
+
+/** Discord rejects an oversized embed outright, so the panel would just never appear. */
+function checkLimits(label, json) {
+  const fields = json.fields ?? [];
+  check(`${label}: title within 256`, (json.title ?? '').length <= 256);
+  check(`${label}: description within 4096`, (json.description ?? '').length <= 4096,
+    `${(json.description ?? '').length}`);
+  check(`${label}: at most 25 fields`, fields.length <= 25, `${fields.length}`);
+  check(`${label}: every field name within 256`, fields.every((f) => f.name.length <= 256));
+  check(`${label}: every field value within 1024`, fields.every((f) => f.value.length <= 1024),
+    `longest ${Math.max(0, ...fields.map((f) => f.value.length))}`);
+  check(`${label}: total within 6000`, JSON.stringify(json).length <= 6000,
+    `${JSON.stringify(json).length}`);
+}
+
+const guide = buildStorageGuideEmbed().toJSON();
+const commands = buildCommandsEmbed().toJSON();
+const text = (json) => JSON.stringify(json);
+
+checkLimits('guide', guide);
+checkLimits('commands', commands);
+
+// The guide exists to stop people losing a dinosaur by surprise, so the three
+// facts that cost them one must actually be in it.
+check('the guide warns the dinosaur dies', /dies|die\b/i.test(text(guide)));
+check('the guide states the growth requirement', /fully grown/i.test(text(guide)));
+check('the guide states the slot limit', /three vaults/i.test(text(guide)));
+check('the guide explains same-species restore', /same species/i.test(text(guide)));
+check('the guide explains linking first', /\/link/.test(text(guide)));
+
+// Drift guard: every command the bot actually registers has to be documented.
+{
+  const registered = commandData.map((c) => c.name);
+  const documented = registered.filter((name) => text(commands).includes(`/${name}`));
+  const missing = registered.filter((name) => !documented.includes(name));
+
+  check('every registered command is documented', missing.length === 0,
+    missing.length ? `undocumented: ${missing.join(', ')}` : `${registered.length} commands`);
+}
+
+// And the reverse: nothing documented that no longer exists.
+{
+  const registered = new Set(commandData.map((c) => c.name));
+  const mentioned = [...text(commands).matchAll(/\\?\/([a-z]+)/g)].map((m) => m[1]);
+  const ghosts = [...new Set(mentioned)].filter((name) => !registered.has(name));
+
+  check('no command is documented that does not exist', ghosts.length === 0,
+    ghosts.length ? `stale: ${ghosts.join(', ')}` : 'none');
+}
+
+check('the in-game commands are documented',
+  /!discord/.test(text(commands)) && /!link/.test(text(commands)));
+
+check('both embeds are signed', /Vesta/.test(guide.footer?.text ?? '') &&
+  /Vesta/.test(commands.footer?.text ?? ''));
+
+const failed = results.filter((r) => !r).length;
+console.log(`\n${results.length - failed}/${results.length} checks passed`);
+process.exit(failed === 0 ? 0 : 1);

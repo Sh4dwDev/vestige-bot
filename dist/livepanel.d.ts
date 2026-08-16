@@ -1,4 +1,4 @@
-import { type Client } from 'discord.js';
+import type { Client } from 'discord.js';
 import type { Ctx } from './commands.js';
 export declare function setPopulationChannel(ctx: Ctx, channelId: string | null): void;
 export declare function populationChannel(ctx: Ctx): string | null;

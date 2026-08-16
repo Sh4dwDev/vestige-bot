@@ -133,6 +133,8 @@ and administration.
 | `/admin game add\|remove\|list` | staff | In-game admins, via Game.ini |
 | `/admin bot add\|remove\|list` | staff | Who may use `/admin` |
 | `/admin population channel\|off` | staff | The self-updating population panel |
+| `/admin guide channel` | staff | Post the storage guide in a channel |
+| `/admin commands channel` | staff | Post the command reference in a channel |
 
 Staff means **Manage Server**, or an entry on the bot admin list. Manage Server
 is the bootstrap, so the owner can never lock themselves out.
@@ -155,6 +157,21 @@ also what actually proves account ownership.
 `!discord` has the opposite shape: the mod detects it but **cannot reply in
 chat**, so the bot sends the invite over RCON. That message is transient by
 nature, which is why the invite should be short.
+
+### Channel panels
+
+Three embeds can be parked in channels, each placed by a command. All of them
+remember their message id, so re-running the command edits what is already there
+instead of leaving a trail of stale copies — see [`src/pinned.ts`](src/pinned.ts).
+
+The **storage guide** and **command reference** are static, so nothing polls
+them; re-run the command to refresh or move one. The **population panel** is
+live, and is described below.
+
+`test/guides.test.mjs` guards the thing that actually goes wrong with help
+text: it fails if the bot registers a command the reference does not document,
+or documents one that no longer exists. A help panel people have stopped being
+able to trust is worse than none.
 
 ### The live population panel
 

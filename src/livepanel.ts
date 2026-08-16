@@ -1,6 +1,7 @@
-import { ChannelType, type Client, type TextChannel } from 'discord.js';
+import type { Client } from 'discord.js';
 
 import type { Ctx } from './commands.js';
+import { postOrEdit } from './pinned.js';
 import { buildPopulationEmbed } from './population.js';
 
 /**
@@ -38,32 +39,16 @@ export async function refreshPopulationPanel(ctx: Ctx, client: Client): Promise<
   const channelId = populationChannel(ctx);
   if (!channelId) return;
 
-  const channel = await client.channels.fetch(channelId).catch(() => null);
-  if (!channel || channel.type !== ChannelType.GuildText) {
-    throw new Error('That channel is not a text channel the bot can see.');
-  }
-
   let embed;
   try {
     embed = buildPopulationEmbed(await ctx.mod.players(), { live: true });
   } catch {
+    // An unreachable server still gets an embed; a panel that vanishes when the
+    // server hiccups looks broken.
     embed = buildPopulationEmbed([], { live: true, unreachable: true });
   }
 
-  const messageId = ctx.db.getSetting(MESSAGE_KEY);
-  if (messageId) {
-    const existing = await (channel as TextChannel).messages
-      .fetch(messageId)
-      .catch(() => null);
-    if (existing) {
-      await existing.edit({ embeds: [embed] });
-      return;
-    }
-  }
-
-  // No message yet, or somebody deleted it.
-  const sent = await (channel as TextChannel).send({ embeds: [embed] });
-  ctx.db.setSetting(MESSAGE_KEY, sent.id);
+  await postOrEdit(ctx.db, client, channelId, MESSAGE_KEY, [embed]);
 }
 
 export function startPopulationPanel(ctx: Ctx, client: Client, log: (m: string) => void): void {

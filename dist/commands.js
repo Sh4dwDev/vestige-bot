@@ -1,8 +1,10 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, ComponentType, EmbedBuilder, MessageFlags, PermissionFlagsBits, SlashCommandBuilder, } from 'discord.js';
 import { AdminStore } from './admins.js';
 import { ARCHIVE_CAP, SERVER, SIGNATURE } from './brand.js';
+import { buildCommandsEmbed, buildStorageGuideEmbed } from './guides.js';
 import { refreshPopulationPanel, setPopulationChannel } from './livepanel.js';
 import { showPanel, stopAutoRefresh } from './panel.js';
+import { postOrEdit } from './pinned.js';
 import { buildPopulationEmbed } from './population.js';
 const COLORS = { good: 0x57f287, bad: 0xed4245, warn: 0xfee75c, info: 0x5865f2, quiet: 0x4f545c };
 function embed(color, title, description, fields) {
@@ -84,7 +86,15 @@ export const commandData = [
         .addSubcommand((s) => s.setName('channel').setDescription('Put the live population panel in a channel')
         .addChannelOption((o) => o.setName('channel').setDescription('Where it should live')
         .addChannelTypes(ChannelType.GuildText).setRequired(true)))
-        .addSubcommand((s) => s.setName('off').setDescription('Stop updating the panel'))),
+        .addSubcommand((s) => s.setName('off').setDescription('Stop updating the panel')))
+        .addSubcommandGroup((g) => g.setName('guide').setDescription('The storage guide')
+        .addSubcommand((s) => s.setName('channel').setDescription('Post the storage guide in a channel')
+        .addChannelOption((o) => o.setName('channel').setDescription('Where it should live')
+        .addChannelTypes(ChannelType.GuildText).setRequired(true))))
+        .addSubcommandGroup((g) => g.setName('commands').setDescription('The command reference')
+        .addSubcommand((s) => s.setName('channel').setDescription('Post the command list in a channel')
+        .addChannelOption((o) => o.setName('channel').setDescription('Where it should live')
+        .addChannelTypes(ChannelType.GuildText).setRequired(true)))),
 ].map((b) => b.toJSON());
 export async function handleCommand(ctx, i) {
     switch (i.commandName) {
@@ -270,7 +280,37 @@ async function handleAdmin(ctx, i) {
         return handleBotAdmin(ctx, i, action);
     if (group === 'population')
         return handlePopulationPanel(ctx, i, action);
+    if (group === 'guide')
+        return handleReferencePanel(ctx, i, 'guide');
+    if (group === 'commands')
+        return handleReferencePanel(ctx, i, 'commands');
     return handleGameAdmin(ctx, i, action);
+}
+/**
+ * The two static reference embeds. Unlike the population panel these never
+ * change on their own, so nothing polls them — re-running the command is how
+ * you move or refresh one.
+ */
+async function handleReferencePanel(ctx, i, which) {
+    const channel = i.options.getChannel('channel', true);
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    const panel = which === 'guide' ? buildStorageGuideEmbed() : buildCommandsEmbed();
+    const key = which === 'guide' ? 'guide_message' : 'commands_message';
+    const label = which === 'guide' ? 'Storage guide' : 'Command list';
+    try {
+        await postOrEdit(ctx.db, i.client, channel.id, key, [panel]);
+        await i.editReply({
+            embeds: [embed(COLORS.good, `${label} posted`, `It is in <#${channel.id}>.\n\n` +
+                    'Run this again to update it or move it — the same message is reused ' +
+                    'rather than a second one posted.')],
+        });
+    }
+    catch (err) {
+        await i.editReply({
+            embeds: [embed(COLORS.bad, 'Could not post there', `${describeError(err)}\n\nCheck the bot can **View Channel**, ` +
+                    '**Send Messages** and **Embed Links** there.')],
+        });
+    }
 }
 async function handlePopulationPanel(ctx, i, action) {
     if (action === 'off') {
