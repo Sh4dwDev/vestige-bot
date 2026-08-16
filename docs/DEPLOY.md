@@ -33,8 +33,21 @@ to hang off `npm start` itself, which is what the `prestart` script in
 `package.json` is for. Delete it and the host boots with no `dist/` and dies
 with `Cannot find module '/home/container/dist/index.js'`.
 
-`npm install` must therefore include devDependencies, since TypeScript lives
-there. Do not set `NODE_ENV=production`.
+These loaders also install **production dependencies only**. That is why
+`typescript` and the `@types/*` packages sit in `dependencies` rather than
+`devDependencies` — with them in the usual place the build dies at:
+
+```
+sh: 1: tsc: not found
+```
+
+Moving them is deliberate. The alternative, committing `dist/`, means the host
+can silently run stale JavaScript whenever someone edits source and forgets to
+rebuild; building on the host fails loudly instead, and there is only ever one
+source of truth.
+
+Only `ssh2` — used by the test suite's fake SFTP server — stays a
+devDependency, because the host never runs tests.
 
 1. **Startup → Node version:** set 22.5+ (see above).
 2. **Git:** point the panel's git integration at the repo, branch `main`.
