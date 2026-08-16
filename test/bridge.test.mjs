@@ -210,8 +210,18 @@ try {
     bridge.run('list', '76561198000000042'),
     bridge.run('delete', '76561198000000042', { slot: 'gone' }),
   ]);
-  check('concurrent commands are not lost', fakeMod.seen.length - before === 2,
-    `delivered ${fakeMod.seen.length - before}`);
+  const delivered = fakeMod.seen.slice(before);
+  const verbs = new Set(delivered.map((c) => c.verb));
+  check('concurrent commands are not lost', verbs.has('list') && verbs.has('delete'),
+    `got ${[...verbs].join(', ')}`);
+
+  // Counting physical writes would be wrong: the transport reconnects and
+  // resends when SFTP stalls, which is legitimate and happens under load. What
+  // must hold is that a resend reuses its correlation id — that is what lets
+  // the mod dedupe it instead of storing a dinosaur twice.
+  check('a resend reuses its id, so the mod can dedupe it',
+    new Set(delivered.map((c) => c.id)).size === 2,
+    `${delivered.length} write(s), ${new Set(delivered.map((c) => c.id)).size} distinct id(s)`);
 
   // With the mod down, this must fail cleanly rather than hang.
   fakeMod.enabled = false;

@@ -2,7 +2,6 @@ export interface Config {
     discord: {
         token: string;
         clientId: string | null;
-        guildId: string;
     };
     rcon: {
         host: string;

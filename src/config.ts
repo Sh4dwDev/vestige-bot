@@ -13,7 +13,7 @@ function int(name: string, fallback: number): number {
 }
 
 export interface Config {
-  discord: { token: string; clientId: string | null; guildId: string };
+  discord: { token: string; clientId: string | null };
   rcon: { host: string; port: number; password: string };
   sftp: {
     host: string;
@@ -37,7 +37,6 @@ export function loadConfig(): Config {
       token: required('DISCORD_TOKEN'),
       // Derivable from the token, so it is optional.
       clientId: process.env['DISCORD_CLIENT_ID']?.trim() || null,
-      guildId: required('DISCORD_GUILD_ID'),
     },
     rcon: {
       host: required('RCON_HOST'),

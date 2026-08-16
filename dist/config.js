@@ -19,7 +19,6 @@ export function loadConfig() {
             token: required('DISCORD_TOKEN'),
             // Derivable from the token, so it is optional.
             clientId: process.env['DISCORD_CLIENT_ID']?.trim() || null,
-            guildId: required('DISCORD_GUILD_ID'),
         },
         rcon: {
             host: required('RCON_HOST'),
