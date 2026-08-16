@@ -413,7 +413,7 @@ async function handleAdminPoints(ctx, i, action) {
 }
 // ------------------------------------------------------------------ kills --
 /** Steam IDs are the key, so anyone unlinked shows as a partial ID. */
-function steamNamer(ctx) {
+export function steamNamer(ctx) {
     return (steamId) => {
         const link = ctx.db.linkBySteam(steamId);
         return link ? `<@${link.discordId}>` : `\`${steamId.slice(-6)}\``;

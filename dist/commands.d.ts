@@ -57,5 +57,7 @@ interface Confirmable {
 /** Minutes between slays. Zero disables the limit entirely. */
 export declare function slayCooldownMinutes(ctx: Ctx): number;
 export declare function runSlay(ctx: Ctx, i: Confirmable, steamId: string): Promise<void>;
+/** Steam IDs are the key, so anyone unlinked shows as a partial ID. */
+export declare function steamNamer(ctx: Ctx): (steamId: string) => string;
 export declare function describeError(err: unknown): string;
 export {};

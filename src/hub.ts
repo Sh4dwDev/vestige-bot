@@ -13,8 +13,11 @@ import {
 } from 'discord.js';
 
 import { SERVER, SIGNATURE } from './brand.js';
-import { beginLink, describeError, runSlay, type Ctx } from './commands.js';
+import { beginLink, describeError, runSlay, steamNamer, type Ctx } from './commands.js';
+import { buildKillsEmbed } from './kills.js';
 import { showPanel } from './panel.js';
+import { buildBalanceEmbed, buildLeaderboardEmbed, ratePerHour } from './points.js';
+import { buildPopulationEmbed } from './population.js';
 
 /**
  * One panel in a channel, with everything behind category buttons.
@@ -199,11 +202,64 @@ export async function handleHubInteraction(
         .setColor(COLORS.info)
         .setTitle('📊  Stats')
         .setDescription(
-          `\`/population\` — what is roaming ${SERVER} right now\n` +
-          '`/points` — what you have earned, `/points top` for the leaderboard\n' +
-          '`/kills top` — the deadliest players, `/kills me` for your record',
+          `Everything ${SERVER} keeps track of. All of it is public except your ` +
+          'own balance, which only you can see.',
         )
         .setFooter({ text: SIGNATURE })],
+      components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId('hub:population').setLabel('Population')
+          .setEmoji('🦕').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('hub:mypoints').setLabel('My points')
+          .setEmoji('🪙').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('hub:toppoints').setLabel('Top points')
+          .setEmoji('🏆').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('hub:kills').setLabel('Kills')
+          .setEmoji('⚔️').setStyle(ButtonStyle.Secondary),
+      )],
+      flags: MessageFlags.Ephemeral,
+    });
+    return true;
+  }
+
+  if (id === 'hub:population') {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    try {
+      await interaction.editReply({
+        embeds: [buildPopulationEmbed(await ctx.mod.players())],
+      });
+    } catch {
+      // Same embed the pinned panel shows when the server is unreachable.
+      await interaction.editReply({
+        embeds: [buildPopulationEmbed([], { unreachable: true })],
+      });
+    }
+    return true;
+  }
+
+  if (id === 'hub:toppoints') {
+    await interaction.reply({
+      embeds: [buildLeaderboardEmbed(ctx.db.topPoints(10), steamNamer(ctx))],
+      flags: MessageFlags.Ephemeral,
+    });
+    return true;
+  }
+
+  if (id === 'hub:kills') {
+    await interaction.reply({
+      embeds: [buildKillsEmbed(ctx.db.topKillers(10), ctx.db.killTotals(), steamNamer(ctx))],
+      flags: MessageFlags.Ephemeral,
+    });
+    return true;
+  }
+
+  if (id === 'hub:mypoints') {
+    if (!link) {
+      await interaction.reply({ embeds: [notLinked()], flags: MessageFlags.Ephemeral });
+      return true;
+    }
+    const { balance, minutes } = ctx.db.pointsFor(link.steamId);
+    await interaction.reply({
+      embeds: [buildBalanceEmbed(balance, minutes, ratePerHour(ctx))],
       flags: MessageFlags.Ephemeral,
     });
     return true;
