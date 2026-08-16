@@ -16,6 +16,7 @@ import net from 'node:net';
 const OPCODES = {
   announce: 0x10,
   directmessage: 0x11,
+  getplayables: 0x14,
   playerlist: 0x40,
   save: 0x50,
 } as const;
@@ -214,6 +215,11 @@ export class EvrimaRcon {
   /** Writes the world to disk. Always do this before a restart. */
   async save(): Promise<void> {
     await this.send('save', []);
+  }
+
+  /** Raw playable list, exactly as the server names them. */
+  async playables(): Promise<string> {
+    return this.send('getplayables', []);
   }
 
   close(): void {

@@ -9,6 +9,7 @@ import {
   PermissionFlagsBits,
   SlashCommandBuilder,
   type APIEmbedField,
+  type AutocompleteInteraction,
   type ChatInputCommandInteraction,
   type Message,
 } from 'discord.js';
@@ -20,6 +21,7 @@ import type { Config } from './config.js';
 import type { Database } from './db.js';
 import { buildCommandsEmbed, buildStorageGuideEmbed } from './guides.js';
 import { refreshPopulationPanel, setPopulationChannel } from './livepanel.js';
+import { mutationList, speciesList, suggest } from './catalog.js';
 import { cleanSlotName, showPanel, stopAutoRefresh } from './panel.js';
 import { buildHubEmbed, hubRows, HUB_MESSAGE_KEY, setHubChannel } from './hub.js';
 import { buildKillsEmbed, setKillfeedChannel } from './kills.js';
@@ -199,17 +201,24 @@ export const commandData = [
           s.setName('dino').setDescription('Add a dinosaur to a player’s storage')
             .addUserOption((o) => o.setName('user').setDescription('Who gets it').setRequired(true))
             .addStringOption((o) =>
-              o.setName('species').setDescription('Exact species, e.g. Tyrannosaurus')
-                .setRequired(true))
-            .addStringOption((o) =>
-              o.setName('slot').setDescription('Slot name they will see (default: gift)'))
+              o.setName('species').setDescription('Start typing — the list comes from the server')
+                .setAutocomplete(true).setRequired(true))
             .addIntegerOption((o) =>
               o.setName('growth').setDescription('Growth percent, default 100')
                 .setMinValue(5).setMaxValue(100))
             .addStringOption((o) =>
-              o.setName('mutations').setDescription('Up to 4, comma separated'))
-            .addBooleanOption((o) =>
-              o.setName('female').setDescription('Female? Display only — gender cannot be set'))),
+              o.setName('gender').setDescription('Shown on the slot — the game decides the real one')
+                .addChoices({ name: 'Male', value: 'male' }, { name: 'Female', value: 'female' }))
+            .addStringOption((o) =>
+              o.setName('mutation1').setDescription('Mutation').setAutocomplete(true))
+            .addStringOption((o) =>
+              o.setName('mutation2').setDescription('Mutation').setAutocomplete(true))
+            .addStringOption((o) =>
+              o.setName('mutation3').setDescription('Mutation').setAutocomplete(true))
+            .addStringOption((o) =>
+              o.setName('mutation4').setDescription('Mutation').setAutocomplete(true))
+            .addStringOption((o) =>
+              o.setName('slot').setDescription('Slot name they will see (default: the species)'))),
     )
     .addSubcommandGroup((g) =>
       g.setName('species').setDescription('Per-species population caps')
@@ -718,24 +727,35 @@ async function handleGive(ctx: Ctx, i: ChatInputCommandInteraction): Promise<voi
   }
 
   const species = i.options.getString('species', true).trim();
-  const rawSlot = i.options.getString('slot') ?? 'gift';
-  const slot = cleanSlotName(rawSlot) ?? 'gift';
+  const slot = cleanSlotName(i.options.getString('slot') ?? species) ?? 'gift';
   const growth = (i.options.getInteger('growth') ?? 100) / 100;
 
-  const mutations = (i.options.getString('mutations') ?? '')
-    .split(',')
-    .map((m) => m.trim())
-    .filter(Boolean)
-    .slice(0, 4);
+  const mutations = [1, 2, 3, 4]
+    .map((n) => i.options.getString(`mutation${n}`)?.trim())
+    .filter((m): m is string => Boolean(m));
 
   await i.deferReply({ flags: MessageFlags.Ephemeral });
+
+  // Typed rather than picked is the likely cause of a species that cannot be
+  // collected, so it is worth saying before the gift is written.
+  const known = await speciesList(ctx);
+  if (known.length > 0 && !known.includes(species)) {
+    await i.editReply({
+      embeds: [embed(COLORS.warn, 'That species does not exist',
+        `${SERVER} has no **${species}**. Pick from the suggestions — the list ` +
+        'comes from the server itself.\n\nDid you mean: ' +
+        (known.filter((s) => s.toLowerCase().startsWith(species.slice(0, 3).toLowerCase()))
+          .slice(0, 5).join(', ') || known.slice(0, 5).join(', ')) + '?')],
+    });
+    return;
+  }
 
   try {
     const result = await ctx.mod.run('give', link.steamId, {
       slot,
       species,
       growth,
-      female: i.options.getBoolean('female') ?? false,
+      female: i.options.getString('gender') === 'female',
       mutations,
       by: i.user.tag,
     });
@@ -1214,6 +1234,24 @@ async function handleGameAdmin(
       embeds: [embed(COLORS.bad, 'Could not reach the config file', describeError(err))],
     });
   }
+}
+
+/**
+ * Suggestions for the gift command. Both lists come from the server, so they
+ * cannot drift out of date the way a hardcoded list would.
+ */
+export async function handleAutocomplete(
+  ctx: Ctx,
+  i: AutocompleteInteraction,
+): Promise<void> {
+  const focused = i.options.getFocused(true);
+  const options = focused.name === 'species'
+    ? await speciesList(ctx)
+    : mutationList(ctx);
+
+  await i
+    .respond(suggest(options, focused.value).map((name) => ({ name, value: name })))
+    .catch(() => undefined);
 }
 
 export function describeError(err: unknown): string {

@@ -13,6 +13,7 @@
 declare const OPCODES: {
     readonly announce: 16;
     readonly directmessage: 17;
+    readonly getplayables: 20;
     readonly playerlist: 64;
     readonly save: 80;
 };
@@ -42,6 +43,8 @@ export declare class EvrimaRcon {
     announce(message: string): Promise<void>;
     /** Writes the world to disk. Always do this before a restart. */
     save(): Promise<void>;
+    /** Raw playable list, exactly as the server names them. */
+    playables(): Promise<string>;
     close(): void;
 }
 export declare function decodeResponse(buffer: Buffer): string;

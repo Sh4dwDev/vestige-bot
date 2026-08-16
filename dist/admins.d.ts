@@ -17,6 +17,19 @@ export declare class AdminStore {
      */
     static parseMaxPlayers(ini: string): number | null;
     get maxPlayers(): number | null;
+    /**
+     * Every mutation the config knows about.
+     *
+     * Read from `EnabledMutations` lines **including commented ones** — the
+     * stock config ships the full list commented out, and its own note says that
+     * commented means all are enabled. So the comments are the catalogue.
+     *
+     * The vanilla file has genuinely malformed entries — `MutationName=Featherweight
+     * EffectValue=0.5` with no comma, and `MutationName="Osteophagic,EffectValue"=0.15`
+     * with the quote in the wrong place — so this parses loosely on purpose.
+     */
+    static parseMutations(ini: string): string[];
+    get mutations(): string[];
     /** Steam IDs currently written in Game.ini. */
     static parseAdmins(ini: string): string[];
     /**

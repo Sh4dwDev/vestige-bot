@@ -2,7 +2,7 @@ import { ActivityType, Client, Events, GatewayIntentBits, MessageFlags, } from '
 import { AdminStore } from './admins.js';
 import { SERVER } from './brand.js';
 import { ModBridge } from './bridge.js';
-import { announceLinked, describeError, handleCommand } from './commands.js';
+import { announceLinked, describeError, handleAutocomplete, handleCommand, } from './commands.js';
 import { loadConfig } from './config.js';
 import { Database } from './db.js';
 import { startPopulationPanel } from './livepanel.js';
@@ -95,6 +95,10 @@ async function main() {
 }
 async function dispatch(ctx, interaction) {
     try {
+        if (interaction.isAutocomplete()) {
+            await handleAutocomplete(ctx, interaction);
+            return;
+        }
         if (interaction.isChatInputCommand()) {
             await handleCommand(ctx, interaction);
             return;

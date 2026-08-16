@@ -60,6 +60,34 @@ const SAMPLE = [
 }
 
 {
+  // Straight from the stock Game.ini, malformed entries and all: a missing
+  // comma, and a quote in the wrong place. Both are in the vanilla file.
+  const config = [
+    'bEnableMutations=true',
+    '# EnabledMutations=(MutationName="Accelerated Prey Drive",EffectValue=0.1)',
+    '# EnabledMutations=(MutationName=Cannibalistic,EffectValue=1) ******// Value must be 1',
+    '# EnabledMutations=(MutationName=Featherweight EffectValue=0.5)',
+    '# EnabledMutations=(MutationName="Osteophagic,EffectValue"=0.15)',
+    '# EnabledMutations=(MutationName="Accelerated Prey Drive",EffectValue=0.1)',
+    'SomeOtherSetting=12',
+  ].join('\n');
+
+  const found = AdminStore.parseMutations(config);
+
+  check('reads a quoted mutation name', found.includes('Accelerated Prey Drive'), found.join(' | '));
+  check('reads an unquoted one', found.includes('Cannibalistic'));
+  check('survives the missing comma in the stock config', found.includes('Featherweight'),
+    found.join(' | '));
+  check('survives the misplaced quote', found.includes('Osteophagic'), found.join(' | '));
+  check('does not invent one from other settings', !found.includes('bEnableMutations'));
+  check('de-duplicates', found.filter((m) => m === 'Accelerated Prey Drive').length === 1);
+
+  // Commented lines ARE the catalogue: the stock file ships every mutation
+  // commented out, and its own note says commented means all are enabled.
+  check('reads commented lines', found.length === 4, String(found.length));
+}
+
+{
   const next = AdminStore.replaceAdmins(SAMPLE, [
     '76561198398925364',
     '76561199140473849',
