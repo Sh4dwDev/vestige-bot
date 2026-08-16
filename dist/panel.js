@@ -35,7 +35,7 @@ export async function buildPanel(ctx, steamId, options = {}) {
     let slots = [];
     let error = null;
     try {
-        const result = await ctx.mod.run('list', steamId);
+        const result = await ctx.mod.run('list', steamId, {}, { quiet: options.quiet ?? false });
         slots = (result.data ?? []);
     }
     catch (err) {
@@ -123,7 +123,7 @@ const activePanels = new Map();
 export function stopAutoRefresh(userId) {
     const panel = activePanels.get(userId);
     if (panel) {
-        clearInterval(panel.timer);
+        clearTimeout(panel.timer);
         activePanels.delete(userId);
     }
 }
@@ -132,25 +132,37 @@ export async function showPanel(ctx, interaction, userId, steamId, options = {})
     await interaction.editReply(await buildPanel(ctx, steamId, options));
     stopAutoRefresh(userId);
     const startedAt = Date.now();
-    const timer = setInterval(() => {
-        void (async () => {
-            if (Date.now() - startedAt > PANEL_LIFETIME_MS) {
-                stopAutoRefresh(userId);
-                return;
-            }
-            try {
-                // Rebuilt from scratch each time, so a slot stored or lost elsewhere
-                // shows up without anyone pressing Refresh.
-                await interaction.editReply(await buildPanel(ctx, steamId));
-            }
-            catch {
-                // Token expired or the message is gone.
-                stopAutoRefresh(userId);
-            }
-        })();
-    }, REFRESH_MS);
-    timer.unref();
-    activePanels.set(userId, { timer, startedAt });
+    // Backs off rather than polling every 20 seconds for a quarter of an hour.
+    // The first minutes are when someone is actually storing something; a panel
+    // left open on a second monitor does not need that attention.
+    const delayFor = (elapsed) => elapsed < 2 * 60_000 ? REFRESH_MS : elapsed < 6 * 60_000 ? 45_000 : 90_000;
+    const schedule = () => {
+        const timer = setTimeout(() => {
+            void (async () => {
+                const elapsed = Date.now() - startedAt;
+                if (elapsed > PANEL_LIFETIME_MS) {
+                    stopAutoRefresh(userId);
+                    return;
+                }
+                try {
+                    // Rebuilt from scratch each time, so a slot stored or lost elsewhere
+                    // shows up without anyone pressing Refresh.
+                    await interaction.editReply(await buildPanel(ctx, steamId, { quiet: true }));
+                }
+                catch {
+                    // Token expired or the message is gone.
+                    stopAutoRefresh(userId);
+                    return;
+                }
+                const next = activePanels.get(userId);
+                if (next)
+                    next.timer = schedule();
+            })();
+        }, delayFor(Date.now() - startedAt));
+        timer.unref();
+        return timer;
+    };
+    activePanels.set(userId, { timer: schedule(), startedAt });
 }
 export function storeModal() {
     return new ModalBuilder()

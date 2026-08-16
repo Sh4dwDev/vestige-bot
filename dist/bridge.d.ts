@@ -36,8 +36,16 @@ export declare class ModBridge {
     constructor(sftp: Config['sftp'], log?: (message: string) => void);
     get modDir(): string;
     check(): Promise<void>;
-    /** Sends a command and waits for the matching reply. */
-    run(verb: Verb, steamId: string, args?: Record<string, unknown>): Promise<Result>;
+    /**
+     * Sends a command and waits for the matching reply.
+     *
+     * `quiet` suppresses the log lines. Background refreshes use it — an open
+     * panel polls every 20 seconds, and logging all of that buries the commands a
+     * person actually issued.
+     */
+    run(verb: Verb, steamId: string, args?: Record<string, unknown>, { quiet }?: {
+        quiet?: boolean;
+    }): Promise<Result>;
     /**
      * Things players typed in game chat — link codes and `!discord`. The mod
      * appends these to the results file as they happen, so the bot polls rather

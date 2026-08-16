@@ -157,8 +157,19 @@ export class ModBridge {
     return out;
   }
 
-  /** Sends a command and waits for the matching reply. */
-  async run(verb: Verb, steamId: string, args: Record<string, unknown> = {}): Promise<Result> {
+  /**
+   * Sends a command and waits for the matching reply.
+   *
+   * `quiet` suppresses the log lines. Background refreshes use it — an open
+   * panel polls every 20 seconds, and logging all of that buries the commands a
+   * person actually issued.
+   */
+  async run(
+    verb: Verb,
+    steamId: string,
+    args: Record<string, unknown> = {},
+    { quiet = false }: { quiet?: boolean } = {},
+  ): Promise<Result> {
     const id = `bot-${crypto.randomBytes(6).toString('hex')}`;
     const line = JSON.stringify({ id, ts: Math.floor(Date.now() / 1000), verb, steam: steamId, args });
 
@@ -171,14 +182,14 @@ export class ModBridge {
       await this.#putAtomic(inbox, Buffer.from(prefix + line + '\n', 'utf8'));
     }, () => undefined));
 
-    this.log(`-> ${verb} ${steamId} ${JSON.stringify(args)}`);
+    if (!quiet) this.log(`-> ${verb} ${steamId} ${JSON.stringify(args)}`);
 
     const deadline = Date.now() + timeoutFor(verb);
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 1000));
       const match = (await this.#readResults()).find((entry) => entry.id === id);
       if (match) {
-        this.log(`<- ${verb} ok=${match.ok} ${match.msg}`);
+        if (!quiet) this.log(`<- ${verb} ok=${match.ok} ${match.msg}`);
         return match;
       }
     }

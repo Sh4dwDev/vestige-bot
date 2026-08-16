@@ -6,6 +6,8 @@ export interface PanelOptions {
         text: string;
         tone: 'good' | 'bad' | 'warn';
     } | null;
+    /** Set for background refreshes, so they stay out of the log. */
+    quiet?: boolean;
 }
 export declare function buildPanel(ctx: Ctx, steamId: string, options?: PanelOptions): Promise<InteractionUpdateOptions>;
 export declare function stopAutoRefresh(userId: string): void;
