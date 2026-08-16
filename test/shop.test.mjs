@@ -113,6 +113,46 @@ check('a free species is allowed', (setSpeciesPrice(ctx, 'Troodon', 0), priceOf(
 db.close();
 fs.rmSync(path.dirname(file), { recursive: true, force: true });
 
+// ---- picking mutations -----------------------------------------------------------
+
+{
+  const { readMutations } = await load('commands.js');
+
+  // Stands in for the interaction: only getString is used.
+  const fake = (values) => ({
+    options: { getString: (name) => values[name] ?? null },
+  });
+
+  check('reads the slots in order',
+    readMutations(fake({ mutation1: 'A', mutation2: 'B' })).mutations.join(',') === 'A,B');
+
+  check('gaps are skipped rather than ending the list',
+    readMutations(fake({ mutation1: 'A', mutation3: 'C' })).mutations.join(',') === 'A,C');
+
+  check('no mutations is fine', readMutations(fake({})).mutations.length === 0);
+
+  {
+    const repeated = readMutations(fake({ mutation1: 'Hydrodynamic', mutation2: 'Hydrodynamic' }));
+    check('a repeat is caught', repeated.duplicate === 'Hydrodynamic', String(repeated.duplicate));
+  }
+
+  {
+    const cased = readMutations(fake({ mutation1: 'Hydrodynamic', mutation2: 'hydrodynamic' }));
+    check('a repeat in different case is still a repeat', cased.duplicate === 'hydrodynamic',
+      String(cased.duplicate));
+  }
+
+  {
+    const spaced = readMutations(fake({ mutation1: 'Nocturnal', mutation4: '  Nocturnal ' }));
+    check('whitespace does not disguise a repeat', spaced.duplicate !== null,
+      String(spaced.duplicate));
+  }
+
+  check('four different ones are allowed',
+    readMutations(fake({ mutation1: 'A', mutation2: 'B', mutation3: 'C', mutation4: 'D' }))
+      .duplicate === null);
+}
+
 // ---- embeds ----------------------------------------------------------------------
 
 {

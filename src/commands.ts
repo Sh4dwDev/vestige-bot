@@ -909,9 +909,17 @@ async function handleShop(ctx: Ctx, i: ChatInputCommandInteraction): Promise<voi
   }
 
   const species = i.options.getString('species', true).trim();
-  const mutations = [1, 2, 3, 4]
-    .map((n) => i.options.getString(`mutation${n}`)?.trim())
-    .filter((m): m is string => Boolean(m));
+  const { mutations, duplicate } = readMutations(i);
+
+  if (duplicate) {
+    await i.reply({
+      embeds: [embed(COLORS.warn, 'That mutation is picked twice',
+        `You chose **${duplicate}** more than once. Each slot has to be a ` +
+        'different mutation.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
 
   await i.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -1219,9 +1227,15 @@ async function handleGive(ctx: Ctx, i: ChatInputCommandInteraction): Promise<voi
   const slot = cleanSlotName(i.options.getString('slot') ?? species) ?? 'gift';
   const growth = (i.options.getInteger('growth') ?? 100) / 100;
 
-  const mutations = [1, 2, 3, 4]
-    .map((n) => i.options.getString(`mutation${n}`)?.trim())
-    .filter((m): m is string => Boolean(m));
+  const { mutations, duplicate } = readMutations(i);
+  if (duplicate) {
+    await i.reply({
+      embeds: [embed(COLORS.warn, 'That mutation is picked twice',
+        `**${duplicate}** appears more than once. Each slot has to be different.`)],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
 
   await i.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -2143,10 +2157,49 @@ export async function handleAutocomplete(
       .slice(0, 25)
       .map((p) => ({ name: `${p.name} · ${p.hex}`, value: p.name }));
   } else {
-    choices = mutationChoices(mutationList(ctx), focused.value);
+    // Whatever is already picked in the other mutation slots is dropped from
+    // the suggestions, so the same one cannot be chosen twice by accident.
+    const chosen = new Set(
+      [1, 2, 3, 4]
+        .map((n) => `mutation${n}`)
+        .filter((name) => name !== focused.name)
+        .map((name) => i.options.getString(name)?.trim().toLowerCase())
+        .filter((v): v is string => Boolean(v)),
+    );
+
+    const available = mutationList(ctx).filter((m) => !chosen.has(m.toLowerCase()));
+    choices = mutationChoices(available, focused.value);
   }
 
   await i.respond(choices).catch(() => undefined);
+}
+
+/**
+ * The mutation slots, deduplicated.
+ *
+ * The picker already hides what is taken, but the field accepts free text, so
+ * the same one can still be typed twice. Returns the repeat rather than
+ * silently dropping it: quietly changing what someone asked for is worse when
+ * there is a price attached.
+ */
+export function readMutations(
+  i: ChatInputCommandInteraction,
+): { mutations: string[]; duplicate: string | null } {
+  const mutations: string[] = [];
+  const seen = new Set<string>();
+
+  for (const n of [1, 2, 3, 4]) {
+    const value = i.options.getString(`mutation${n}`)?.trim();
+    if (!value) continue;
+
+    const key = value.toLowerCase();
+    if (seen.has(key)) return { mutations, duplicate: value };
+
+    seen.add(key);
+    mutations.push(value);
+  }
+
+  return { mutations, duplicate: null };
 }
 
 export function describeError(err: unknown): string {

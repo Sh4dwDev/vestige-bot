@@ -1171,9 +1171,12 @@ local function handleGive(cmd)
     -- order. Anything past the four active slots is ignored rather than spilling
     -- into the inherited ones, which are not the admin's to set.
     if type(args.mutations) == "table" then
-        local n = 0
+        local n, seen = 0, {}
         for _, name in ipairs(args.mutations) do
-            if type(name) == "string" and name ~= "" and n < 4 then
+            -- The same mutation in two slots is not a thing the game has; the
+            -- bot already prevents it, and this makes the mod safe alone too.
+            if type(name) == "string" and name ~= "" and n < 4 and not seen[name] then
+                seen[name] = true
                 n = n + 1
                 state.mutations["MutationSlot" .. n] = name
             end

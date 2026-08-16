@@ -83,5 +83,17 @@ export declare function startTeleport(ctx: Ctx, i: {
  * cannot drift out of date the way a hardcoded list would.
  */
 export declare function handleAutocomplete(ctx: Ctx, i: AutocompleteInteraction): Promise<void>;
+/**
+ * The mutation slots, deduplicated.
+ *
+ * The picker already hides what is taken, but the field accepts free text, so
+ * the same one can still be typed twice. Returns the repeat rather than
+ * silently dropping it: quietly changing what someone asked for is worse when
+ * there is a price attached.
+ */
+export declare function readMutations(i: ChatInputCommandInteraction): {
+    mutations: string[];
+    duplicate: string | null;
+};
 export declare function describeError(err: unknown): string;
 export {};
