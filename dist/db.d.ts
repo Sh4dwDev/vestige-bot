@@ -43,6 +43,21 @@ export declare class Database {
     isBotAdmin(discordId: string): boolean;
     addBotAdmin(discordId: string, addedBy: string): void;
     removeBotAdmin(discordId: string): boolean;
+    recordPurchase(purchase: {
+        discordId: string;
+        steamId: string;
+        species: string;
+        mutations: string[];
+        price: number;
+        slot: string;
+    }): void;
+    recentPurchases(limit: number): Array<{
+        discordId: string;
+        species: string;
+        mutations: string;
+        price: number;
+        at: string;
+    }>;
     /** Merges: setting one part must not wipe the others already applied. */
     setSkin(steamId: string, colours: Record<string, string>): void;
     skinFor(steamId: string): Record<string, string> | null;

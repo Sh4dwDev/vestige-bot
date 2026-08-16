@@ -1,6 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, UserSelectMenuBuilder, } from 'discord.js';
 import { SERVER, SIGNATURE } from './brand.js';
-import { beginLink, describeError, runSlay, startTeleport, steamNamer, } from './commands.js';
+import { beginLink, completePurchase, describeError, runSlay, startTeleport, steamNamer, } from './commands.js';
 import { buildKillsEmbed } from './kills.js';
 import { showPanel } from './panel.js';
 import { buildBalanceEmbed, buildLeaderboardEmbed, ratePerHour } from './points.js';
@@ -111,6 +111,18 @@ export async function handleHubInteraction(ctx, interaction) {
         });
         // Not awaited: it waits out the delay before moving them.
         void runAccepted(ctx, interaction.client, request, () => { });
+        return true;
+    }
+    if (id.startsWith('shop:') && interaction.isButton()) {
+        if (id === 'shop:cancel') {
+            await interaction.update({
+                embeds: [new EmbedBuilder().setColor(COLORS.warn).setTitle('Cancelled')
+                        .setDescription('Nothing was bought.')],
+                components: [],
+            });
+            return true;
+        }
+        await completePurchase(ctx, interaction);
         return true;
     }
     if (!id.startsWith('hub:'))

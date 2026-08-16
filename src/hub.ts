@@ -17,6 +17,7 @@ import {
 import { SERVER, SIGNATURE } from './brand.js';
 import {
   beginLink,
+  completePurchase,
   describeError,
   runSlay,
   startTeleport,
@@ -175,6 +176,19 @@ export async function handleHubInteraction(
 
     // Not awaited: it waits out the delay before moving them.
     void runAccepted(ctx, interaction.client, request, () => {});
+    return true;
+  }
+
+  if (id.startsWith('shop:') && interaction.isButton()) {
+    if (id === 'shop:cancel') {
+      await interaction.update({
+        embeds: [new EmbedBuilder().setColor(COLORS.warn).setTitle('Cancelled')
+          .setDescription('Nothing was bought.')],
+        components: [],
+      });
+      return true;
+    }
+    await completePurchase(ctx, interaction);
     return true;
   }
 

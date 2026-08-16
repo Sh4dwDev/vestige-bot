@@ -88,6 +88,12 @@ export function buildCommandsEmbed() {
             'or by typing `!accept` in game — and you arrive a short while after, not ' +
             'instantly. There is a wait between travels.',
     }, {
+        name: '🛒  `/shop`',
+        value: '`/shop browse` for what is for sale, `/shop buy` to spend your points.\n' +
+            'You get a **fully grown** dinosaur in your archive — collect it by ' +
+            'spawning that species and pressing **Release**. Uses a vault, and ' +
+            'purchases are not refundable.',
+    }, {
         name: '🪙  `/points`',
         value: 'What you have earned by playing, and `/points top` for the leaderboard.\n' +
             'You earn simply by being on the server — there is nothing to spend them ' +

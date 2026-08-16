@@ -1,4 +1,4 @@
-import { ActionRowBuilder, ButtonBuilder, EmbedBuilder, type AutocompleteInteraction, type Client, type ChatInputCommandInteraction } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, EmbedBuilder, type AutocompleteInteraction, type Client, type ChatInputCommandInteraction, type ButtonInteraction } from 'discord.js';
 import { AdminStore } from './admins.js';
 import type { ModBridge } from './bridge.js';
 import type { Config } from './config.js';
@@ -59,6 +59,15 @@ export declare function slayCooldownMinutes(ctx: Ctx): number;
 export declare function runSlay(ctx: Ctx, i: Confirmable, steamId: string): Promise<void>;
 /** Steam IDs are the key, so anyone unlinked shows as a partial ID. */
 export declare function steamNamer(ctx: Ctx): (steamId: string) => string;
+/**
+ * Completes a purchase.
+ *
+ * Order matters: the dinosaur is written **before** the points are taken. If
+ * that order were reversed, a failed delivery would leave someone charged with
+ * nothing to show for it. This way the worst case is a free dinosaur, which is
+ * the right direction to fail in.
+ */
+export declare function completePurchase(ctx: Ctx, interaction: ButtonInteraction): Promise<void>;
 export declare function startTeleport(ctx: Ctx, i: {
     editReply: (o: {
         embeds: EmbedBuilder[];

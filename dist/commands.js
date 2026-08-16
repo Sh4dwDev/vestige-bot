@@ -6,6 +6,7 @@ import { refreshPopulationPanel, setPopulationChannel } from './livepanel.js';
 import { mutationList, speciesList, suggest } from './catalog.js';
 import { isRemoved, mutationChoices } from './mutations.js';
 import { setJoinRole } from './joinrole.js';
+import { buildCatalogue, buildReceipt, mutationPrice, setPending, setSpeciesPrice, setTierPrice, takePending, totalPrice, } from './shop.js';
 import { forgetPainted } from './skinsync.js';
 import { BUILT_IN, encodeColours, hexToInt, hexToLinear, linearToHex, PARTS, PRESETS, } from './skins.js';
 import { multiplierFor, setMultiplier, setTier, TIER_LABEL, tierOf } from './tiers.js';
@@ -73,6 +74,17 @@ export const commandData = [
         .addSubcommand((s) => s.setName('balance').setDescription('How many points you have'))
         .addSubcommand((s) => s.setName('top').setDescription('Who has the most')),
     new SlashCommandBuilder()
+        .setName('shop')
+        .setDescription('Buy a grown dinosaur with your points')
+        .addSubcommand((s) => s.setName('browse').setDescription('What is for sale, and what it costs'))
+        .addSubcommand((s) => s.setName('buy').setDescription('Buy a grown dinosaur')
+        .addStringOption((o) => o.setName('species').setDescription('What to buy')
+        .setAutocomplete(true).setRequired(true))
+        .addStringOption((o) => o.setName('mutation1').setDescription('Optional mutation').setAutocomplete(true))
+        .addStringOption((o) => o.setName('mutation2').setDescription('Optional mutation').setAutocomplete(true))
+        .addStringOption((o) => o.setName('mutation3').setDescription('Optional mutation').setAutocomplete(true))
+        .addStringOption((o) => o.setName('mutation4').setDescription('Optional mutation').setAutocomplete(true))),
+    new SlashCommandBuilder()
         .setName('teleport')
         .setDescription('Ask a friend if you can travel to them')
         .addUserOption((o) => o.setName('friend').setDescription('Who you want to travel to').setRequired(true)),
@@ -128,6 +140,23 @@ export const commandData = [
         .addStringOption((o) => o.setName('mutation3').setDescription('Mutation').setAutocomplete(true))
         .addStringOption((o) => o.setName('mutation4').setDescription('Mutation').setAutocomplete(true))
         .addStringOption((o) => o.setName('slot').setDescription('Slot name they will see (default: the species)'))))
+        .addSubcommandGroup((g) => g.setName('shop').setDescription('Shop prices and logging')
+        .addSubcommand((s) => s.setName('price').setDescription('Set one species’ price')
+        .addStringOption((o) => o.setName('species').setDescription('Species').setAutocomplete(true).setRequired(true))
+        .addIntegerOption((o) => o.setName('points').setDescription('What it costs')
+        .setMinValue(0).setMaxValue(1_000_000).setRequired(true)))
+        .addSubcommand((s) => s.setName('tierprice').setDescription('Set the price for a whole tier')
+        .addIntegerOption((o) => o.setName('tier').setDescription('1 to 4')
+        .setMinValue(1).setMaxValue(4).setRequired(true))
+        .addIntegerOption((o) => o.setName('points').setDescription('What that tier costs')
+        .setMinValue(0).setMaxValue(1_000_000).setRequired(true)))
+        .addSubcommand((s) => s.setName('mutationprice').setDescription('What each mutation adds')
+        .addIntegerOption((o) => o.setName('points').setDescription('0 makes mutations free')
+        .setMinValue(0).setMaxValue(100_000).setRequired(true)))
+        .addSubcommand((s) => s.setName('log').setDescription('Post every purchase to a channel')
+        .addChannelOption((o) => o.setName('channel').setDescription('Where purchases are logged')
+        .addChannelTypes(ChannelType.GuildText).setRequired(true)))
+        .addSubcommand((s) => s.setName('recent').setDescription('The last purchases')))
         .addSubcommandGroup((g) => g.setName('joinrole').setDescription('Role given to new members')
         .addSubcommand((s) => s.setName('set').setDescription('Give this role to everyone who joins')
         .addRoleOption((o) => o.setName('role').setDescription('The role to give').setRequired(true)))
@@ -249,6 +278,7 @@ export async function handleCommand(ctx, i) {
         case 'points': return handlePoints(ctx, i);
         case 'kills': return handleKills(ctx, i);
         case 'teleport': return handleTeleport(ctx, i);
+        case 'shop': return handleShop(ctx, i);
         case 'admin': return handleAdmin(ctx, i);
         default:
             await i.reply({ content: 'Unknown command.', flags: MessageFlags.Ephemeral });
@@ -538,6 +568,153 @@ async function handleKills(ctx, i) {
         flags: MessageFlags.Ephemeral,
     });
 }
+// ------------------------------------------------------------------- shop --
+async function handleShop(ctx, i) {
+    const link = ctx.db.linkFor(i.user.id);
+    if (i.options.getSubcommand() === 'browse') {
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        const balance = link ? ctx.db.pointsFor(link.steamId).balance : 0;
+        await i.editReply({
+            embeds: [buildCatalogue(ctx, await speciesList(ctx), balance)],
+        });
+        return;
+    }
+    if (!link) {
+        await i.reply({
+            embeds: [embed(COLORS.warn, 'Link your account first', 'Points and storage are held against your Steam account, so `/link` first.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    const species = i.options.getString('species', true).trim();
+    const mutations = [1, 2, 3, 4]
+        .map((n) => i.options.getString(`mutation${n}`)?.trim())
+        .filter((m) => Boolean(m));
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    const known = await speciesList(ctx);
+    if (known.length > 0 && !known.includes(species)) {
+        await i.editReply({
+            embeds: [embed(COLORS.warn, 'No such species', `${SERVER} has no **${species}**. Pick from the suggestions.`)],
+        });
+        return;
+    }
+    const price = totalPrice(ctx, species, mutations);
+    const balance = ctx.db.pointsFor(link.steamId).balance;
+    if (balance < price) {
+        await i.editReply({
+            embeds: [embed(COLORS.warn, 'Not enough points', `A ${species}${mutations.length ? ` with ${mutations.length} mutation(s)` : ''} ` +
+                    `costs **${display(price).toLocaleString()}**, and you have ` +
+                    `**${display(balance).toLocaleString()}**.\n\nYou earn by playing — higher ` +
+                    'tiers earn faster, and kills pay too.')],
+        });
+        return;
+    }
+    setPending(i.user.id, { species, mutations, price, at: Date.now() });
+    await i.editReply({
+        embeds: [embed(COLORS.info, 'Confirm your purchase', `**${species}**, fully grown` +
+                (mutations.length ? `\nMutations: ${mutations.join(', ')}` : '') +
+                `\n\nCost **${display(price).toLocaleString()}** · you have ` +
+                `**${display(balance).toLocaleString()}**\n\n` +
+                'It goes into your archive and uses one vault. Collect it by spawning a ' +
+                `${species} and pressing **Release**.\n\n_Purchases are not refundable._`)],
+        components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('shop:buy').setLabel('Buy it')
+                .setEmoji('🛒').setStyle(ButtonStyle.Success), new ButtonBuilder().setCustomId('shop:cancel').setLabel('Cancel')
+                .setStyle(ButtonStyle.Secondary))],
+    });
+}
+/**
+ * Completes a purchase.
+ *
+ * Order matters: the dinosaur is written **before** the points are taken. If
+ * that order were reversed, a failed delivery would leave someone charged with
+ * nothing to show for it. This way the worst case is a free dinosaur, which is
+ * the right direction to fail in.
+ */
+export async function completePurchase(ctx, interaction) {
+    const purchase = takePending(interaction.user.id);
+    if (!purchase) {
+        await interaction.update({
+            embeds: [embed(COLORS.quiet, 'Expired', 'That offer timed out or was already used. Run `/shop buy` again.')],
+            components: [],
+        });
+        return;
+    }
+    const link = ctx.db.linkFor(interaction.user.id);
+    if (!link) {
+        await interaction.update({
+            embeds: [embed(COLORS.warn, 'Not linked', 'Run `/link` first.')],
+            components: [],
+        });
+        return;
+    }
+    await interaction.update({
+        embeds: [embed(COLORS.quiet, 'Buying…', 'Putting it in your archive.')],
+        components: [],
+    });
+    // Re-read the balance: points may have been spent since the offer was made.
+    const balance = ctx.db.pointsFor(link.steamId).balance;
+    if (balance < purchase.price) {
+        await interaction.editReply({
+            embeds: [embed(COLORS.warn, 'Not enough points', 'Your balance changed. Nothing was bought.')],
+        });
+        return;
+    }
+    try {
+        // A free slot name, so the purchase does not collide with something they
+        // already have stored.
+        const listed = await ctx.mod.run('list', link.steamId, {}, { quiet: true });
+        const taken = new Set((listed.data ?? []).map((s) => s.slot));
+        let slot = purchase.species;
+        for (let n = 2; taken.has(slot); n += 1)
+            slot = `${purchase.species}${n}`;
+        const result = await ctx.mod.run('give', link.steamId, {
+            slot,
+            species: purchase.species,
+            growth: 1,
+            female: false,
+            mutations: purchase.mutations,
+            by: 'the shop',
+        });
+        if (!result.ok) {
+            await interaction.editReply({
+                embeds: [embed(COLORS.bad, 'Could not deliver it', `${result.msg}\n\n**You have not been charged.**`)],
+            });
+            return;
+        }
+        ctx.db.addPoints(link.steamId, -purchase.price);
+        ctx.db.recordPurchase({
+            discordId: interaction.user.id,
+            steamId: link.steamId,
+            species: purchase.species,
+            mutations: purchase.mutations,
+            price: purchase.price,
+            slot,
+        });
+        const left = ctx.db.pointsFor(link.steamId).balance;
+        await interaction.editReply({
+            embeds: [buildReceipt(purchase.species, purchase.mutations, purchase.price, left, slot)],
+        });
+        await postShopLog(ctx, interaction, purchase, slot);
+    }
+    catch (err) {
+        await interaction.editReply({
+            embeds: [embed(COLORS.bad, 'Something went wrong', `${describeError(err)}\n\n**You have not been charged.**`)],
+        });
+    }
+}
+async function postShopLog(ctx, interaction, purchase, slot) {
+    const channelId = ctx.db.getSetting('shop_log_channel');
+    if (!channelId)
+        return;
+    const channel = await interaction.client.channels.fetch(channelId).catch(() => null);
+    if (!channel?.isTextBased() || !('send' in channel))
+        return;
+    await channel.send({
+        embeds: [embed(COLORS.info, '🛒  Purchase', `${interaction.user} bought a **${purchase.species}** for ` +
+                `**${display(purchase.price).toLocaleString()}** as \`${slot}\`` +
+                (purchase.mutations.length ? `\nMutations: ${purchase.mutations.join(', ')}` : ''))],
+    }).catch(() => undefined);
+}
 // --------------------------------------------------------------- teleport --
 export async function startTeleport(ctx, i, friendId) {
     const mine = ctx.db.linkFor(i.user.id);
@@ -699,6 +876,60 @@ async function handleGive(ctx, i) {
             embeds: [embed(COLORS.bad, 'Something went wrong', describeError(err))],
         });
     }
+}
+// ------------------------------------------------------------- shop admin --
+async function handleShopAdmin(ctx, i, action) {
+    if (action === 'recent') {
+        const rows = ctx.db.recentPurchases(15);
+        await i.reply({
+            embeds: [embed(COLORS.info, 'Recent purchases', rows.length
+                    ? rows.map((r) => `<@${r.discordId}> — **${r.species}** for ${display(r.price).toLocaleString()}` +
+                        (r.mutations ? ` (${r.mutations})` : '') +
+                        ` · <t:${Math.floor(new Date(r.at).getTime() / 1000)}:R>`).join('\n')
+                    : 'Nothing has been bought yet.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'log') {
+        const channel = i.options.getChannel('channel', true);
+        ctx.db.setSetting('shop_log_channel', channel.id);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Purchase log set', `Every purchase will be posted in <#${channel.id}>.\n\n` +
+                    'They are recorded either way — this just makes them visible.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'mutationprice') {
+        const points = i.options.getInteger('points', true);
+        ctx.db.setSetting('shop_mutation_price', String(points));
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Mutation price set', points === 0
+                    ? 'Mutations are now **free** with a purchase.'
+                    : `Each mutation adds **${points}** to the price.`)],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    const points = i.options.getInteger('points', true);
+    if (action === 'tierprice') {
+        const tier = i.options.getInteger('tier', true);
+        setTierPrice(ctx, tier, points);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Tier price set', `Everything in **${TIER_LABEL[tier]}** now costs **${points}**, unless it has ` +
+                    'its own price.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    const species = i.options.getString('species', true).trim();
+    setSpeciesPrice(ctx, species, points);
+    await i.reply({
+        embeds: [embed(COLORS.good, 'Price set', `**${species}** now costs **${points}**` +
+                `${mutationPrice(ctx) > 0 ? `, plus ${mutationPrice(ctx)} per mutation` : ''}.`)],
+        flags: MessageFlags.Ephemeral,
+    });
 }
 // ------------------------------------------------------------------ skins --
 async function handleSkin(ctx, i, action) {
@@ -975,6 +1206,8 @@ async function handleAdmin(ctx, i) {
         return handleStatusPanel(ctx, i, action);
     if (group === 'give')
         return handleGive(ctx, i);
+    if (group === 'shop')
+        return handleShopAdmin(ctx, i, action);
     if (group === 'joinrole') {
         if (action === 'off') {
             setJoinRole(ctx, null);

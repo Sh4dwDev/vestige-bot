@@ -364,6 +364,36 @@ Tier drives both halves of the economy:
   up. A Dryosaurus that brings down a Rex has done something a Rex killing a
   Dryosaurus has not, and the payout says so.
 
+## The shop
+
+`/shop browse` and `/shop buy`. It sells one thing: a **fully grown** dinosaur,
+delivered into storage, with optional mutations chosen at purchase.
+
+Restore is same-species and transform-in-place, so buying a Tyrannosaurus does
+**not** let anyone play one — they still spawn a juvenile and release the adult
+over it. What is being sold is skipping the grow, and the wording says so
+everywhere rather than letting someone buy the wrong thing.
+
+**The delivery is written before the points are taken.** Reversed, a failed
+delivery would leave someone charged with nothing; this way the worst case is a
+free dinosaur, which is the right direction to fail in. The balance is re-read
+at the moment of purchase, since points can be spent between the offer and the
+click.
+
+An offer can only be taken **once** — that is also the double-click guard, since
+a second press finds it already spent rather than buying twice. Offers expire
+after two minutes.
+
+Prices default from tier (300 / 600 / 1,000 / 1,800) and are overridable per
+tier or per species, with mutations adding 200 each. They start high
+deliberately: cutting a price later reads as a gift, raising one reads as a
+nerf.
+
+Purchases eat one of the three storage vaults, are recorded permanently in the
+`purchases` table, and can be mirrored to a channel with `/admin shop log`.
+There are no refunds — buy-store-refund loops are where economies get
+exploited, and it is easy to add later and awkward to remove.
+
 ## Points
 
 Earned by playing, at a base rate set with `/admin points rate` (default 60 an

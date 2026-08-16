@@ -1,0 +1,143 @@
+// The shop. This is the first feature that takes something from players, so the
+// checks here are mostly about not charging for something that was not
+// delivered, and not letting one offer be spent twice.
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+const root = path.resolve(import.meta.dirname, '..');
+const load = (f) => import(pathToFileURL(path.join(root, 'dist', f)).href);
+
+const {
+  priceOf, mutationPrice, totalPrice, setSpeciesPrice, setTierPrice,
+  setPending, takePending, buildCatalogue, buildReceipt, MAX_SLOTS,
+} = await load('shop.js');
+const { setTier } = await load('tiers.js');
+const { Database } = await load('db.js');
+
+const results = [];
+const check = (name, ok, detail = '') => {
+  results.push(ok);
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
+};
+
+const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'vesta-')), 'shop.sqlite');
+const db = new Database(file);
+const ctx = { db };
+
+// ---- pricing --------------------------------------------------------------------
+
+check('an apex costs more than a tier 1',
+  priceOf(ctx, 'Tyrannosaurus') > priceOf(ctx, 'Dryosaurus'),
+  `${priceOf(ctx, 'Tyrannosaurus')} vs ${priceOf(ctx, 'Dryosaurus')}`);
+
+check('an unknown species still has a price', priceOf(ctx, 'Somethingnew') > 0);
+
+setTierPrice(ctx, 4, 5000);
+check('a tier price applies to everything in it', priceOf(ctx, 'Tyrannosaurus') === 5000);
+
+setSpeciesPrice(ctx, 'Tyrannosaurus', 9000);
+check('a species price beats its tier price', priceOf(ctx, 'Tyrannosaurus') === 9000);
+check('other species in that tier are unaffected', priceOf(ctx, 'Deinosuchus') === 5000);
+
+// Retiering a species must move its price with it.
+setTier(ctx, 'Dryosaurus', 4);
+check('a retiered species picks up the new tier price', priceOf(ctx, 'Dryosaurus') === 5000,
+  String(priceOf(ctx, 'Dryosaurus')));
+setTier(ctx, 'Dryosaurus', 1);
+
+check('mutations add to the price',
+  totalPrice(ctx, 'Deinosuchus', ['A', 'B']) === 5000 + 2 * mutationPrice(ctx),
+  String(totalPrice(ctx, 'Deinosuchus', ['A', 'B'])));
+check('no mutations means no surcharge',
+  totalPrice(ctx, 'Deinosuchus', []) === priceOf(ctx, 'Deinosuchus'));
+
+db.setSetting('shop_mutation_price', '0');
+check('mutations can be made free',
+  totalPrice(ctx, 'Deinosuchus', ['A', 'B', 'C']) === priceOf(ctx, 'Deinosuchus'));
+db.setSetting('shop_mutation_price', '200');
+
+check('a free species is allowed', (setSpeciesPrice(ctx, 'Troodon', 0), priceOf(ctx, 'Troodon') === 0));
+
+// ---- the offer ------------------------------------------------------------------
+
+{
+  setPending('u1', { species: 'Tyrannosaurus', mutations: [], price: 100, at: Date.now() });
+  check('an offer can be taken once', takePending('u1')?.species === 'Tyrannosaurus');
+
+  // The double-click guard: a second press must find nothing.
+  check('the same offer cannot be spent twice', takePending('u1') === null);
+
+  setPending('u2', { species: 'Rex', mutations: [], price: 1, at: Date.now() - 10 * 60_000 });
+  check('a stale offer is refused', takePending('u2') === null);
+
+  setPending('u3', { species: 'A', mutations: [], price: 1, at: Date.now() });
+  setPending('u4', { species: 'B', mutations: [], price: 1, at: Date.now() });
+  check('offers do not collide between people',
+    takePending('u3')?.species === 'A' && takePending('u4')?.species === 'B');
+
+  check('someone with no offer gets nothing', takePending('nobody') === null);
+}
+
+// ---- the receipt trail -----------------------------------------------------------
+
+{
+  db.recordPurchase({
+    discordId: '1', steamId: '76561198000000001', species: 'Tyrannosaurus',
+    mutations: ['Hydrodynamic'], price: 1800, slot: 'Tyrannosaurus',
+  });
+  db.recordPurchase({
+    discordId: '2', steamId: '76561198000000002', species: 'Dryosaurus',
+    mutations: [], price: 300, slot: 'Dryosaurus',
+  });
+
+  const recent = db.recentPurchases(10);
+  check('purchases are recorded', recent.length === 2, String(recent.length));
+  check('newest first', recent[0].species === 'Dryosaurus', recent[0].species);
+  check('the mutations are kept for the receipt', recent[1].mutations === 'Hydrodynamic');
+  check('the price is kept', recent[0].price === 300);
+  check('the limit is respected', db.recentPurchases(1).length === 1);
+}
+
+// ---- spending --------------------------------------------------------------------
+
+{
+  const S = '76561198000000009';
+  db.setPoints(S, 1000);
+  db.addPoints(S, -400);
+  check('buying subtracts from the balance', db.pointsFor(S).balance === 600,
+    String(db.pointsFor(S).balance));
+}
+
+db.close();
+fs.rmSync(path.dirname(file), { recursive: true, force: true });
+
+// ---- embeds ----------------------------------------------------------------------
+
+{
+  const fresh = new Database(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'vesta-')), 'c.sqlite'));
+  const c2 = { db: fresh };
+
+  const catalogue = buildCatalogue(c2, ['Tyrannosaurus', 'Dryosaurus', 'Allosaurus'], 1234).toJSON();
+  check('the catalogue shows the balance', /1,234/.test(catalogue.description ?? ''));
+  check('the catalogue groups by tier', (catalogue.fields ?? []).length >= 2,
+    String((catalogue.fields ?? []).length));
+  check('it says what a purchase costs you in vaults',
+    new RegExp(`${MAX_SLOTS} vaults`).test(catalogue.footer?.text ?? ''), catalogue.footer?.text);
+  check('the catalogue fits Discord limits', JSON.stringify(catalogue).length < 6000,
+    String(JSON.stringify(catalogue).length));
+
+  const receipt = buildReceipt('Tyrannosaurus', ['Hydrodynamic'], 1800, 200, 'Tyrannosaurus').toJSON();
+  check('the receipt says what was spent and what is left',
+    /1,800/.test(receipt.description ?? '') && /200/.test(receipt.description ?? ''),
+    receipt.description);
+  check('the receipt explains how to collect it',
+    /Release/.test(receipt.description ?? ''));
+
+  fresh.close();
+}
+
+const failed = results.filter((r) => !r).length;
+console.log(`\n${results.length - failed}/${results.length} checks passed`);
+process.exit(failed === 0 ? 0 : 1);

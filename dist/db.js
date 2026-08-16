@@ -41,6 +41,20 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL
 );
 
+-- Every purchase, kept forever. This is the receipt when someone says they were
+-- charged and got nothing, and the audit trail for staff.
+CREATE TABLE IF NOT EXISTS purchases (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  discord_id TEXT NOT NULL,
+  steam_id   TEXT NOT NULL,
+  species    TEXT NOT NULL,
+  mutations  TEXT NOT NULL,
+  price      REAL NOT NULL,
+  slot       TEXT NOT NULL,
+  at         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS purchases_who ON purchases (discord_id);
+
 -- The look each player is meant to have. The engine forgets colours on relog,
 -- respawn and restart, so this is the record and the bot reapplies from it.
 CREATE TABLE IF NOT EXISTS skins (
@@ -227,6 +241,25 @@ export class Database {
     }
     removeBotAdmin(discordId) {
         return Number(this.#db.prepare('DELETE FROM bot_admins WHERE discord_id = ?').run(discordId).changes) > 0;
+    }
+    // ---- purchases ---------------------------------------------------------
+    recordPurchase(purchase) {
+        this.#db
+            .prepare(`INSERT INTO purchases (discord_id, steam_id, species, mutations, price, slot, at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`)
+            .run(purchase.discordId, purchase.steamId, purchase.species, purchase.mutations.join(', '), purchase.price, purchase.slot, new Date().toISOString());
+    }
+    recentPurchases(limit) {
+        const rows = this.#db
+            .prepare('SELECT discord_id, species, mutations, price, at FROM purchases ORDER BY id DESC LIMIT ?')
+            .all(limit);
+        return rows.map((row) => ({
+            discordId: String(row['discord_id']),
+            species: String(row['species']),
+            mutations: String(row['mutations']),
+            price: Number(row['price']),
+            at: String(row['at']),
+        }));
     }
     // ---- applied skins -----------------------------------------------------
     /** Merges: setting one part must not wipe the others already applied. */
