@@ -24,7 +24,17 @@ import { buildCommandsEmbed, buildStorageGuideEmbed } from './guides.js';
 import { refreshPopulationPanel, setPopulationChannel } from './livepanel.js';
 import { mutationList, speciesList, suggest } from './catalog.js';
 import { isRemoved, mutationChoices } from './mutations.js';
-import { encodeColours, hexToInt, hexToLinear, linearToHex, PARTS, PRESETS } from './skins.js';
+import { setJoinRole } from './joinrole.js';
+import { forgetPainted } from './skinsync.js';
+import {
+  BUILT_IN,
+  encodeColours,
+  hexToInt,
+  hexToLinear,
+  linearToHex,
+  PARTS,
+  PRESETS,
+} from './skins.js';
 import { multiplierFor, setMultiplier, setTier, TIER_LABEL, tierOf } from './tiers.js';
 import { cleanSlotName, showPanel, stopAutoRefresh } from './panel.js';
 import {
@@ -239,6 +249,14 @@ export const commandData = [
               o.setName('slot').setDescription('Slot name they will see (default: the species)'))),
     )
     .addSubcommandGroup((g) =>
+      g.setName('joinrole').setDescription('Role given to new members')
+        .addSubcommand((s) =>
+          s.setName('set').setDescription('Give this role to everyone who joins')
+            .addRoleOption((o) =>
+              o.setName('role').setDescription('The role to give').setRequired(true)))
+        .addSubcommand((s) => s.setName('off').setDescription('Stop giving a role on join')),
+    )
+    .addSubcommandGroup((g) =>
       g.setName('skin').setDescription('Recolour a player’s dinosaur')
         .addSubcommand((s) =>
           s.setName('set').setDescription('Set one part’s colour')
@@ -277,6 +295,9 @@ export const commandData = [
               o.setName('preset').setDescription('Saved preset')
                 .setAutocomplete(true).setRequired(true)))
         .addSubcommand((s) => s.setName('presets').setDescription('List saved presets'))
+        .addSubcommand((s) =>
+          s.setName('reset').setDescription('Stop keeping a player’s colours')
+            .addUserOption((o) => o.setName('user').setDescription('Whose colours').setRequired(true)))
         .addSubcommand((s) =>
           s.setName('forget').setDescription('Delete a saved preset')
             .addStringOption((o) =>
@@ -1021,12 +1042,21 @@ async function handleSkin(
   }
 
   if (action === 'presets') {
-    const names = ctx.db.presetNames();
+    const saved = ctx.db.presetNames();
+    const swatch = (colours: Record<string, string>): string =>
+      colours['BodyColor'] ? `\`${colours['BodyColor']}\` ` : '';
+
     await i.reply({
-      embeds: [embed(COLORS.info, 'Saved skins',
-        names.length
-          ? names.map((n) => `• **${n}**`).join('\n')
-          : 'None yet. Colour a dinosaur, then `/admin skin save` it.')],
+      embeds: [embed(COLORS.info, 'Skins',
+        '**Ready made**\n' +
+        Object.entries(BUILT_IN)
+          .map(([name, colours]) => `${swatch(colours)}**${name}**`)
+          .join('\n') +
+        '\n\n**Saved here**\n' +
+        (saved.length
+          ? saved.map((n) => `• **${n}**`).join('\n')
+          : '_None yet. Colour a dinosaur, then `/admin skin save` it._') +
+        '\n\nSaving over a ready-made name replaces it.')],
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -1049,6 +1079,20 @@ async function handleSkin(
     await i.reply({
       embeds: [embed(COLORS.warn, 'Not linked',
         `${user} has not linked a Steam account, so there is no dinosaur to find.`)],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (action === 'reset') {
+    const had = ctx.db.clearSkin(link.steamId);
+    forgetPainted(link.steamId);
+    await i.reply({
+      embeds: [had
+        ? embed(COLORS.good, 'Colours forgotten',
+            `${user}'s colours are no longer kept. What they have now stays until ` +
+            'they relog or die, then the game gives them their own back.')
+        : embed(COLORS.quiet, 'Nothing kept', `${user} has no colours saved.`)],
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -1091,7 +1135,9 @@ async function handleSkin(
 
     if (action === 'apply') {
       const name = i.options.getString('preset', true);
-      const stored = ctx.db.preset(name);
+      // A saved preset of the same name wins, so a ready-made one can be
+      // overridden without editing code.
+      const stored = ctx.db.preset(name) ?? BUILT_IN[name] ?? null;
       if (!stored) {
         await i.editReply({
           embeds: [embed(COLORS.warn, 'No such preset',
@@ -1130,6 +1176,11 @@ async function handleSkin(
       return;
     }
 
+    // Recorded so it survives relogs, respawns and restarts — the engine drops
+    // colours on all three, so the bot repaints from this.
+    ctx.db.setSkin(link.steamId, colours);
+    forgetPainted(link.steamId);
+
     const first = Object.values(colours)[0] ?? '#57F287';
     await i.editReply({
       embeds: [new EmbedBuilder()
@@ -1139,8 +1190,8 @@ async function handleSkin(
           `On ${user}:\n` +
           Object.entries(colours).map(([f, hex]) =>
             `\`${hex.toUpperCase()}\`  ${PARTS.find((p) => p.field === f)?.label ?? f}`).join('\n') +
-          '\n\n⚠️ Skin colours are runtime only — they reset when they relog or the ' +
-          'server restarts. That is an engine limitation, not a setting.')
+          '\n\nThis is remembered. The engine drops colours on relog, respawn and ' +
+          'restart, so the bot repaints them within a minute of each.')
         .setFooter({ text: SIGNATURE })
         .setTimestamp()],
     });
@@ -1310,6 +1361,43 @@ async function handleAdmin(ctx: Ctx, i: ChatInputCommandInteraction): Promise<vo
   if (group === 'status') return handleStatusPanel(ctx, i, action);
 
   if (group === 'give') return handleGive(ctx, i);
+  if (group === 'joinrole') {
+    if (action === 'off') {
+      setJoinRole(ctx, null);
+      await i.reply({
+        embeds: [embed(COLORS.good, 'Join role off',
+          'New members will not be given a role. Anyone who already has it keeps it.')],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const role = i.options.getRole('role', true);
+    setJoinRole(ctx, role.id);
+
+    // Checked now rather than discovered when somebody joins at 2am.
+    const me = i.guild?.members.me;
+    const problems: string[] = [];
+    if (me && !me.permissions.has(PermissionFlagsBits.ManageRoles)) {
+      problems.push('the bot does not have **Manage Roles**');
+    }
+    if (me && 'comparePositionTo' in role && me.roles.highest.comparePositionTo(role) <= 0) {
+      problems.push(`the bot's own role sits **below** ${role}, so it cannot hand it out`);
+    }
+
+    await i.reply({
+      embeds: [problems.length
+        ? embed(COLORS.warn, 'Set, but it will not work yet',
+            `New members are meant to get ${role}, but ${problems.join(', and ')}.\n\n` +
+            'Fix that in Server Settings → Roles and it starts working immediately.')
+        : embed(COLORS.good, 'Join role set',
+            `Everyone who joins now gets ${role}.\n\n` +
+            'Bots are skipped — they get their roles from their own integration.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
   if (group === 'skin') return handleSkin(ctx, i, action);
   if (group === 'tier') return handleTiers(ctx, i, action);
   if (group === 'species') return handleSpecies(ctx, i, action);
@@ -1721,10 +1809,14 @@ export async function handleAutocomplete(
       .map((name) => ({ name, value: name }));
   } else if (focused.name === 'preset') {
     const typed = focused.value.trim().toLowerCase();
-    choices = ctx.db.presetNames()
+    const saved = new Set(ctx.db.presetNames());
+    // Saved first — an admin's own work is what they are usually reaching for.
+    const all = [...saved, ...Object.keys(BUILT_IN).filter((n) => !saved.has(n))];
+
+    choices = all
       .filter((n) => !typed || n.toLowerCase().includes(typed))
       .slice(0, 25)
-      .map((n) => ({ name: n, value: n }));
+      .map((n) => ({ name: saved.has(n) ? n : `${n} · ready made`, value: n }));
   } else if (focused.name.startsWith('colour')) {
     const typed = focused.value.trim().toLowerCase();
     choices = PRESETS

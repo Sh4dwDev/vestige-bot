@@ -43,6 +43,10 @@ export declare class Database {
     isBotAdmin(discordId: string): boolean;
     addBotAdmin(discordId: string, addedBy: string): void;
     removeBotAdmin(discordId: string): boolean;
+    /** Merges: setting one part must not wipe the others already applied. */
+    setSkin(steamId: string, colours: Record<string, string>): void;
+    skinFor(steamId: string): Record<string, string> | null;
+    clearSkin(steamId: string): boolean;
     savePreset(name: string, colours: Record<string, string>, madeBy: string): void;
     preset(name: string): Record<string, string> | null;
     presetNames(): string[];

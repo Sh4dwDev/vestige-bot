@@ -3,6 +3,7 @@ import type { Client } from 'discord.js';
 import type { Ctx } from './commands.js';
 import { postOrEdit } from './pinned.js';
 import { buildPopulationEmbed } from './population.js';
+import { reapplySkins } from './skinsync.js';
 import { checkSpeciesLocks } from './species.js';
 import { tierOf } from './tiers.js';
 
@@ -65,7 +66,12 @@ export function startPopulationPanel(ctx: Ctx, client: Client, log: (m: string) 
     // has set a population channel.
     await ctx.mod
       .players()
-      .then((players) => checkSpeciesLocks(ctx, client, players, log))
+      .then(async (players) => {
+        await checkSpeciesLocks(ctx, client, players, log);
+        // Colours do not survive a relog or respawn, so they are reapplied
+        // from the record rather than expected to stick on their own.
+        await reapplySkins(ctx, players, log);
+      })
       .catch(() => undefined);
 
     if (!populationChannel(ctx)) return;

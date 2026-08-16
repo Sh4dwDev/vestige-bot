@@ -41,6 +41,14 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL
 );
 
+-- The look each player is meant to have. The engine forgets colours on relog,
+-- respawn and restart, so this is the record and the bot reapplies from it.
+CREATE TABLE IF NOT EXISTS skins (
+  steam_id TEXT PRIMARY KEY,
+  colours  TEXT NOT NULL,
+  set_at   TEXT NOT NULL
+);
+
 -- Named skin presets. Colours are stored as sRGB hex per part, so a preset
 -- stays readable and editable rather than being opaque linear floats.
 CREATE TABLE IF NOT EXISTS skin_presets (
@@ -219,6 +227,32 @@ export class Database {
     }
     removeBotAdmin(discordId) {
         return Number(this.#db.prepare('DELETE FROM bot_admins WHERE discord_id = ?').run(discordId).changes) > 0;
+    }
+    // ---- applied skins -----------------------------------------------------
+    /** Merges: setting one part must not wipe the others already applied. */
+    setSkin(steamId, colours) {
+        const merged = { ...(this.skinFor(steamId) ?? {}), ...colours };
+        this.#db
+            .prepare(`INSERT INTO skins (steam_id, colours, set_at) VALUES (?, ?, ?)
+         ON CONFLICT (steam_id) DO UPDATE SET colours = excluded.colours,
+                                              set_at = excluded.set_at`)
+            .run(steamId, JSON.stringify(merged), new Date().toISOString());
+    }
+    skinFor(steamId) {
+        const row = this.#db
+            .prepare('SELECT colours FROM skins WHERE steam_id = ?')
+            .get(steamId);
+        if (!row)
+            return null;
+        try {
+            return JSON.parse(String(row['colours']));
+        }
+        catch {
+            return null;
+        }
+    }
+    clearSkin(steamId) {
+        return Number(this.#db.prepare('DELETE FROM skins WHERE steam_id = ?').run(steamId).changes) > 0;
     }
     // ---- skin presets ------------------------------------------------------
     savePreset(name, colours, madeBy) {

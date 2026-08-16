@@ -23,6 +23,8 @@ import { startPopulationPanel } from './livepanel.js';
 import { handleHubInteraction } from './hub.js';
 import { buildKillEmbed, killfeedChannel, type KillEvent } from './kills.js';
 import { awardOnline } from './points.js';
+import { giveJoinRole } from './joinrole.js';
+import { skinNeedsReapply } from './skinsync.js';
 import { clearRequest, requestFor, runAccepted } from './teleport.js';
 import { killReward, tierOf } from './tiers.js';
 import { Panel } from './pterodactyl.js';
@@ -82,22 +84,52 @@ async function main(): Promise<void> {
     log(`WARNING: RCON unavailable, linking will not work: ${describeError(err)}`);
   }
 
-  // Slash commands only, so no privileged intents are needed.
-  const client = new Client({ intents: [GatewayIntentBits.Guilds] });
-
-  client.once(Events.ClientReady, (ready) => {
-    log(`logged in as ${ready.user.tag}`);
-    startChatWatcher(ctx, ready);
-    startServerPoll(ctx, ready);
-    startPopulationPanel(ctx, ready, log);
-    startRestartScheduler(ctx, ready, log);
+  // GuildMembers is privileged: without the toggle in the developer portal,
+  // asking for it makes login fail outright. Everything else works without it,
+  // so a refusal falls back rather than taking the whole bot down.
+  let client = new Client({
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
   });
+  let canSeeJoins = true;
 
-  client.on(Events.InteractionCreate, (interaction: Interaction) => {
-    void dispatch(ctx, interaction);
-  });
+  const wire = (c: Client): void => {
+    c.once(Events.ClientReady, (ready) => {
+      log(`logged in as ${ready.user.tag}`);
+      if (!canSeeJoins) {
+        log('note: GuildMembers intent refused, so the join role cannot be given. ' +
+          'Enable "Server Members Intent" in the Discord developer portal.');
+      }
+      startChatWatcher(ctx, ready);
+      startServerPoll(ctx, ready);
+      startPopulationPanel(ctx, ready, log);
+      startRestartScheduler(ctx, ready, log);
+    });
 
-  await client.login(config.discord.token);
+    c.on(Events.InteractionCreate, (interaction: Interaction) => {
+      void dispatch(ctx, interaction);
+    });
+
+    c.on(Events.GuildMemberAdd, (member) => {
+      void giveJoinRole(ctx, member, log);
+    });
+  };
+
+  wire(client);
+
+  try {
+    await client.login(config.discord.token);
+  } catch (err) {
+    if (!/disallowed intents/i.test(describeError(err))) throw err;
+
+    // The portal toggle is off. Everything except the join role works without
+    // it, so drop the intent rather than refusing to start.
+    log('WARNING: the Server Members Intent is disabled, so the join role is off');
+    canSeeJoins = false;
+    await client.destroy().catch(() => undefined);
+    client = new Client({ intents: [GatewayIntentBits.Guilds] });
+    wire(client);
+    await client.login(config.discord.token);
+  }
 
   const shutdown = (): void => {
     log('shutting down');
@@ -260,6 +292,9 @@ async function handleChatEvent(
     };
 
     ctx.db.recordKill(kill.killer, kill.victim, kill.species, kill.cause);
+
+    // Respawning builds a fresh pawn, which has none of their colours.
+    skinNeedsReapply(kill.victim);
 
     // Only an attributed kill pays: nobody is owed points for a starvation.
     if (kill.killer) {

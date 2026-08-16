@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 const root = path.resolve(import.meta.dirname, '..');
 const {
   PARTS, PRESETS, parseHex, toLinear, hexToLinear, hexToInt,
-  toSrgb, linearToHex, encodeColours,
+  toSrgb, linearToHex, encodeColours, BUILT_IN,
 } = await import(pathToFileURL(path.join(root, 'dist/skins.js')).href);
 
 const results = [];
@@ -94,6 +94,38 @@ check('an out-of-range channel clamps rather than producing nonsense hex',
   check('a bad colour is dropped rather than corrupting the whole string',
     encodeColours({ BodyColor: '#FFFFFF', EyesColor: 'nope' }).split('|').length === 1);
   check('nothing to encode is an empty string', encodeColours({}) === '');
+}
+
+// ---- the ready-made looks -------------------------------------------------------
+
+{
+  const looks = Object.entries(BUILT_IN);
+  check('there are ready-made looks to pick from', looks.length >= 8, String(looks.length));
+
+  check('every colour in every look is valid hex',
+    looks.every(([, c]) => Object.values(c).every((hex) => parseHex(hex) !== null)),
+    looks.map(([n, c]) => `${n}:${Object.values(c).filter((h) => !parseHex(h)).join(',')}`)
+      .filter((s) => !s.endsWith(':')).join(' | '));
+
+  const fields = new Set(PARTS.map((p) => p.field));
+  check('every look only names real parts',
+    looks.every(([, c]) => Object.keys(c).every((f) => fields.has(f))),
+    looks.flatMap(([, c]) => Object.keys(c)).filter((f) => !fields.has(f)).join(','));
+
+  check('each look sets a body colour, which is what reads at distance',
+    looks.every(([, c]) => Boolean(c.BodyColor)));
+
+  check('each look sets enough parts to look deliberate',
+    looks.every(([, c]) => Object.keys(c).length >= 4),
+    looks.map(([n, c]) => `${n}:${Object.keys(c).length}`).join(' '));
+
+  // Teeth, mouth and claws are barely visible; recolouring them reads as a
+  // mistake rather than a style.
+  check('looks leave the fiddly parts alone',
+    looks.every(([, c]) => !c.TeethColor && !c.MouthColor && !c.ClawsColor));
+
+  check('every look encodes to the wire format',
+    looks.every(([, c]) => encodeColours(c).split('|').length === Object.keys(c).length));
 }
 
 check('every preset is a valid colour', PRESETS.every((p) => parseHex(p.hex) !== null));

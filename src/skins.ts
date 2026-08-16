@@ -48,6 +48,57 @@ export const PRESETS: Array<{ name: string; hex: string }> = [
   { name: 'Venom green', hex: '#7FBF2A' },
 ];
 
+/**
+ * Ready-made looks, available to every admin without anyone building one first.
+ *
+ * Each sets the six parts that read at distance — body, flanks, underbelly,
+ * markings, detail and eyes — and leaves teeth, mouth and claws alone, since
+ * those are barely visible and recolouring them tends to look wrong rather than
+ * striking. A saved preset of the same name wins, so these can be overridden.
+ */
+export const BUILT_IN: Record<string, Record<string, string>> = {
+  'Ash Wraith': {
+    BodyColor: '#8A8F96', FlankColor: '#6E737A', UnderbellyColor: '#C9CDD2',
+    MarkingsColor: '#4A4F55', Detail1Color: '#EDE6D6', EyesColor: '#BFD8E6',
+  },
+  Ember: {
+    BodyColor: '#22242A', FlankColor: '#2E3038', UnderbellyColor: '#3A2A22',
+    MarkingsColor: '#D45A19', Detail1Color: '#C8871B', EyesColor: '#D8A93A',
+  },
+  'Jungle Stalker': {
+    BodyColor: '#2F4A2A', FlankColor: '#3D5C33', UnderbellyColor: '#7E8C5A',
+    MarkingsColor: '#1E2E1B', Detail1Color: '#5A6B3B', EyesColor: '#7FBF2A',
+  },
+  Bonewalker: {
+    BodyColor: '#EDE6D6', FlankColor: '#DDD4C0', UnderbellyColor: '#F5F0E4',
+    MarkingsColor: '#B8AC93', Detail1Color: '#8A8F96', EyesColor: '#4A4F55',
+  },
+  Abyss: {
+    BodyColor: '#1B3A5C', FlankColor: '#14293F', UnderbellyColor: '#2C5A7A',
+    MarkingsColor: '#0B0B0D', Detail1Color: '#1F6F6B', EyesColor: '#BFD8E6',
+  },
+  Venom: {
+    BodyColor: '#22242A', FlankColor: '#2A2E24', UnderbellyColor: '#4A5A2A',
+    MarkingsColor: '#7FBF2A', Detail1Color: '#9BD84A', EyesColor: '#7FBF2A',
+  },
+  Sandstorm: {
+    BodyColor: '#D9C08C', FlankColor: '#C2A874', UnderbellyColor: '#EDE6D6',
+    MarkingsColor: '#B07A52', Detail1Color: '#8C6238', EyesColor: '#C8871B',
+  },
+  'Blood Moon': {
+    BodyColor: '#3A1414', FlankColor: '#4E1A1A', UnderbellyColor: '#6E1414',
+    MarkingsColor: '#0B0B0D', Detail1Color: '#8C3B1E', EyesColor: '#D45A19',
+  },
+  Frostbite: {
+    BodyColor: '#BFD8E6', FlankColor: '#9CBCD0', UnderbellyColor: '#EDF4F8',
+    MarkingsColor: '#4A5F70', Detail1Color: '#FFFFFF', EyesColor: '#1F6F6B',
+  },
+  Regal: {
+    BodyColor: '#4A2545', FlankColor: '#5E3059', UnderbellyColor: '#8A5E80',
+    MarkingsColor: '#D8A93A', Detail1Color: '#C8871B', EyesColor: '#D8A93A',
+  },
+};
+
 export interface Rgb {
   r: number;
   g: number;

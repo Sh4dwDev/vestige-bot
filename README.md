@@ -318,9 +318,33 @@ way in. Skipping it is the classic mistake: mid grey is `0.5` in sRGB but
 `0.214` linear, so a naive write lands about twice as bright as the picker
 showed.
 
-**Colours do not persist.** Upstream is explicit that direct-write skins are
-runtime state and revert on relog. The reply says so rather than letting an
-admin discover it.
+### Making colours stick
+
+The engine does **not** persist them — upstream is explicit that direct-write
+colours are runtime state. What it also says is that a mod is expected to store
+them and reapply, which is what [`src/skinsync.ts`](src/skinsync.ts) does. The
+database is the record; the pawn is just where they get painted.
+
+Repainting happens on the three events that replace a pawn: appearing online
+after being away, dying, and the bot starting up. Deliberately **not** every
+poll — that would be a write per player per minute forever to fix something
+that only breaks on those three.
+
+`/admin skin reset` stops keeping someone's colours.
+
+## Join role
+
+`/admin joinrole set @role` gives every new member a role.
+
+This needs the **Server Members Intent**, which is privileged and off by
+default in the Discord developer portal. Asking for it without the toggle makes
+login fail outright, so the bot catches that and starts without it, logging why
+— everything except the join role works regardless.
+
+Two things silently stop it working, and Discord reports both as the same
+generic "Missing Permissions": the bot needs **Manage Roles**, and its own
+highest role must sit **above** the role being handed out. `/admin joinrole set`
+checks both when you set it and says which is wrong.
 
 ---
 

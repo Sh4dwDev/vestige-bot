@@ -19,6 +19,15 @@ export declare const PRESETS: Array<{
     name: string;
     hex: string;
 }>;
+/**
+ * Ready-made looks, available to every admin without anyone building one first.
+ *
+ * Each sets the six parts that read at distance — body, flanks, underbelly,
+ * markings, detail and eyes — and leaves teeth, mouth and claws alone, since
+ * those are barely visible and recolouring them tends to look wrong rather than
+ * striking. A saved preset of the same name wins, so these can be overridden.
+ */
+export declare const BUILT_IN: Record<string, Record<string, string>>;
 export interface Rgb {
     r: number;
     g: number;
