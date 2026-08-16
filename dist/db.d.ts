@@ -10,7 +10,19 @@ export interface Pending {
 }
 export declare class Database {
     #private;
+    /** Absolute path, and whether the file already existed. Logged at boot. */
+    readonly file: string;
+    readonly existed: boolean;
     constructor(file: string);
+    /**
+     * Boot diagnostics. A link count of zero on a server that had links is the
+     * signature of the database being wiped, which otherwise looks exactly like
+     * the bot "forgetting" people.
+     */
+    stats(): {
+        links: number;
+        pending: number;
+    };
     close(): void;
     linkFor(discordId: string): Link | null;
     linkBySteam(steamId: string): Link | null;

@@ -28,6 +28,13 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const db = new Database(config.databaseFile);
 
+  // If this says "new file" on every boot, the host is wiping the data
+  // directory — which looks identical, from Discord, to the bot forgetting
+  // everyone. Worth one line to tell those apart.
+  const stats = db.stats();
+  log(`database ${db.existed ? 'opened' : 'CREATED NEW'}: ${db.file}`);
+  log(`  ${stats.links} link(s), ${stats.pending} pending`);
+
   const rcon = new EvrimaRcon({ ...config.rcon, onLog: log });
   const mod = new ModBridge(config.sftp, log);
   const admins = new AdminStore(config.sftp, config.gameIniPath, db, log);
@@ -94,6 +101,12 @@ async function main(): Promise<void> {
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+
+  // A stray rejection anywhere else must not take the bot down silently; the
+  // host would restart it and the only trace would be a gap in the log.
+  process.on('unhandledRejection', (reason) => {
+    log(`UNHANDLED REJECTION: ${describeError(reason)}`);
+  });
 }
 
 async function dispatch(ctx: Ctx, interaction: Interaction): Promise<void> {
@@ -133,6 +146,16 @@ function startChatWatcher(ctx: Ctx): void {
   const lastReply = new Map<string, number>();
   let primed = false;
 
+  /**
+   * The mod names events `chat-<steam>-<unix seconds>`, so their age is
+   * recoverable. Zero when it cannot be parsed, which reads as "ancient" and is
+   * the safe direction: ignored rather than replayed.
+   */
+  const secondsOld = (id: string): number => {
+    const stamp = /-(\d+)$/.exec(id)?.[1];
+    return stamp ? Date.now() / 1000 - Number(stamp) : Number.POSITIVE_INFINITY;
+  };
+
   const tick = async (): Promise<void> => {
     let events;
     try {
@@ -141,51 +164,34 @@ function startChatWatcher(ctx: Ctx): void {
       return; // the server is unreachable; try again next time
     }
 
-    // The results file keeps events until it rotates, so on the first pass we
-    // only take note of what is already there. Otherwise every restart replays
-    // the whole history and messages people about things they typed hours ago.
+    // On the first pass, skip what is already old — the results file keeps
+    // everything, and replaying it would message people about things they typed
+    // hours ago. Anything recent is still acted on, because a player who typed
+    // their code seconds before the bot restarted should not have to do it
+    // again. Marking the whole file handled was doing exactly that.
     if (!primed) {
       primed = true;
-      for (const event of events) handled.add(event.id);
-      return;
+      for (const event of events) {
+        if (secondsOld(event.id) > 120) handled.add(event.id);
+      }
+      const pending = events.filter((e) => !handled.has(e.id)).length;
+      if (pending > 0) log(`chat: ${pending} recent event(s) carried over a restart`);
     }
 
     for (const event of events) {
       if (handled.has(event.id)) continue;
-      handled.add(event.id);
 
-      if (event.verb === 'discordreq') {
-        // The chat hook has been seen firing twice for one message, 9 seconds
-        // apart — well outside the mod's own dedupe window — so the reply is
-        // rate limited per player as well.
-        const key = `${event.steam}|discord`;
-        const previous = lastReply.get(key) ?? 0;
-        if (Date.now() - previous < 30_000) continue;
-        lastReply.set(key, Date.now());
-
-        await sendInvite(ctx, event.steam);
-        continue;
+      // One bad event must not take down the loop. Before, an exception here
+      // escaped as an unhandled rejection — which by default kills the process
+      // — and the event had already been marked handled, so the link was lost
+      // for good.
+      try {
+        await handleChatEvent(ctx, event, lastReply);
+        handled.add(event.id);
+      } catch (err) {
+        log(`chat: failed to handle ${event.verb} from ${event.steam}: ${describeError(err)}`);
+        // Deliberately left unhandled so the next pass retries it.
       }
-
-      // Find whoever asked for this code, and check it was them who typed it.
-      const pending = ctx.db.pendingByCode(event.text.toUpperCase());
-      if (!pending) continue;
-      if (pending.steamId !== event.steam) {
-        log(`link: ${event.steam} used a code issued for ${pending.steamId} — ignored`);
-        continue;
-      }
-      if (Date.now() > pending.expiresAt) {
-        ctx.db.clearPending(pending.discordId);
-        continue;
-      }
-
-      ctx.db.saveLink(pending.discordId, pending.steamId);
-      ctx.db.clearPending(pending.discordId);
-      log(`link: ${pending.discordId} <- ${pending.steamId}`);
-
-      // Turns their own "/link" reply into a confirmation, in the channel they
-      // are already looking at and visible only to them.
-      await announceLinked(pending.discordId);
     }
 
     // Keep the seen-set from growing without bound on a long-running bot.
@@ -199,6 +205,56 @@ function startChatWatcher(ctx: Ctx): void {
 
   setInterval(() => void tick(), 3000).unref();
   void tick();
+}
+
+/** One chat event. Throwing here means "retry next pass". */
+async function handleChatEvent(
+  ctx: Ctx,
+  event: { id: string; verb: string; steam: string; text: string },
+  lastReply: Map<string, number>,
+): Promise<void> {
+  if (event.verb === 'discordreq') {
+    // The chat hook has been seen firing twice for one message, 9 seconds
+    // apart — well outside the mod's own dedupe window — so the reply is
+    // rate limited per player as well.
+    const key = `${event.steam}|discord`;
+    if (Date.now() - (lastReply.get(key) ?? 0) < 30_000) return;
+    lastReply.set(key, Date.now());
+
+    await sendInvite(ctx, event.steam);
+    return;
+  }
+
+  // Find whoever asked for this code, and check it was them who typed it.
+  const pending = ctx.db.pendingByCode(event.text.toUpperCase());
+  if (!pending) return;
+
+  if (pending.steamId !== event.steam) {
+    log(`link: ${event.steam} used a code issued for ${pending.steamId} — ignored`);
+    return;
+  }
+  if (Date.now() > pending.expiresAt) {
+    ctx.db.clearPending(pending.discordId);
+    log(`link: code for ${pending.discordId} had expired`);
+    return;
+  }
+
+  // steam_id is UNIQUE, so saving over someone else's link would throw. Say
+  // which accounts collided instead of failing with a constraint error.
+  const owner = ctx.db.linkBySteam(pending.steamId);
+  if (owner && owner.discordId !== pending.discordId) {
+    ctx.db.clearPending(pending.discordId);
+    log(`link: ${pending.steamId} already belongs to ${owner.discordId} — refused`);
+    return;
+  }
+
+  ctx.db.saveLink(pending.discordId, pending.steamId);
+  ctx.db.clearPending(pending.discordId);
+  log(`link: ${pending.discordId} <- ${pending.steamId}`);
+
+  // Turns their own "/link" reply into a confirmation, in the channel they are
+  // already looking at and visible only to them.
+  await announceLinked(pending.discordId);
 }
 
 /**

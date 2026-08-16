@@ -58,12 +58,31 @@ export interface Pending {
 
 export class Database {
   readonly #db: DatabaseSync;
+  /** Absolute path, and whether the file already existed. Logged at boot. */
+  readonly file: string;
+  readonly existed: boolean;
 
   constructor(file: string) {
-    fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
-    this.#db = new DatabaseSync(file);
+    this.file = path.resolve(file);
+    this.existed = fs.existsSync(this.file);
+    fs.mkdirSync(path.dirname(this.file), { recursive: true });
+    this.#db = new DatabaseSync(this.file);
     this.#db.exec('PRAGMA journal_mode = WAL;');
     this.#db.exec(SCHEMA);
+  }
+
+  /**
+   * Boot diagnostics. A link count of zero on a server that had links is the
+   * signature of the database being wiped, which otherwise looks exactly like
+   * the bot "forgetting" people.
+   */
+  stats(): { links: number; pending: number } {
+    const one = (sql: string): number =>
+      Number((this.#db.prepare(sql).get() as Record<string, unknown>)['n']);
+    return {
+      links: one('SELECT COUNT(*) AS n FROM links'),
+      pending: one('SELECT COUNT(*) AS n FROM pending_links'),
+    };
   }
 
   close(): void {
