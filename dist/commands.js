@@ -5,6 +5,7 @@ import { buildCommandsEmbed, buildStorageGuideEmbed } from './guides.js';
 import { refreshPopulationPanel, setPopulationChannel } from './livepanel.js';
 import { showPanel, stopAutoRefresh } from './panel.js';
 import { postOrEdit } from './pinned.js';
+import { buildBalanceEmbed, buildLeaderboardEmbed, display, ratePerHour, setRatePerHour, } from './points.js';
 import { nextRestart, restartSettings, setRestartAnnounce, setRestartInterval, setRestartsEnabled, WARNINGS, } from './restarts.js';
 import { refreshStatusPanel, setStatusChannel } from './status.js';
 import { buildPopulationEmbed } from './population.js';
@@ -64,6 +65,11 @@ export const commandData = [
     new SlashCommandBuilder()
         .setName('population')
         .setDescription(`What is roaming ${SERVER} right now`),
+    new SlashCommandBuilder()
+        .setName('points')
+        .setDescription('Points you have earned by playing')
+        .addSubcommand((s) => s.setName('balance').setDescription('How many points you have'))
+        .addSubcommand((s) => s.setName('top').setDescription('Who has the most')),
     // Deliberately not hidden behind setDefaultMemberPermissions: staff who are
     // on the bot's own admin list may not hold Manage Server, and a command they
     // cannot see is a command they cannot use. The check happens in code.
@@ -112,7 +118,20 @@ export const commandData = [
         .addChannelOption((o) => o.setName('channel').setDescription('Channel for warnings')
         .addChannelTypes(ChannelType.GuildText).setRequired(true))
         .addRoleOption((o) => o.setName('role').setDescription('Role to ping (optional)')))
-        .addSubcommand((s) => s.setName('status').setDescription('Show the restart schedule'))),
+        .addSubcommand((s) => s.setName('status').setDescription('Show the restart schedule')))
+        .addSubcommandGroup((g) => g.setName('points').setDescription('Adjust player points')
+        .addSubcommand((s) => s.setName('give').setDescription('Add points to someone')
+        .addUserOption((o) => o.setName('user').setDescription('Who').setRequired(true))
+        .addNumberOption((o) => o.setName('amount').setDescription('How many').setMinValue(0).setRequired(true)))
+        .addSubcommand((s) => s.setName('take').setDescription('Remove points from someone')
+        .addUserOption((o) => o.setName('user').setDescription('Who').setRequired(true))
+        .addNumberOption((o) => o.setName('amount').setDescription('How many').setMinValue(0).setRequired(true)))
+        .addSubcommand((s) => s.setName('set').setDescription('Set someone’s balance exactly')
+        .addUserOption((o) => o.setName('user').setDescription('Who').setRequired(true))
+        .addNumberOption((o) => o.setName('amount').setDescription('New balance').setMinValue(0).setRequired(true)))
+        .addSubcommand((s) => s.setName('rate').setDescription('Points earned per hour played')
+        .addNumberOption((o) => o.setName('per_hour').setDescription('Points per hour')
+        .setMinValue(0).setMaxValue(10_000).setRequired(true)))),
 ].map((b) => b.toJSON());
 export async function handleCommand(ctx, i) {
     switch (i.commandName) {
@@ -121,6 +140,7 @@ export async function handleCommand(ctx, i) {
         case 'slay': return handleSlay(ctx, i);
         case 'storage': return handleStorage(ctx, i);
         case 'population': return handlePopulation(ctx, i);
+        case 'points': return handlePoints(ctx, i);
         case 'admin': return handleAdmin(ctx, i);
         default:
             await i.reply({ content: 'Unknown command.', flags: MessageFlags.Ephemeral });
@@ -273,6 +293,71 @@ async function handleStorage(ctx, i) {
     await i.deferReply({ flags: MessageFlags.Ephemeral });
     await showPanel(ctx, i, i.user.id, link.steamId);
 }
+// ----------------------------------------------------------------- points --
+async function handlePoints(ctx, i) {
+    if (i.options.getSubcommand() === 'top') {
+        await i.deferReply();
+        const rows = ctx.db.topPoints(10);
+        // Points are keyed by Steam ID, so anyone unlinked has no name to show.
+        const nameFor = (steamId) => {
+            const link = ctx.db.linkBySteam(steamId);
+            return link ? `<@${link.discordId}>` : `\`${steamId.slice(-6)}\``;
+        };
+        await i.editReply({ embeds: [buildLeaderboardEmbed(rows, nameFor)] });
+        return;
+    }
+    const link = ctx.db.linkFor(i.user.id);
+    if (!link) {
+        await i.reply({
+            embeds: [embed(COLORS.warn, 'Link your account first', `Points are earned in game, so \`/link\` first — anything you have already ` +
+                    'earned is waiting for you.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    const { balance, minutes } = ctx.db.pointsFor(link.steamId);
+    await i.reply({
+        embeds: [buildBalanceEmbed(balance, minutes, ratePerHour(ctx))],
+        flags: MessageFlags.Ephemeral,
+    });
+}
+async function handleAdminPoints(ctx, i, action) {
+    if (action === 'rate') {
+        const rate = i.options.getNumber('per_hour', true);
+        setRatePerHour(ctx, rate);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Rate changed', `Players now earn **${rate}** points an hour. Existing balances are untouched.`)],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    const user = i.options.getUser('user', true);
+    const link = ctx.db.linkFor(user.id);
+    if (!link) {
+        await i.reply({
+            embeds: [embed(COLORS.warn, 'Not linked', `${user} has not linked a Steam account, and points are held against the ` +
+                    'Steam ID rather than the Discord account.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    const amount = i.options.getNumber('amount', true);
+    const before = ctx.db.pointsFor(link.steamId).balance;
+    if (action === 'give')
+        ctx.db.addPoints(link.steamId, amount);
+    else if (action === 'take')
+        ctx.db.setPoints(link.steamId, before - amount);
+    else
+        ctx.db.setPoints(link.steamId, amount);
+    const after = ctx.db.pointsFor(link.steamId).balance;
+    await i.reply({
+        embeds: [embed(COLORS.good, 'Points updated', `${user}: **${display(before).toLocaleString()}** → **${display(after).toLocaleString()}**` +
+                (action === 'take' && before - amount < 0
+                    ? '\n\nThat would have gone negative, so it stopped at zero.'
+                    : ''))],
+        flags: MessageFlags.Ephemeral,
+    });
+}
 // ------------------------------------------------------------------ admin --
 /**
  * Manage Server is the bootstrap: it always works, so the server owner can
@@ -306,6 +391,8 @@ async function handleAdmin(ctx, i) {
         return handleStatusPanel(ctx, i, action);
     if (group === 'restarts')
         return handleRestarts(ctx, i, action);
+    if (group === 'points')
+        return handleAdminPoints(ctx, i, action);
     return handleGameAdmin(ctx, i, action);
 }
 async function handleStatusPanel(ctx, i, action) {

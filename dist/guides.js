@@ -82,6 +82,11 @@ export function buildCommandsEmbed() {
         value: `What is roaming ${SERVER} right now: species, adults, gender split and ` +
             'prime. Names nobody.',
     }, {
+        name: '🪙  `/points`',
+        value: 'What you have earned by playing, and `/points top` for the leaderboard.\n' +
+            'You earn simply by being on the server — there is nothing to spend them ' +
+            'on yet.',
+    }, {
         name: '💬  In game',
         value: '`!discord` — Vesta sends you the invite link\n' +
             '`!link CODE` — finishes linking your account',

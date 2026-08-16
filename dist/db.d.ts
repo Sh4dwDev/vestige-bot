@@ -43,6 +43,21 @@ export declare class Database {
     isBotAdmin(discordId: string): boolean;
     addBotAdmin(discordId: string, addedBy: string): void;
     removeBotAdmin(discordId: string): boolean;
+    pointsFor(steamId: string): {
+        balance: number;
+        minutes: number;
+    };
+    /** Adds to a balance, creating the row if this is their first minute. */
+    addPoints(steamId: string, amount: number, minutes?: number): void;
+    /** Awards every online player in one transaction, so a crash cannot half-pay. */
+    awardOnline(steamIds: string[], amount: number, minutes: number): void;
+    /** Never goes below zero — a negative balance would be a bug with a shop attached. */
+    setPoints(steamId: string, balance: number): void;
+    topPoints(limit: number): Array<{
+        steamId: string;
+        balance: number;
+        minutes: number;
+    }>;
     getSetting(key: string): string | null;
     setSetting(key: string, value: string): void;
 }

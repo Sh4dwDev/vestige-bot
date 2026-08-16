@@ -6,6 +6,7 @@ import { announceLinked, describeError, handleCommand } from './commands.js';
 import { loadConfig } from './config.js';
 import { Database } from './db.js';
 import { startPopulationPanel } from './livepanel.js';
+import { awardOnline } from './points.js';
 import { Panel } from './pterodactyl.js';
 import { startRestartScheduler } from './restarts.js';
 import { refreshStatusPanel } from './status.js';
@@ -258,8 +259,26 @@ async function sendInvite(ctx, steamId) {
  */
 function startServerPoll(ctx, client) {
     let previous;
+    let lastAward = Date.now();
     const tick = async () => {
-        const online = await ctx.rcon.players().then((p) => p.length).catch(() => null);
+        const players = await ctx.rcon.players().catch(() => null);
+        const online = players?.length ?? null;
+        // Points accrue against this poll rather than a timer of their own, so a
+        // player is only ever paid for time they were actually seen online.
+        if (players !== null) {
+            const elapsed = Date.now() - lastAward;
+            lastAward = Date.now();
+            try {
+                awardOnline(ctx, players.map((p) => p.steamId), elapsed);
+            }
+            catch (err) {
+                log(`points: award failed: ${describeError(err)}`);
+            }
+        }
+        else {
+            // Do not bank time while the server is unreachable — nobody is playing.
+            lastAward = Date.now();
+        }
         // Before the status, because reading Game.ini is also what refreshes the
         // slot count the status wants to show.
         try {

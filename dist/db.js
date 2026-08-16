@@ -40,6 +40,17 @@ CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- Points are keyed by Steam ID, not Discord: they are earned by being in game,
+-- so an unlinked player still accrues and finds their balance waiting when they
+-- do link. Balance is REAL so a rate that is not a whole number per minute does
+-- not quietly round away to nothing.
+CREATE TABLE IF NOT EXISTS points (
+  steam_id   TEXT PRIMARY KEY,
+  balance    REAL NOT NULL DEFAULT 0,
+  minutes    INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+);
 `;
 export class Database {
     #db;
@@ -168,6 +179,57 @@ export class Database {
     }
     removeBotAdmin(discordId) {
         return Number(this.#db.prepare('DELETE FROM bot_admins WHERE discord_id = ?').run(discordId).changes) > 0;
+    }
+    // ---- points ------------------------------------------------------------
+    pointsFor(steamId) {
+        const row = this.#db
+            .prepare('SELECT balance, minutes FROM points WHERE steam_id = ?')
+            .get(steamId);
+        return row
+            ? { balance: Number(row['balance']), minutes: Number(row['minutes']) }
+            : { balance: 0, minutes: 0 };
+    }
+    /** Adds to a balance, creating the row if this is their first minute. */
+    addPoints(steamId, amount, minutes = 0) {
+        this.#db
+            .prepare(`INSERT INTO points (steam_id, balance, minutes, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT (steam_id) DO UPDATE SET balance = balance + excluded.balance,
+                                              minutes = minutes + excluded.minutes,
+                                              updated_at = excluded.updated_at`)
+            .run(steamId, amount, minutes, new Date().toISOString());
+    }
+    /** Awards every online player in one transaction, so a crash cannot half-pay. */
+    awardOnline(steamIds, amount, minutes) {
+        if (steamIds.length === 0 || amount <= 0)
+            return;
+        this.#db.exec('BEGIN');
+        try {
+            for (const steamId of steamIds)
+                this.addPoints(steamId, amount, minutes);
+            this.#db.exec('COMMIT');
+        }
+        catch (err) {
+            this.#db.exec('ROLLBACK');
+            throw err;
+        }
+    }
+    /** Never goes below zero — a negative balance would be a bug with a shop attached. */
+    setPoints(steamId, balance) {
+        this.#db
+            .prepare(`INSERT INTO points (steam_id, balance, minutes, updated_at) VALUES (?, ?, 0, ?)
+         ON CONFLICT (steam_id) DO UPDATE SET balance = excluded.balance,
+                                              updated_at = excluded.updated_at`)
+            .run(steamId, Math.max(0, balance), new Date().toISOString());
+    }
+    topPoints(limit) {
+        const rows = this.#db
+            .prepare('SELECT steam_id, balance, minutes FROM points ORDER BY balance DESC LIMIT ?')
+            .all(limit);
+        return rows.map((row) => ({
+            steamId: String(row['steam_id']),
+            balance: Number(row['balance']),
+            minutes: Number(row['minutes']),
+        }));
     }
     // ---- settings ----------------------------------------------------------
     getSetting(key) {

@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty",
-    "test": "node test/rcon.test.mjs && node test/bridge.test.mjs && node test/population.test.mjs && node test/admins.test.mjs && node test/guides.test.mjs && node test/restarts.test.mjs",
+    "test": "node test/rcon.test.mjs && node test/bridge.test.mjs && node test/population.test.mjs && node test/admins.test.mjs && node test/guides.test.mjs && node test/restarts.test.mjs && node test/points.test.mjs",
     "verify": "pnpm typecheck && pnpm build && pnpm test",
     "start": "node --experimental-sqlite --env-file-if-exists=.env dist/index.js",
     "commands": "node --experimental-sqlite --env-file-if-exists=.env dist/deploy-commands.js",

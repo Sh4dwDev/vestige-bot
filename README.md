@@ -130,6 +130,8 @@ and administration.
 | `/storage` | linked | Embed with buttons: store, restore, rename, delete. Auto-refreshes every 20 s for 13 min |
 | `/slay` | linked | Own dinosaur only — the Steam ID comes from the link table, never from user input |
 | `/population` | anyone | Species, adults, gender split, prime. Names nobody |
+| `/points balance\|top` | linked / anyone | Points earned by playing, and the leaderboard |
+| `/admin points give\|take\|set\|rate` | staff | Adjust balances and the earning rate |
 | `/admin game add\|remove\|list` | staff | In-game admins, via Game.ini |
 | `/admin bot add\|remove\|list` | staff | Who may use `/admin` |
 | `/admin population channel\|off` | staff | The self-updating population panel |
@@ -207,6 +209,26 @@ Note the status counts **connected players** while the panel counts **dinosaurs
 playing**. They differ legitimately — somebody sitting on the spawn screen is
 connected but is not a dinosaur — so the two figures are deliberately not
 conflated.
+
+---
+
+## Points
+
+Earned by being on the server, at a rate set with `/admin points rate` (default
+60 an hour). Nothing spends them yet — deliberately, so the earning side can run
+long enough to be seen as fair before anything depends on the numbers.
+
+Two decisions worth keeping:
+
+- **Keyed by Steam ID, not Discord.** Someone who has never touched Discord
+  still accrues, and finds a balance waiting when they link.
+- **Awarded from the minute poll, and capped** at five minutes per award. Paying
+  for wall-clock time would mean a bot that was down overnight paying everyone
+  online for the whole outage on its first tick. Players are only paid for time
+  they were actually observed online.
+
+Balances are stored as `REAL` so a rate below one point per minute does not
+round away, and displayed floored so nobody argues about a missing point.
 
 ---
 
