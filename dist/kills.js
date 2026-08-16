@@ -19,7 +19,7 @@ export function killfeedChannel(ctx) {
 /** How a death with no attacker is described, by what the mod could tell. */
 const CAUSE_TEXT = {
     health: 'died',
-    vanished: 'died',
+    killed: 'was killed',
 };
 export function buildKillEmbed(event, nameFor) {
     const victim = `${nameFor(event.victim)}${event.species ? ` *(${event.species})*` : ''}`;

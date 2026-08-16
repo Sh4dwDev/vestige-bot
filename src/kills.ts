@@ -33,7 +33,7 @@ export interface KillEvent {
 /** How a death with no attacker is described, by what the mod could tell. */
 const CAUSE_TEXT: Record<string, string> = {
   health: 'died',
-  vanished: 'died',
+  killed: 'was killed',
 };
 
 export function buildKillEmbed(

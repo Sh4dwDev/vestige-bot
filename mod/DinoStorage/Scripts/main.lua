@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "2.7.0"
+local MOD_VERSION = "2.8.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1346,10 +1346,13 @@ local function emitDeath(steam, pawn, cause)
             killer, steam, jsonEscape(species), cause))
 end
 
--- why polling: Evrima fires no death event a server can hook, so the only
--- reliable signal is health crossing to zero. A pawn that vanishes while it was
--- last seen alive counts too — on a fast death the corpse can be gone before
--- the next poll reads it.
+-- why polling: Evrima fires no death event a server can hook, so health
+-- crossing to zero is the only trustworthy signal.
+--
+-- A vanishing pawn is NOT trustworthy on its own. Spectator camera unpossesses
+-- the pawn exactly like death does — observed live, and it reported a healthy
+-- player as dead. So a vanish only counts when something hit them moments
+-- before, which is the case a fast death would otherwise slip through.
 local function watchDeaths()
     for _, player in ipairs(onlinePlayers()) do
         local health
@@ -1367,9 +1370,12 @@ local function watchDeaths()
                 lastHealth[player.steam] = health
             end
         elseif previous ~= nil and previous > 0 then
-            -- No pawn, but they were alive a moment ago. Spawn-select after a
-            -- death looks exactly like this, which is the point.
-            emitDeath(player.steam, nil, "vanished")
+            local hit = lastHit[player.steam]
+            if hit ~= nil and (os.time() - hit.at) <= HIT_WINDOW_SEC then
+                emitDeath(player.steam, nil, "killed")
+            end
+            -- Otherwise: spectating, disconnecting or on spawn-select. Forget
+            -- the health so returning does not look like a resurrection.
             lastHealth[player.steam] = nil
         end
     end

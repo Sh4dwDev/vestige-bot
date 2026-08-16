@@ -160,6 +160,13 @@ What does work is attribution, not detection:
 | That someone died | Poll pawn health for a `>0 → 0` transition |
 | Joining the two | Credit the cached attacker if the death lands within ~20 s |
 
+**A vanishing pawn is not a death.** Spectator camera unpossesses the pawn
+exactly as dying does, so "pawn gone while last seen alive" reports healthy
+players as dead — observed live on 2026-08-16, a player entering spec cam
+produced a death in the feed. A vanish only counts when something damaged them
+within the attribution window; otherwise it is spectating, disconnecting or
+spawn-select.
+
 `ApplyDamage` fires on **direct player attacks only** — not damage over time, not
 environmental, not AI. Those deaths are real but unattributed, so a kill count
 and a death count will never reconcile. Say so in the UI rather than letting
