@@ -10,6 +10,7 @@ import { handleHubInteraction } from './hub.js';
 import { buildKillEmbed, killfeedChannel } from './kills.js';
 import { awardOnline } from './points.js';
 import { clearRequest, requestFor, runAccepted } from './teleport.js';
+import { killReward, tierOf } from './tiers.js';
 import { Panel } from './pterodactyl.js';
 import { startRestartScheduler } from './restarts.js';
 import { refreshStatusPanel } from './status.js';
@@ -226,6 +227,13 @@ async function handleChatEvent(ctx, event, lastReply, client) {
             cause: String(raw.cause ?? 'health'),
         };
         ctx.db.recordKill(kill.killer, kill.victim, kill.species, kill.cause);
+        // Only an attributed kill pays: nobody is owed points for a starvation.
+        if (kill.killer) {
+            const reward = killReward(ctx, tierOf(ctx, kill.killerSpecies), tierOf(ctx, kill.species));
+            ctx.db.addPoints(kill.killer, reward.points);
+            log(`points: ${kill.killer} earned ${Math.round(reward.points)} for a kill` +
+                (reward.upset > 0 ? ` (${reward.upset} tier upset)` : ''));
+        }
         const channelId = killfeedChannel(ctx);
         if (channelId && client) {
             const channel = await client.channels.fetch(channelId).catch(() => null);
@@ -312,12 +320,13 @@ function startServerPoll(ctx, client) {
         const players = await ctx.rcon.players().catch(() => null);
         const online = players?.length ?? null;
         // Points accrue against this poll rather than a timer of their own, so a
-        // player is only ever paid for time they were actually seen online.
+        // player is only ever paid for time they were actually seen online. The
+        // species comes from the mod, since the payout is scaled by tier.
         if (players !== null) {
             const elapsed = Date.now() - lastAward;
             lastAward = Date.now();
             try {
-                awardOnline(ctx, players.map((p) => p.steamId), elapsed);
+                awardOnline(ctx, await ctx.mod.players(), elapsed);
             }
             catch (err) {
                 log(`points: award failed: ${describeError(err)}`);

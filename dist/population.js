@@ -111,13 +111,19 @@ export function buildPopulationEmbed(players, options = {}) {
     // A handful of species reads far better as cards than as a one-row table,
     // which is what it looked like: mostly empty column headers. Past a certain
     // count the cards wrap badly and the dense table earns its place again.
-    if (rows.length <= FIELD_LIMIT) {
+    // Highest tier first: an apex on the island is the thing people scan for.
+    const tier = options.tierOf ?? (() => 0);
+    const ordered = options.tierOf
+        ? [...rows].sort((a, b) => tier(b.species) - tier(a.species) || b.online - a.online)
+        : rows;
+    if (ordered.length <= FIELD_LIMIT) {
         embed
             .setDescription(headline)
-            .addFields(rows.map((row) => {
+            .addFields(ordered.map((row) => {
             const cap = capFor.get(row.species);
+            const badge = options.tierOf ? ` \`T${tier(row.species)}\`` : '';
             return {
-                name: `${cap?.locked ? '🔒' : icon(row.species)}  ${row.species}`,
+                name: `${cap?.locked ? '🔒' : icon(row.species)}  ${row.species}${badge}`,
                 value: 
                 // The threshold is shown per species because it differs, and a
                 // reader comparing two cards would otherwise think it is wrong.

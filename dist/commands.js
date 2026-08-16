@@ -5,6 +5,7 @@ import { buildCommandsEmbed, buildStorageGuideEmbed } from './guides.js';
 import { refreshPopulationPanel, setPopulationChannel } from './livepanel.js';
 import { mutationList, speciesList, suggest } from './catalog.js';
 import { isRemoved, mutationChoices } from './mutations.js';
+import { multiplierFor, setMultiplier, setTier, TIER_LABEL, tierOf } from './tiers.js';
 import { cleanSlotName, showPanel, stopAutoRefresh } from './panel.js';
 import { addRequest, askEmbed, askRows, cooldownMinutes, delaySeconds, requestFor, } from './teleport.js';
 import { buildHubEmbed, hubRows, HUB_MESSAGE_KEY, setHubChannel } from './hub.js';
@@ -124,6 +125,20 @@ export const commandData = [
         .addStringOption((o) => o.setName('mutation3').setDescription('Mutation').setAutocomplete(true))
         .addStringOption((o) => o.setName('mutation4').setDescription('Mutation').setAutocomplete(true))
         .addStringOption((o) => o.setName('slot').setDescription('Slot name they will see (default: the species)'))))
+        .addSubcommandGroup((g) => g.setName('tier').setDescription('Species tiers, which drive points')
+        .addSubcommand((s) => s.setName('set').setDescription('Put a species in a tier')
+        .addStringOption((o) => o.setName('species').setDescription('Species').setAutocomplete(true).setRequired(true))
+        .addIntegerOption((o) => o.setName('tier').setDescription('1 to 4')
+        .setMinValue(1).setMaxValue(4).setRequired(true)))
+        .addSubcommand((s) => s.setName('multiplier').setDescription('How much a tier earns and its kills are worth')
+        .addIntegerOption((o) => o.setName('tier').setDescription('1 to 4')
+        .setMinValue(1).setMaxValue(4).setRequired(true))
+        .addNumberOption((o) => o.setName('multiplier').setDescription('e.g. 2 for double')
+        .setMinValue(0).setMaxValue(20).setRequired(true)))
+        .addSubcommand((s) => s.setName('killpoints').setDescription('Base points for a kill, before tier scaling')
+        .addIntegerOption((o) => o.setName('points').setDescription('Default 50')
+        .setMinValue(0).setMaxValue(100_000).setRequired(true)))
+        .addSubcommand((s) => s.setName('list').setDescription('Show every species and its tier')))
         .addSubcommandGroup((g) => g.setName('species').setDescription('Per-species population caps')
         .addSubcommand((s) => s.setName('cap').setDescription('Cap how many of a species may be online')
         .addStringOption((o) => o.setName('species').setDescription('Exact species name, e.g. Tyrannosaurus')
@@ -633,6 +648,54 @@ async function handleGive(ctx, i) {
         });
     }
 }
+// ------------------------------------------------------------------ tiers --
+async function handleTiers(ctx, i, action) {
+    if (action === 'list') {
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        const species = await speciesList(ctx);
+        const byTier = new Map();
+        for (const name of species) {
+            const tier = tierOf(ctx, name);
+            byTier.set(tier, [...(byTier.get(tier) ?? []), name]);
+        }
+        const lines = [4, 3, 2, 1].map((tier) => `**${TIER_LABEL[tier]}** ·  ×${multiplierFor(ctx, tier)} points\n` +
+            (byTier.get(tier)?.join(', ') || '_nothing_'));
+        await i.editReply({
+            embeds: [embed(COLORS.info, 'Species tiers', `${lines.join('\n\n')}\n\nA kill is worth the **victim's** tier, with a bonus ` +
+                    'for killing something above you.')],
+        });
+        return;
+    }
+    if (action === 'killpoints') {
+        const points = i.options.getInteger('points', true);
+        ctx.db.setSetting('kill_points', String(points));
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Kill value set', `A kill is now worth **${points}** points before tier scaling — so a tier 4 ` +
+                    `victim pays ${Math.round(points * multiplierFor(ctx, 4))}.`)],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'multiplier') {
+        const tier = i.options.getInteger('tier', true);
+        const multiplier = i.options.getNumber('multiplier', true);
+        setMultiplier(ctx, tier, multiplier);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Multiplier set', `**${TIER_LABEL[tier]}** now earns **×${multiplier}** points, and its kills ` +
+                    'are worth that much more.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    const species = i.options.getString('species', true).trim();
+    const tier = i.options.getInteger('tier', true);
+    setTier(ctx, species, tier);
+    await i.reply({
+        embeds: [embed(COLORS.good, 'Tier set', `**${species}** is now **${TIER_LABEL[tier]}** — ×${multiplierFor(ctx, tier)} points ` +
+                'while playing it, and worth that much more to kill.')],
+        flags: MessageFlags.Ephemeral,
+    });
+}
 // ---------------------------------------------------------------- species --
 async function handleSpecies(ctx, i, action) {
     if (action === 'channel') {
@@ -712,6 +775,8 @@ async function handleAdmin(ctx, i) {
         return handleStatusPanel(ctx, i, action);
     if (group === 'give')
         return handleGive(ctx, i);
+    if (group === 'tier')
+        return handleTiers(ctx, i, action);
     if (group === 'species')
         return handleSpecies(ctx, i, action);
     if (group === 'teleport') {

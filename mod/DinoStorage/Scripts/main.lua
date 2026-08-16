@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.1.0"
+local MOD_VERSION = "3.2.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1094,9 +1094,11 @@ local function handlePlayers(cmd)
                     if pe ~= nil and pe.bIsEligiblePrime == true then prime = true end
                 end)
 
+                -- steam travels with the row so the bot can pay points by what
+                -- someone is actually playing, not just that they are connected.
                 items[#items + 1] = string.format(
-                    '{"species":"%s","growth":%.4f,"female":%s,"prime":%s}',
-                    jsonEscape(speciesOf(classPath)), growth,
+                    '{"steam":"%s","species":"%s","growth":%.4f,"female":%s,"prime":%s}',
+                    p.steam, jsonEscape(speciesOf(classPath)), growth,
                     female and "true" or "false", prime and "true" or "false")
             end
         end

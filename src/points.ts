@@ -2,6 +2,8 @@ import { EmbedBuilder } from 'discord.js';
 
 import { SERVER, SIGNATURE } from './brand.js';
 import type { Ctx } from './commands.js';
+import type { PlayerRow } from './population.js';
+import { multiplierFor, tierOf } from './tiers.js';
 
 /**
  * Points, earned by playing.
@@ -46,13 +48,25 @@ export function awardFor(
   return { points: (minutes / 60) * rate, minutes: Math.round(minutes) };
 }
 
-/** Called from the minute poll, which already knows who is online. */
-export function awardOnline(ctx: Ctx, steamIds: string[], elapsedMs: number): number {
+/**
+ * Pays everyone currently playing, scaled by the tier of what they are on.
+ *
+ * Takes the mod's player rows rather than a list of Steam IDs, because the tier
+ * depends on the species — which means someone sitting on the spawn screen
+ * earns nothing. That is the intended reading of "earned by playing".
+ */
+export function awardOnline(ctx: Ctx, players: PlayerRow[], elapsedMs: number): number {
   const { points, minutes } = awardFor(elapsedMs, ratePerHour(ctx));
-  if (points <= 0 || steamIds.length === 0) return 0;
+  if (points <= 0 || players.length === 0) return 0;
 
-  ctx.db.awardOnline(steamIds, points, minutes);
-  return points;
+  let paid = 0;
+  for (const player of players) {
+    if (!player.steam) continue;
+    const scaled = points * multiplierFor(ctx, tierOf(ctx, player.species));
+    ctx.db.addPoints(player.steam, scaled, minutes);
+    paid += scaled;
+  }
+  return paid;
 }
 
 // ------------------------------------------------------------------ embeds --

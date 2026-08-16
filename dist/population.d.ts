@@ -8,6 +8,8 @@ import { EmbedBuilder } from 'discord.js';
  * wrong. Prime is expressed against adults, because only adults can be prime.
  */
 export interface PlayerRow {
+    /** Present from mod v3.2.0 on; older payloads omit it. */
+    steam?: string;
     species: string;
     growth: number;
     female: boolean;
@@ -35,5 +37,7 @@ export interface PopulationOptions {
         cap: number;
         locked: boolean;
     }>;
+    /** Species tier, for grouping and the card badge. */
+    tierOf?: (species: string) => number;
 }
 export declare function buildPopulationEmbed(players: PlayerRow[], options?: PopulationOptions): EmbedBuilder;

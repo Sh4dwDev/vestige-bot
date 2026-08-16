@@ -1,6 +1,7 @@
 import { postOrEdit } from './pinned.js';
 import { buildPopulationEmbed } from './population.js';
 import { checkSpeciesLocks } from './species.js';
+import { tierOf } from './tiers.js';
 /**
  * The population embed that lives in a channel and edits itself.
  *
@@ -38,6 +39,7 @@ export async function refreshPopulationPanel(ctx, client) {
         embed = buildPopulationEmbed(await ctx.mod.players(), {
             live: true,
             caps: ctx.db.speciesCaps(),
+            tierOf: (species) => tierOf(ctx, species),
         });
     }
     catch {

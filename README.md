@@ -299,11 +299,31 @@ Catching every damage type needs the C++ path — `PostGameplayEffectExecute` on
 
 ---
 
+## Tiers
+
+Species are graded 1–4. **Evrima has no concept of tiers** — this is server
+policy, so every assignment and multiplier is overridable with `/admin tier`,
+and a species the game adds later falls to tier 1 rather than breaking anything.
+
+Tier 4 is Tyrannosaurus, Deinosuchus and Triceratops. Multipliers default to
+×1, ×1.5, ×2 and ×3.
+
+Tier drives both halves of the economy:
+
+- **Playing** something higher earns proportionally more per minute.
+- **A kill** pays on the **victim's** tier, plus 50% for each tier you punched
+  up. A Dryosaurus that brings down a Rex has done something a Rex killing a
+  Dryosaurus has not, and the payout says so.
+
 ## Points
 
-Earned by being on the server, at a rate set with `/admin points rate` (default
-60 an hour). Nothing spends them yet — deliberately, so the earning side can run
-long enough to be seen as fair before anything depends on the numbers.
+Earned by playing, at a base rate set with `/admin points rate` (default 60 an
+hour), scaled by tier. Nothing spends them yet — deliberately, so the earning
+side can run long enough to be seen as fair before anything depends on it.
+
+Points come from the **mod's** player list rather than RCON's, because the
+payout depends on the species. Someone sitting on the spawn screen earns
+nothing, which is the intended reading of "earned by playing".
 
 Two decisions worth keeping:
 

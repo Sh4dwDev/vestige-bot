@@ -4,6 +4,7 @@ import type { Ctx } from './commands.js';
 import { postOrEdit } from './pinned.js';
 import { buildPopulationEmbed } from './population.js';
 import { checkSpeciesLocks } from './species.js';
+import { tierOf } from './tiers.js';
 
 /**
  * The population embed that lives in a channel and edits itself.
@@ -45,6 +46,7 @@ export async function refreshPopulationPanel(ctx: Ctx, client: Client): Promise<
     embed = buildPopulationEmbed(await ctx.mod.players(), {
       live: true,
       caps: ctx.db.speciesCaps(),
+      tierOf: (species) => tierOf(ctx, species),
     });
   } catch {
     // An unreachable server still gets an embed; a panel that vanishes when the
