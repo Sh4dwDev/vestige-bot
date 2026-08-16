@@ -11,14 +11,11 @@ import { SERVER, SIGNATURE } from './brand.js';
  * wrong. Prime is expressed against adults, because only adults can be prime.
  */
 
-export interface PlayerRow {
-  /** Present from mod v3.2.0 on; older payloads omit it. */
-  steam?: string;
-  species: string;
-  growth: number;
-  female: boolean;
-  prime: boolean;
-}
+// Re-exported rather than redeclared: two copies of this shape drifted apart
+// once already, and the wire format belongs to the bridge.
+import type { PlayerRow } from './bridge.js';
+
+export type { PlayerRow };
 
 /** Species that count as adult at 50% rather than 75%. */
 const ADULT_AT_HALF = new Set([

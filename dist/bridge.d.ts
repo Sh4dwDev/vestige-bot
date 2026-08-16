@@ -8,13 +8,15 @@ import type { Config } from './config.js';
  *   inbox.ndjson     commands in
  *   results.ndjson   results out, append-only
  */
-export type Verb = 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players' | 'give' | 'teleport' | 'skin';
+export type Verb = 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players' | 'give' | 'teleport' | 'skin' | 'where' | 'skinget' | 'skinmany';
 export interface StoredSlot {
     slot: string;
     species: string;
     storedAt: number;
 }
 export interface PlayerRow {
+    /** Present from mod v3.2.0 on; older payloads omit it. */
+    steam?: string;
     species: string;
     growth: number;
     female: boolean;

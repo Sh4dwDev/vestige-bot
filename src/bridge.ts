@@ -17,7 +17,8 @@ import type { Config } from './config.js';
  */
 
 export type Verb =
-  | 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players' | 'give' | 'teleport' | 'skin';
+  | 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players'
+  | 'give' | 'teleport' | 'skin' | 'where' | 'skinget' | 'skinmany';
 
 export interface StoredSlot {
   slot: string;
@@ -26,6 +27,8 @@ export interface StoredSlot {
 }
 
 export interface PlayerRow {
+  /** Present from mod v3.2.0 on; older payloads omit it. */
+  steam?: string;
   species: string;
   growth: number;
   female: boolean;

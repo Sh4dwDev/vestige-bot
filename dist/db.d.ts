@@ -43,6 +43,10 @@ export declare class Database {
     isBotAdmin(discordId: string): boolean;
     addBotAdmin(discordId: string, addedBy: string): void;
     removeBotAdmin(discordId: string): boolean;
+    savePreset(name: string, colours: Record<string, string>, madeBy: string): void;
+    preset(name: string): Record<string, string> | null;
+    presetNames(): string[];
+    removePreset(name: string): boolean;
     speciesCaps(): Array<{
         species: string;
         cap: number;

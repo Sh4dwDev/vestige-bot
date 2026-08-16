@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.3.0"
+local MOD_VERSION = "3.5.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1216,6 +1216,11 @@ end
 local TELEPORT_OFFSET = 300.0
 local TELEPORT_TOLERANCE = 2000.0
 
+-- why 500: Unreal units are centimetres, so this is five metres. Idle
+-- animation and settling shift a pawn slightly; walking away does not fit
+-- inside it. Tight enough to mean "stayed put", loose enough not to misfire.
+local TELEPORT_MOVE_LIMIT = 500.0
+
 local function locationOf(pawn)
     local loc
     if not pcall(function() loc = pawn:K2_GetActorLocation() end) then return nil end
@@ -1227,6 +1232,25 @@ local function locationOf(pawn)
         return nil
     end
     return { X = x, Y = y, Z = z }
+end
+
+-- Where someone is right now, so the bot can tell whether they moved during
+-- the countdown. Read-only.
+local function handleWhere(cmd)
+    local pawn, err = resolvePlayer(cmd.steam)
+    if pawn == nil then
+        writeResult(cmd.id, "where", cmd.steam, false, err)
+        return
+    end
+
+    local at = locationOf(pawn)
+    if at == nil then
+        writeResult(cmd.id, "where", cmd.steam, false, "could not find where you are")
+        return
+    end
+
+    writeResult(cmd.id, "where", cmd.steam, true, "located",
+        string.format('{"x":%.1f,"y":%.1f,"z":%.1f}', at.X, at.Y, at.Z))
 end
 
 local function handleTeleport(cmd)
@@ -1262,6 +1286,24 @@ local function handleTeleport(cmd)
         return
     end
 
+    -- Same species only. Cross-species travel is a straightforward way to drop
+    -- an apex into a nest of juveniles, and the same-species rule already
+    -- governs restore.
+    local _, _, moverClass = dinosaurCheck(mover)
+    local anchorIsDino, anchorReason, anchorClass = dinosaurCheck(anchor)
+    if not anchorIsDino then
+        writeResult(cmd.id, "teleport", cmd.steam, false, "your friend " .. tostring(anchorReason))
+        return
+    end
+
+    local moverSpecies, anchorSpecies = speciesOf(moverClass), speciesOf(anchorClass)
+    if moverSpecies ~= anchorSpecies then
+        writeResult(cmd.id, "teleport", cmd.steam, false, string.format(
+            "you are a %s and they are a %s — you can only travel to your own species",
+            moverSpecies, anchorSpecies))
+        return
+    end
+
     local to = locationOf(anchor)
     if to == nil then
         writeResult(cmd.id, "teleport", cmd.steam, false, "could not find where your friend is")
@@ -1269,6 +1311,22 @@ local function handleTeleport(cmd)
     end
 
     local from = locationOf(mover)
+
+    -- If the bot recorded where they stood when the countdown began, holding
+    -- still is part of the deal: moving cancels it.
+    local fromX = tonumber(cmd.args.fromX)
+    local fromY = tonumber(cmd.args.fromY)
+    if fromX ~= nil and fromY ~= nil and from ~= nil then
+        local mx, my = from.X - fromX, from.Y - fromY
+        local drift = math.sqrt(mx * mx + my * my)
+        if drift > TELEPORT_MOVE_LIMIT then
+            log(string.format("teleport: %s moved %.0f units, cancelled", cmd.steam, drift))
+            writeResult(cmd.id, "teleport", cmd.steam, false,
+                "you moved, so the travel was cancelled — stay still next time")
+            return
+        end
+    end
+
     to.X = to.X + TELEPORT_OFFSET
 
     local moved = pcall(function()
@@ -1320,6 +1378,91 @@ local COLOR_FIELDS = {
     MaleDisplayColor = true, TeethColor = true, MouthColor = true,
     ClawsColor = true,
 }
+
+-- Reads every colour back, so a look someone built by hand can be saved as a
+-- preset rather than written down by eye. Read-only.
+local function handleSkinGet(cmd)
+    local pawn, err = resolvePlayer(cmd.steam)
+    if pawn == nil then
+        writeResult(cmd.id, "skinget", cmd.steam, false, err)
+        return
+    end
+
+    local parts = {}
+    for field in pairs(COLOR_FIELDS) do
+        local r, g, b
+        local ok = pcall(function()
+            local c = pawn.CustomizerData[field]
+            r, g, b = c.R, c.G, c.B
+        end)
+        if ok and type(r) == "number" then
+            parts[#parts + 1] = string.format('"%s":[%.5f,%.5f,%.5f]', field, r, g, b)
+        end
+    end
+
+    if #parts == 0 then
+        writeResult(cmd.id, "skinget", cmd.steam, false, "could not read their colours")
+        return
+    end
+
+    writeResult(cmd.id, "skinget", cmd.steam, true,
+        string.format("%d colour(s)", #parts), "{" .. table.concat(parts, ",") .. "}")
+end
+
+-- Several colours in one apply. Encoded flat as "Field=r,g,b|Field=r,g,b"
+-- rather than nested JSON: the parser here is hand-rolled, and a flat string
+-- has one obvious reading.
+local function handleSkinMany(cmd)
+    local spec = cmd.args and cmd.args.colors
+    if type(spec) ~= "string" or spec == "" then
+        writeResult(cmd.id, "skinmany", cmd.steam, false, "no colours given")
+        return
+    end
+
+    local pawn, err = resolvePlayer(cmd.steam)
+    if pawn == nil then
+        writeResult(cmd.id, "skinmany", cmd.steam, false, err)
+        return
+    end
+
+    local isDino, reason = dinosaurCheck(pawn)
+    if not isDino then
+        writeResult(cmd.id, "skinmany", cmd.steam, false, reason)
+        return
+    end
+
+    local applied, skipped = 0, 0
+    for chunk in spec:gmatch("[^|]+") do
+        local field, values = chunk:match("^([%a%d]+)=(.+)$")
+        if field ~= nil and COLOR_FIELDS[field] then
+            local r, g, b = values:match("^([%d%.%-]+),([%d%.%-]+),([%d%.%-]+)$")
+            if r ~= nil then
+                local ok = pcall(function()
+                    local c = pawn.CustomizerData[field]
+                    c.R, c.G, c.B, c.A = tonumber(r), tonumber(g), tonumber(b), 1.0
+                end)
+                if ok then applied = applied + 1 else skipped = skipped + 1 end
+            else
+                skipped = skipped + 1
+            end
+        else
+            skipped = skipped + 1
+        end
+    end
+
+    -- One update for the whole set, not one per colour.
+    pcall(function() pawn:ForceNetUpdate() end)
+
+    if applied == 0 then
+        writeResult(cmd.id, "skinmany", cmd.steam, false, "none of those colours could be set")
+        return
+    end
+
+    log(string.format("skinmany: %s applied %d, skipped %d", cmd.steam, applied, skipped))
+    writeResult(cmd.id, "skinmany", cmd.steam, true, string.format(
+        "%d colour%s applied%s", applied, applied == 1 and "" or "s",
+        skipped > 0 and (", " .. skipped .. " skipped") or ""))
+end
 
 local function handleSkin(cmd)
     local args = cmd.args or {}
@@ -1399,6 +1542,9 @@ local function dispatch(cmd)
     elseif verb == "give" then handleGive(cmd)
     elseif verb == "teleport" then handleTeleport(cmd)
     elseif verb == "skin" then handleSkin(cmd)
+    elseif verb == "where" then handleWhere(cmd)
+    elseif verb == "skinget" then handleSkinGet(cmd)
+    elseif verb == "skinmany" then handleSkinMany(cmd)
     else writeResult(cmd.id, verb, cmd.steam, false, "unknown command: " .. verb) end
 end
 

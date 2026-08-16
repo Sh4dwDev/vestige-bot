@@ -77,6 +77,32 @@ export function hexToLinear(hex) {
         return null;
     return { r: toLinear(srgb.r), g: toLinear(srgb.g), b: toLinear(srgb.b) };
 }
+/** Linear back to sRGB hex, for reading a live skin into a saveable preset. */
+export function toSrgb(channel) {
+    const clamped = Math.min(1, Math.max(0, channel));
+    return clamped <= 0.0031308
+        ? clamped * 12.92
+        : 1.055 * clamped ** (1 / 2.4) - 0.055;
+}
+export function linearToHex(r, g, b) {
+    const byte = (c) => Math.round(toSrgb(c) * 255).toString(16).padStart(2, '0').toUpperCase();
+    return `#${byte(r)}${byte(g)}${byte(b)}`;
+}
+/**
+ * The wire format the mod's multi-colour apply expects: flat, one obvious
+ * reading, no nested JSON through a hand-rolled Lua parser.
+ */
+export function encodeColours(colours) {
+    return Object.entries(colours)
+        .map(([field, hex]) => {
+        const linear = hexToLinear(hex);
+        if (!linear)
+            return null;
+        return `${field}=${linear.r.toFixed(5)},${linear.g.toFixed(5)},${linear.b.toFixed(5)}`;
+    })
+        .filter((part) => part !== null)
+        .join('|');
+}
 /** For the embed's colour bar, so the reply shows what was actually applied. */
 export function hexToInt(hex) {
     const cleaned = hex.trim().replace(/^#/, '');

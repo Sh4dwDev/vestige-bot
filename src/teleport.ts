@@ -103,8 +103,18 @@ export async function runAccepted(
 ): Promise<void> {
   const wait = delaySeconds(ctx);
 
+  // Where they stand now. Moving during the countdown cancels the travel, so
+  // this has to be captured before the wait, not after.
+  let from: { x: number; y: number; z: number } | null = null;
+  try {
+    const located = await ctx.mod.run('where', request.fromSteam, {}, { quiet: true });
+    if (located.ok) from = located.data as unknown as { x: number; y: number; z: number };
+  } catch {
+    // No anchor means no movement check; the travel still goes ahead.
+  }
+
   await ctx.rcon
-    .directMessage(request.fromSteam, `Accepted. You travel in ${wait} seconds — stay put.`)
+    .directMessage(request.fromSteam, `Accepted. You travel in ${wait}s — do not move.`)
     .catch(() => undefined);
   await ctx.rcon
     .directMessage(request.toSteam, 'You accepted. They arrive shortly.')
@@ -115,7 +125,10 @@ export async function runAccepted(
   let message: string;
   let ok = false;
   try {
-    const result = await ctx.mod.run('teleport', request.fromSteam, { to: request.toSteam });
+    const result = await ctx.mod.run('teleport', request.fromSteam, {
+      to: request.toSteam,
+      ...(from ? { fromX: from.x, fromY: from.y, fromZ: from.z } : {}),
+    });
     ok = result.ok;
     message = result.msg;
   } catch (err) {

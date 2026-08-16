@@ -35,5 +35,13 @@ export declare function parseHex(input: string): Rgb | null;
  */
 export declare function toLinear(channel: number): number;
 export declare function hexToLinear(hex: string): Rgb | null;
+/** Linear back to sRGB hex, for reading a live skin into a saveable preset. */
+export declare function toSrgb(channel: number): number;
+export declare function linearToHex(r: number, g: number, b: number): string;
+/**
+ * The wire format the mod's multi-colour apply expects: flat, one obvious
+ * reading, no nested JSON through a hand-rolled Lua parser.
+ */
+export declare function encodeColours(colours: Record<string, string>): string;
 /** For the embed's colour bar, so the reply shows what was actually applied. */
 export declare function hexToInt(hex: string): number | null;

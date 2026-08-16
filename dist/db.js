@@ -41,6 +41,15 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL
 );
 
+-- Named skin presets. Colours are stored as sRGB hex per part, so a preset
+-- stays readable and editable rather than being opaque linear floats.
+CREATE TABLE IF NOT EXISTS skin_presets (
+  name    TEXT PRIMARY KEY,
+  colours TEXT NOT NULL,
+  made_by TEXT NOT NULL,
+  made_at TEXT NOT NULL
+);
+
 -- Per-species population caps. The locked column is the last announced state,
 -- kept so a bot restart does not re-announce a lock already reported.
 CREATE TABLE IF NOT EXISTS species_caps (
@@ -210,6 +219,37 @@ export class Database {
     }
     removeBotAdmin(discordId) {
         return Number(this.#db.prepare('DELETE FROM bot_admins WHERE discord_id = ?').run(discordId).changes) > 0;
+    }
+    // ---- skin presets ------------------------------------------------------
+    savePreset(name, colours, madeBy) {
+        this.#db
+            .prepare(`INSERT INTO skin_presets (name, colours, made_by, made_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT (name) DO UPDATE SET colours = excluded.colours,
+                                          made_by = excluded.made_by,
+                                          made_at = excluded.made_at`)
+            .run(name, JSON.stringify(colours), madeBy, new Date().toISOString());
+    }
+    preset(name) {
+        const row = this.#db
+            .prepare('SELECT colours FROM skin_presets WHERE name = ?')
+            .get(name);
+        if (!row)
+            return null;
+        try {
+            return JSON.parse(String(row['colours']));
+        }
+        catch {
+            return null;
+        }
+    }
+    presetNames() {
+        const rows = this.#db
+            .prepare('SELECT name FROM skin_presets ORDER BY name')
+            .all();
+        return rows.map((row) => String(row['name']));
+    }
+    removePreset(name) {
+        return Number(this.#db.prepare('DELETE FROM skin_presets WHERE name = ?').run(name).changes) > 0;
     }
     // ---- species caps ------------------------------------------------------
     speciesCaps() {

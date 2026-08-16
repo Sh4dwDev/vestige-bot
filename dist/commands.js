@@ -5,7 +5,7 @@ import { buildCommandsEmbed, buildStorageGuideEmbed } from './guides.js';
 import { refreshPopulationPanel, setPopulationChannel } from './livepanel.js';
 import { mutationList, speciesList, suggest } from './catalog.js';
 import { isRemoved, mutationChoices } from './mutations.js';
-import { hexToInt, hexToLinear, PARTS, PRESETS } from './skins.js';
+import { encodeColours, hexToInt, hexToLinear, linearToHex, PARTS, PRESETS } from './skins.js';
 import { multiplierFor, setMultiplier, setTier, TIER_LABEL, tierOf } from './tiers.js';
 import { cleanSlotName, showPanel, stopAutoRefresh } from './panel.js';
 import { addRequest, askEmbed, askRows, cooldownMinutes, delaySeconds, requestFor, } from './teleport.js';
@@ -133,8 +133,28 @@ export const commandData = [
         .addChoices(...PARTS.map((p) => ({ name: p.label, value: p.field })))
         .setRequired(true))
         .addStringOption((o) => o.setName('colour').setDescription('A preset, or any hex like #8C3B1E')
+        .setAutocomplete(true).setRequired(true))
+        .addStringOption((o) => o.setName('part2').setDescription('Another part')
+        .addChoices(...PARTS.map((p) => ({ name: p.label, value: p.field }))))
+        .addStringOption((o) => o.setName('colour2').setDescription('Its colour').setAutocomplete(true))
+        .addStringOption((o) => o.setName('part3').setDescription('Another part')
+        .addChoices(...PARTS.map((p) => ({ name: p.label, value: p.field }))))
+        .addStringOption((o) => o.setName('colour3').setDescription('Its colour').setAutocomplete(true))
+        .addStringOption((o) => o.setName('part4').setDescription('Another part')
+        .addChoices(...PARTS.map((p) => ({ name: p.label, value: p.field }))))
+        .addStringOption((o) => o.setName('colour4').setDescription('Its colour').setAutocomplete(true)))
+        .addSubcommand((s) => s.setName('palette').setDescription('Show the preset colours'))
+        .addSubcommand((s) => s.setName('save').setDescription('Save a player’s current colours as a preset')
+        .addUserOption((o) => o.setName('user').setDescription('Whose look to save').setRequired(true))
+        .addStringOption((o) => o.setName('name').setDescription('Preset name').setRequired(true)))
+        .addSubcommand((s) => s.setName('apply').setDescription('Apply a saved preset, all parts at once')
+        .addUserOption((o) => o.setName('user').setDescription('Whose dinosaur').setRequired(true))
+        .addStringOption((o) => o.setName('preset').setDescription('Saved preset')
         .setAutocomplete(true).setRequired(true)))
-        .addSubcommand((s) => s.setName('palette').setDescription('Show the preset colours')))
+        .addSubcommand((s) => s.setName('presets').setDescription('List saved presets'))
+        .addSubcommand((s) => s.setName('forget').setDescription('Delete a saved preset')
+        .addStringOption((o) => o.setName('preset').setDescription('Saved preset')
+        .setAutocomplete(true).setRequired(true))))
         .addSubcommandGroup((g) => g.setName('tier').setDescription('Species tiers, which drive points')
         .addSubcommand((s) => s.setName('set').setDescription('Put a species in a tier')
         .addStringOption((o) => o.setName('species').setDescription('Species').setAutocomplete(true).setRequired(true))
@@ -555,6 +575,18 @@ export async function startTeleport(ctx, i, friendId) {
         });
         return;
     }
+    // Checked here as well as in the mod, so the refusal names both species
+    // before anyone waits out a countdown for nothing.
+    const spawned = await ctx.mod.players().catch(() => []);
+    const mySpecies = spawned.find((p) => p.steam === mine.steamId)?.species;
+    const theirSpecies = spawned.find((p) => p.steam === theirs.steamId)?.species;
+    if (mySpecies && theirSpecies && mySpecies !== theirSpecies) {
+        await i.editReply({
+            embeds: [embed(COLORS.warn, 'Different species', `You are playing a **${mySpecies}** and they are playing a **${theirSpecies}**.\n\n` +
+                    'You can only travel to your own species.')],
+        });
+        return;
+    }
     if (requestFor(theirs.steamId)) {
         await i.editReply({
             embeds: [embed(COLORS.warn, 'They are already being asked', 'Someone else asked them a moment ago. Wait for that to resolve.')],
@@ -584,7 +616,9 @@ export async function startTeleport(ctx, i, friendId) {
         embeds: [embed(COLORS.info, 'Asked', `<@${friendId}> has been asked${dmSent ? ' in Discord and in game' : ' in game'}.\n\n` +
                 (dmSent ? '' : '⚠️ Their DMs are closed, so they can only answer with `!accept` in game.\n\n') +
                 `They can accept with the button or by typing \`!accept\`. You will travel ` +
-                `**${delaySeconds(ctx)} seconds** after they do — stay put until then.`)],
+                `**${delaySeconds(ctx)} seconds** after they do.\n\n` +
+                '⚠️ **Do not move** during the countdown, or it cancels. You must both be ' +
+                'the same species.')],
     });
 }
 async function handleTeleport(ctx, i) {
@@ -668,6 +702,26 @@ async function handleSkin(ctx, i, action) {
         });
         return;
     }
+    if (action === 'presets') {
+        const names = ctx.db.presetNames();
+        await i.reply({
+            embeds: [embed(COLORS.info, 'Saved skins', names.length
+                    ? names.map((n) => `• **${n}**`).join('\n')
+                    : 'None yet. Colour a dinosaur, then `/admin skin save` it.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'forget') {
+        const name = i.options.getString('preset', true);
+        await i.reply({
+            embeds: [ctx.db.removePreset(name)
+                    ? embed(COLORS.good, 'Preset deleted', `**${name}** is gone.`)
+                    : embed(COLORS.quiet, 'No such preset', `There is no preset called **${name}**.`)],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
     const user = i.options.getUser('user', true);
     const link = ctx.db.linkFor(user.id);
     if (!link) {
@@ -677,38 +731,79 @@ async function handleSkin(ctx, i, action) {
         });
         return;
     }
-    const field = i.options.getString('part', true);
-    const raw = i.options.getString('colour', true);
-    // Presets are offered by name; anything else has to be a hex code.
-    const hex = PRESETS.find((p) => p.name.toLowerCase() === raw.toLowerCase())?.hex ?? raw;
-    const linear = hexToLinear(hex);
-    if (!linear) {
-        await i.reply({
-            embeds: [embed(COLORS.warn, 'That is not a colour', `\`${raw}\` is not a hex code. Try \`#8C3B1E\`, or pick one from ` +
-                    '`/admin skin palette`.')],
-            flags: MessageFlags.Ephemeral,
-        });
-        return;
-    }
     await i.deferReply({ flags: MessageFlags.Ephemeral });
     try {
-        const result = await ctx.mod.run('skin', link.steamId, {
-            part: field,
-            r: linear.r,
-            g: linear.g,
-            b: linear.b,
+        if (action === 'save') {
+            const name = i.options.getString('name', true).trim();
+            const read = await ctx.mod.run('skinget', link.steamId);
+            if (!read.ok) {
+                await i.editReply({ embeds: [embed(COLORS.bad, 'Could not read their colours', read.msg)] });
+                return;
+            }
+            // Stored as sRGB hex so a preset stays readable and editable, rather
+            // than a wall of linear floats.
+            const live = (read.data ?? {});
+            const colours = {};
+            for (const [field, rgb] of Object.entries(live)) {
+                if (Array.isArray(rgb) && rgb.length === 3) {
+                    colours[field] = linearToHex(rgb[0], rgb[1], rgb[2]);
+                }
+            }
+            ctx.db.savePreset(name, colours, i.user.tag);
+            await i.editReply({
+                embeds: [embed(COLORS.good, 'Preset saved', `**${name}** captured from ${user}, ${Object.keys(colours).length} colours.\n\n` +
+                        Object.entries(colours).map(([f, hex]) => `\`${hex}\`  ${PARTS.find((p) => p.field === f)?.label ?? f}`).join('\n'))],
+            });
+            return;
+        }
+        // Both apply and set end up here: a map of field to hex, written in one go.
+        let colours = {};
+        let title = '🎨  Colours applied';
+        if (action === 'apply') {
+            const name = i.options.getString('preset', true);
+            const stored = ctx.db.preset(name);
+            if (!stored) {
+                await i.editReply({
+                    embeds: [embed(COLORS.warn, 'No such preset', `There is no preset called **${name}**. See \`/admin skin presets\`.`)],
+                });
+                return;
+            }
+            colours = stored;
+            title = `🎨  ${name} applied`;
+        }
+        else {
+            for (const n of ['', '2', '3', '4']) {
+                const field = i.options.getString(`part${n}`, n === '');
+                const raw = i.options.getString(`colour${n}`, n === '');
+                if (!field || !raw)
+                    continue;
+                // Presets are offered by name; anything else has to be a hex code.
+                const hex = PRESETS.find((p) => p.name.toLowerCase() === raw.toLowerCase())?.hex ?? raw;
+                if (!hexToLinear(hex)) {
+                    await i.editReply({
+                        embeds: [embed(COLORS.warn, 'That is not a colour', `\`${raw}\` is not a hex code. Try \`#8C3B1E\`, or pick from ` +
+                                '`/admin skin palette`.')],
+                    });
+                    return;
+                }
+                colours[field] = hex;
+            }
+        }
+        const result = await ctx.mod.run('skinmany', link.steamId, {
+            colors: encodeColours(colours),
         });
-        const label = PARTS.find((p) => p.field === field)?.label ?? field;
         if (!result.ok) {
             await i.editReply({ embeds: [embed(COLORS.bad, 'Could not do that', result.msg)] });
             return;
         }
+        const first = Object.values(colours)[0] ?? '#57F287';
         await i.editReply({
             embeds: [new EmbedBuilder()
-                    .setColor(hexToInt(hex) ?? COLORS.good)
-                    .setTitle('🎨  Colour applied')
-                    .setDescription(`${user}'s **${label}** is now \`${hex.toUpperCase()}\`.\n\n` +
-                    '⚠️ Skin colours are runtime only — they reset when they relog or the ' +
+                    .setColor(hexToInt(first) ?? COLORS.good)
+                    .setTitle(title)
+                    .setDescription(`On ${user}:\n` +
+                    Object.entries(colours).map(([f, hex]) => `\`${hex.toUpperCase()}\`  ${PARTS.find((p) => p.field === f)?.label ?? f}`).join('\n') +
+                    '\n\n⚠️ Skin colours are runtime only — they reset when they relog or the ' +
                     'server restarts. That is an engine limitation, not a setting.')
                     .setFooter({ text: SIGNATURE })
                     .setTimestamp()],
@@ -1183,7 +1278,14 @@ export async function handleAutocomplete(ctx, i) {
         choices = suggest(await speciesList(ctx), focused.value)
             .map((name) => ({ name, value: name }));
     }
-    else if (focused.name === 'colour') {
+    else if (focused.name === 'preset') {
+        const typed = focused.value.trim().toLowerCase();
+        choices = ctx.db.presetNames()
+            .filter((n) => !typed || n.toLowerCase().includes(typed))
+            .slice(0, 25)
+            .map((n) => ({ name: n, value: n }));
+    }
+    else if (focused.name.startsWith('colour')) {
         const typed = focused.value.trim().toLowerCase();
         choices = PRESETS
             .filter((p) => !typed || p.name.toLowerCase().includes(typed) || p.hex.toLowerCase().includes(typed))

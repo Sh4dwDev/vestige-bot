@@ -5,9 +5,10 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const root = path.resolve(import.meta.dirname, '..');
-const { PARTS, PRESETS, parseHex, toLinear, hexToLinear, hexToInt } = await import(
-  pathToFileURL(path.join(root, 'dist/skins.js')).href
-);
+const {
+  PARTS, PRESETS, parseHex, toLinear, hexToLinear, hexToInt,
+  toSrgb, linearToHex, encodeColours,
+} = await import(pathToFileURL(path.join(root, 'dist/skins.js')).href);
 
 const results = [];
 const check = (name, ok, detail = '') => {
@@ -65,6 +66,35 @@ check('every part has a readable label', PARTS.every((p) => p.label && !p.label.
 // engine's own persistence — neither is ours to write.
 check('the picker offers no pattern or skin code fields',
   !PARTS.some((p) => /Pattern|SkinCode/i.test(p.field)));
+
+// ---- round trip, for saving a live look as a preset ----------------------------
+
+check('linear back to sRGB is the inverse', near(toSrgb(toLinear(0.5)), 0.5, 1e-6));
+
+for (const hex of ['#000000', '#FFFFFF', '#8C3B1E', '#1F6F6B', '#7FBF2A']) {
+  const c = hexToLinear(hex);
+  check(`${hex} survives a round trip`, linearToHex(c.r, c.g, c.b) === hex.toUpperCase(),
+    linearToHex(c.r, c.g, c.b));
+}
+
+// Reading a live skin can hand back values outside 0..1 — the engine allows
+// HDR colours above 1.0 for glow.
+check('an out-of-range channel clamps rather than producing nonsense hex',
+  /^#[0-9A-F]{6}$/.test(linearToHex(4, -1, 0.5)), linearToHex(4, -1, 0.5));
+
+// ---- the multi-colour wire format ----------------------------------------------
+
+{
+  const encoded = encodeColours({ BodyColor: '#FFFFFF', EyesColor: '#000000' });
+  check('parts are pipe separated', encoded.split('|').length === 2, encoded);
+  check('each part is field=r,g,b', /^BodyColor=1\.00000,1\.00000,1\.00000$/.test(
+    encoded.split('|')[0]), encoded.split('|')[0]);
+  check('values are converted, not raw sRGB',
+    encodeColours({ BodyColor: '#808080' }).includes('0.21') , encodeColours({ BodyColor: '#808080' }));
+  check('a bad colour is dropped rather than corrupting the whole string',
+    encodeColours({ BodyColor: '#FFFFFF', EyesColor: 'nope' }).split('|').length === 1);
+  check('nothing to encode is an empty string', encodeColours({}) === '');
+}
 
 check('every preset is a valid colour', PRESETS.every((p) => parseHex(p.hex) !== null));
 check('presets fit in one autocomplete page', PRESETS.length <= 25, String(PRESETS.length));

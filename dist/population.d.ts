@@ -7,14 +7,8 @@ import { EmbedBuilder } from 'discord.js';
  * the roster, and it would do it invisibly: the numbers would just be quietly
  * wrong. Prime is expressed against adults, because only adults can be prime.
  */
-export interface PlayerRow {
-    /** Present from mod v3.2.0 on; older payloads omit it. */
-    steam?: string;
-    species: string;
-    growth: number;
-    female: boolean;
-    prime: boolean;
-}
+import type { PlayerRow } from './bridge.js';
+export type { PlayerRow };
 export declare function adultThreshold(species: string): number;
 export declare function isAdult(species: string, growth: number): boolean;
 export interface SpeciesRow {
