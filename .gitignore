@@ -1,6 +1,10 @@
 node_modules/
-dist/
 *.tsbuildinfo
+
+# dist/ IS committed. The bot host installs production dependencies only and
+# runs `npm start` with no build step, so the compiled output has to be in the
+# repo. Run `pnpm verify` before committing — it rebuilds, so dist/ cannot drift
+# behind src/.
 .env
 .env.*
 !.env.example

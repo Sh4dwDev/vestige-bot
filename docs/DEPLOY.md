@@ -28,26 +28,20 @@ Also worth checking on a locked-down host: the bot makes **outbound** SFTP
 ## PebbleHost, or any Pterodactyl panel
 
 The loader on these panels pulls the repo, runs `npm install`, then runs
-**`npm start`** — it does not run an arbitrary startup command. So the build has
-to hang off `npm start` itself, which is what the `prestart` script in
-`package.json` is for. Delete it and the host boots with no `dist/` and dies
-with `Cannot find module '/home/container/dist/index.js'`.
+**`npm start`**. It does not run an arbitrary startup command, and it installs
+**production dependencies only** — so there is no compiler on the host and
+nowhere sensible to hang a build step.
 
-These loaders also install **production dependencies only**. That is why
-`typescript` and the `@types/*` packages sit in `dependencies` rather than
-`devDependencies` — with them in the usual place the build dies at:
+**That is why `dist/` is committed.** Building on the host was tried twice and
+failed twice: first `Cannot find module '/home/container/dist/index.js'` with
+nothing to run, then `sh: 1: tsc: not found` once a build step existed. Shipping
+the compiled output removes the host's toolchain from the equation entirely.
 
-```
-sh: 1: tsc: not found
-```
+The cost is that `dist/` can fall behind `src/`, which would have the host
+quietly running old code. The guard is simple and non-negotiable:
 
-Moving them is deliberate. The alternative, committing `dist/`, means the host
-can silently run stale JavaScript whenever someone edits source and forgets to
-rebuild; building on the host fails loudly instead, and there is only ever one
-source of truth.
-
-Only `ssh2` — used by the test suite's fake SFTP server — stays a
-devDependency, because the host never runs tests.
+> **Run `pnpm verify` before committing.** It rebuilds, so a commit that passes
+> verification cannot contain a stale `dist/`.
 
 1. **Startup → Node version:** set 22.5+ (see above).
 2. **Git:** point the panel's git integration at the repo, branch `main`.

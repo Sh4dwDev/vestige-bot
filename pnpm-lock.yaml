@@ -8,25 +8,25 @@ importers:
 
   .:
     dependencies:
-      '@types/node':
-        specifier: ^24.0.0
-        version: 24.13.3
-      '@types/ssh2-sftp-client':
-        specifier: ^9.0.6
-        version: 9.0.6
       discord.js:
         specifier: ^14.16.3
         version: 14.27.0
       ssh2-sftp-client:
         specifier: ^12.1.1
         version: 12.1.1
-      typescript:
-        specifier: ^5.7.2
-        version: 5.9.3
     devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      '@types/ssh2-sftp-client':
+        specifier: ^9.0.6
+        version: 9.0.6
       ssh2:
         specifier: ^1.17.0
         version: 1.17.0
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
 
 packages:
 

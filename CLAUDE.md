@@ -21,6 +21,10 @@ hours.
 - **A setter that raises no error proves nothing.** Read the value back.
 - `pnpm verify` (typecheck + build + test) must pass before a change is done.
   Tests import from `dist/`, so build first.
+- **`dist/` is committed and must never be stale.** The bot host has no
+  compiler, so the repo's compiled output is what actually runs. `pnpm verify`
+  rebuilds it — run that before every commit and the problem cannot occur. See
+  [docs/DEPLOY.md](docs/DEPLOY.md).
 - TypeScript is strict, including `noUncheckedIndexedAccess` and
   `exactOptionalPropertyTypes`. No `any`. Do not weaken config to make code
   compile.
