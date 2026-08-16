@@ -52,6 +52,15 @@ not exist.
   Track Steam IDs and re-derive controllers each tick.
 - `FindFirstOf` on a class with **no live instances** raises a native access
   violation ~1.7 s later. Never call it at boot.
+- **Indexing a UObject with a property name that does not exist.** Probing
+  `ctrl["ClientShowNotification"]` to discover whether a function exists does
+  not return nil — it takes the tick loop down, and `pcall` does not catch it.
+  Observed 2026-08-16: a read-only reflection probe killed the loop, which
+  stopped the mod consuming its inbox while leaving it looking healthy in the
+  log (it had already printed `ready` and detected the game mode). Because hot
+  reload lives in that same loop, recovery needed a full server restart.
+  **Never enumerate engine functions by guessing names.** Get them from a UE4SS
+  object dump offline instead.
 - `K2_GetPawn()` returns a **non-nil wrapper around a null pointer** during
   spawn-select and respawn. Gate on `GetAddress() ~= 0`.
 - Caching a UObject pointer or struct userdata across ticks is a stale-pointer
@@ -61,6 +70,11 @@ not exist.
 
 Native crashes are not catchable by `pcall`; they surface as access violations
 up to 30 s after the offending call.
+
+**A dead tick loop is close to invisible.** The mod keeps its boot lines, its
+chat hook keeps firing (native hooks are independent of the loop), and nothing
+is logged. The tell is on disk: `inbox.ndjson` stops shrinking while
+`results.ndjson` stops growing. Check those two before suspecting the bot.
 
 ## Things that fail silently
 

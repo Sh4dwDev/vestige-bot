@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "2.3.0"
+local MOD_VERSION = "2.5.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3

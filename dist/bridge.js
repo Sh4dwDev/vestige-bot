@@ -10,6 +10,12 @@ const TIMEOUT_MS = {
     slay: 20_000,
     players: 15_000,
 };
+/**
+ * A verb with no entry above waited `NaN` milliseconds, which is never greater
+ * than anything — so it gave up instantly and reported a timeout of "NaNs".
+ */
+const DEFAULT_TIMEOUT_MS = 15_000;
+const timeoutFor = (verb) => TIMEOUT_MS[verb] ?? DEFAULT_TIMEOUT_MS;
 export class ModBridge {
     sftp;
     log;
@@ -116,7 +122,7 @@ export class ModBridge {
             await this.#putAtomic(inbox, Buffer.from(prefix + line + '\n', 'utf8'));
         }, () => undefined));
         this.log(`-> ${verb} ${steamId} ${JSON.stringify(args)}`);
-        const deadline = Date.now() + TIMEOUT_MS[verb];
+        const deadline = Date.now() + timeoutFor(verb);
         while (Date.now() < deadline) {
             await new Promise((r) => setTimeout(r, 1000));
             const match = (await this.#readResults()).find((entry) => entry.id === id);
@@ -125,7 +131,7 @@ export class ModBridge {
                 return match;
             }
         }
-        throw new Error(`${SERVER} did not answer within ${TIMEOUT_MS[verb] / 1000}s — it may be restarting`);
+        throw new Error(`${SERVER} did not answer within ${timeoutFor(verb) / 1000}s — it may be restarting`);
     }
     /**
      * Things players typed in game chat — link codes and `!discord`. The mod

@@ -42,7 +42,7 @@ export interface Result {
 }
 
 /** store and restore run multi-stage pipelines; list and delete are immediate. */
-const TIMEOUT_MS: Record<Verb, number> = {
+const TIMEOUT_MS: Partial<Record<Verb, number>> = {
   store: 30_000,
   restore: 45_000,
   list: 15_000,
@@ -50,6 +50,14 @@ const TIMEOUT_MS: Record<Verb, number> = {
   slay: 20_000,
   players: 15_000,
 };
+
+/**
+ * A verb with no entry above waited `NaN` milliseconds, which is never greater
+ * than anything — so it gave up instantly and reported a timeout of "NaNs".
+ */
+const DEFAULT_TIMEOUT_MS = 15_000;
+
+const timeoutFor = (verb: Verb): number => TIMEOUT_MS[verb] ?? DEFAULT_TIMEOUT_MS;
 
 export class ModBridge {
   #client: SftpClient | null = null;
@@ -165,7 +173,7 @@ export class ModBridge {
 
     this.log(`-> ${verb} ${steamId} ${JSON.stringify(args)}`);
 
-    const deadline = Date.now() + TIMEOUT_MS[verb];
+    const deadline = Date.now() + timeoutFor(verb);
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 1000));
       const match = (await this.#readResults()).find((entry) => entry.id === id);
@@ -176,7 +184,7 @@ export class ModBridge {
     }
 
     throw new Error(
-      `${SERVER} did not answer within ${TIMEOUT_MS[verb] / 1000}s — it may be restarting`,
+      `${SERVER} did not answer within ${timeoutFor(verb) / 1000}s — it may be restarting`,
     );
   }
 
