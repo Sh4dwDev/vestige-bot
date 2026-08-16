@@ -143,6 +143,32 @@ host, because the Windows build runs under Proton; `LinuxServer/Game.ini` sat
 stale with an empty `AdminsSteamIDs`. Tell them apart by timestamp — the live one
 is rewritten at server start.
 
+## Kills and deaths
+
+Per upstream `EVRIMA_KillFeed_Design.md`, confirmed against its own testing:
+
+**There is no server-side UFunction death event.** Polling health is mandatory.
+These all look right and never fire, or fire unreliably on a natural death:
+`OnDeath`, `OnPawnDeath`, `UpdateCharacterCooldownOnDeath`, `SetHealth`,
+`SetIsAlive`, `ToggleServerRagdoll`, `WaitAndDestroyCorpse`.
+
+What does work is attribution, not detection:
+
+| Piece | How |
+| --- | --- |
+| Who hit whom | Hook `/Script/TheIsle.TICharacterBase:ApplyDamage` and cache attacker + timestamp per victim |
+| That someone died | Poll pawn health for a `>0 → 0` transition |
+| Joining the two | Credit the cached attacker if the death lands within ~20 s |
+
+`ApplyDamage` fires on **direct player attacks only** — not damage over time, not
+environmental, not AI. Those deaths are real but unattributed, so a kill count
+and a death count will never reconcile. Say so in the UI rather than letting
+people conclude the numbers are broken.
+
+Catching every damage type needs the C++ path: hooking
+`PostGameplayEffectExecute` on `UAttributeSet` at the vtable level, with the
+instigator from `data.EffectSpec.GetContext()`.
+
 ## Environment limits
 
 Lua here has **no mkdir and no directory listing**. So:
