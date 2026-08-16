@@ -1,0 +1,5 @@
+# Both are optional native accelerators for ssh2. The pure-JS fallback is fine
+# for our traffic, and skipping them means no compiler toolchain is needed.
+allowBuilds:
+  cpu-features: false
+  ssh2: false

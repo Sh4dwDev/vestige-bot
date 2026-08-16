@@ -1,0 +1,1 @@
+Presence of this file force-enables DinoStorage regardless of mods.txt.
