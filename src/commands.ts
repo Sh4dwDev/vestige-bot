@@ -24,6 +24,7 @@ import { buildCommandsEmbed, buildStorageGuideEmbed } from './guides.js';
 import { refreshPopulationPanel, setPopulationChannel } from './livepanel.js';
 import { mutationList, speciesList, suggest } from './catalog.js';
 import { isRemoved, mutationChoices } from './mutations.js';
+import { hexToInt, hexToLinear, PARTS, PRESETS } from './skins.js';
 import { multiplierFor, setMultiplier, setTier, TIER_LABEL, tierOf } from './tiers.js';
 import { cleanSlotName, showPanel, stopAutoRefresh } from './panel.js';
 import {
@@ -236,6 +237,20 @@ export const commandData = [
               o.setName('mutation4').setDescription('Mutation').setAutocomplete(true))
             .addStringOption((o) =>
               o.setName('slot').setDescription('Slot name they will see (default: the species)'))),
+    )
+    .addSubcommandGroup((g) =>
+      g.setName('skin').setDescription('Recolour a player’s dinosaur')
+        .addSubcommand((s) =>
+          s.setName('set').setDescription('Set one part’s colour')
+            .addUserOption((o) => o.setName('user').setDescription('Whose dinosaur').setRequired(true))
+            .addStringOption((o) =>
+              o.setName('part').setDescription('Which part')
+                .addChoices(...PARTS.map((p) => ({ name: p.label, value: p.field })))
+                .setRequired(true))
+            .addStringOption((o) =>
+              o.setName('colour').setDescription('A preset, or any hex like #8C3B1E')
+                .setAutocomplete(true).setRequired(true)))
+        .addSubcommand((s) => s.setName('palette').setDescription('Show the preset colours')),
     )
     .addSubcommandGroup((g) =>
       g.setName('tier').setDescription('Species tiers, which drive points')
@@ -940,6 +955,85 @@ async function handleGive(ctx: Ctx, i: ChatInputCommandInteraction): Promise<voi
   }
 }
 
+// ------------------------------------------------------------------ skins --
+
+async function handleSkin(
+  ctx: Ctx,
+  i: ChatInputCommandInteraction,
+  action: string,
+): Promise<void> {
+  if (action === 'palette') {
+    await i.reply({
+      embeds: [embed(COLORS.info, '🎨  Preset colours',
+        PRESETS.map((p) => `\`${p.hex}\`  ${p.name}`).join('\n') +
+        '\n\nAny hex works too — these are just a starting point.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const user = i.options.getUser('user', true);
+  const link = ctx.db.linkFor(user.id);
+  if (!link) {
+    await i.reply({
+      embeds: [embed(COLORS.warn, 'Not linked',
+        `${user} has not linked a Steam account, so there is no dinosaur to find.`)],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const field = i.options.getString('part', true);
+  const raw = i.options.getString('colour', true);
+
+  // Presets are offered by name; anything else has to be a hex code.
+  const hex = PRESETS.find((p) => p.name.toLowerCase() === raw.toLowerCase())?.hex ?? raw;
+  const linear = hexToLinear(hex);
+  if (!linear) {
+    await i.reply({
+      embeds: [embed(COLORS.warn, 'That is not a colour',
+        `\`${raw}\` is not a hex code. Try \`#8C3B1E\`, or pick one from ` +
+        '`/admin skin palette`.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+
+  try {
+    const result = await ctx.mod.run('skin', link.steamId, {
+      part: field,
+      r: linear.r,
+      g: linear.g,
+      b: linear.b,
+    });
+
+    const label = PARTS.find((p) => p.field === field)?.label ?? field;
+
+    if (!result.ok) {
+      await i.editReply({ embeds: [embed(COLORS.bad, 'Could not do that', result.msg)] });
+      return;
+    }
+
+    await i.editReply({
+      embeds: [new EmbedBuilder()
+        .setColor(hexToInt(hex) ?? COLORS.good)
+        .setTitle('🎨  Colour applied')
+        .setDescription(
+          `${user}'s **${label}** is now \`${hex.toUpperCase()}\`.\n\n` +
+          '⚠️ Skin colours are runtime only — they reset when they relog or the ' +
+          'server restarts. That is an engine limitation, not a setting.')
+        .setFooter({ text: SIGNATURE })
+        .setTimestamp()],
+    });
+  } catch (err) {
+    await i.editReply({
+      embeds: [embed(COLORS.bad, 'Something went wrong', describeError(err))],
+    });
+  }
+}
+
 // ------------------------------------------------------------------ tiers --
 
 async function handleTiers(
@@ -1099,6 +1193,7 @@ async function handleAdmin(ctx: Ctx, i: ChatInputCommandInteraction): Promise<vo
   if (group === 'status') return handleStatusPanel(ctx, i, action);
 
   if (group === 'give') return handleGive(ctx, i);
+  if (group === 'skin') return handleSkin(ctx, i, action);
   if (group === 'tier') return handleTiers(ctx, i, action);
   if (group === 'species') return handleSpecies(ctx, i, action);
 
@@ -1502,9 +1597,20 @@ export async function handleAutocomplete(
 ): Promise<void> {
   const focused = i.options.getFocused(true);
 
-  const choices = focused.name === 'species'
-    ? suggest(await speciesList(ctx), focused.value).map((name) => ({ name, value: name }))
-    : mutationChoices(mutationList(ctx), focused.value);
+  let choices: Array<{ name: string; value: string }>;
+
+  if (focused.name === 'species') {
+    choices = suggest(await speciesList(ctx), focused.value)
+      .map((name) => ({ name, value: name }));
+  } else if (focused.name === 'colour') {
+    const typed = focused.value.trim().toLowerCase();
+    choices = PRESETS
+      .filter((p) => !typed || p.name.toLowerCase().includes(typed) || p.hex.toLowerCase().includes(typed))
+      .slice(0, 25)
+      .map((p) => ({ name: `${p.name} · ${p.hex}`, value: p.name }));
+  } else {
+    choices = mutationChoices(mutationList(ctx), focused.value);
+  }
 
   await i.respond(choices).catch(() => undefined);
 }

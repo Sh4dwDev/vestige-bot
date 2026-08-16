@@ -299,6 +299,31 @@ Catching every damage type needs the C++ path — `PostGameplayEffectExecute` on
 
 ---
 
+## Skins
+
+`/admin skin set @player Body "Rust"` recolours one of the ten colour fields on
+`FCustomizerDataBase`. `/admin skin palette` lists the presets; any hex works.
+
+Three things from upstream that this depends on:
+
+- **`SetCustomizerData()` is silently broken** since 0.21.720. The colour is
+  written to the live replicated property and followed by `ForceNetUpdate()`.
+- **`PatternIndex` is never touched.** It is validated per species, and an
+  out-of-range value makes the client abort the entire skin rebuild — dropping
+  every colour in the same apply. Only colours are writable here.
+- **`SkinCode` is never written**; it is the engine's own persistence field.
+
+Hex is sRGB and the engine wants linear, so the conversion is applied on the
+way in. Skipping it is the classic mistake: mid grey is `0.5` in sRGB but
+`0.214` linear, so a naive write lands about twice as bright as the picker
+showed.
+
+**Colours do not persist.** Upstream is explicit that direct-write skins are
+runtime state and revert on relog. The reply says so rather than letting an
+admin discover it.
+
+---
+
 ## Tiers
 
 Species are graded 1–4. **Evrima has no concept of tiers** — this is server

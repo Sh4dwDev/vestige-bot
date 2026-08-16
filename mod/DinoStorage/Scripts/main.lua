@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.2.0"
+local MOD_VERSION = "3.3.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1299,6 +1299,79 @@ local function handleTeleport(cmd)
     writeResult(cmd.id, "teleport", cmd.steam, true, "you have been moved to your friend")
 end
 
+-- ---------------------------------------------------------------------------
+-- Skin
+--
+-- Per upstream EVRIMA_Customizer_Field_Map:
+--   * SetCustomizerData() is silently broken since 0.21.720 — write the live
+--     replicated property directly and force a net update.
+--   * Never cache CustomizerData across ticks; fetch it fresh each time.
+--   * PatternIndex is validated per species and an out-of-range value makes the
+--     client abort the whole rebuild, dropping every colour in the same apply.
+--     So this only ever touches colours, never the pattern.
+--   * SkinCode is the engine's own persistence field and is never written.
+--
+-- Colours are FLinearColor in 0..1 linear space. The bot converts from sRGB.
+-- ---------------------------------------------------------------------------
+
+local COLOR_FIELDS = {
+    BodyColor = true, MarkingsColor = true, FlankColor = true,
+    UnderbellyColor = true, Detail1Color = true, EyesColor = true,
+    MaleDisplayColor = true, TeethColor = true, MouthColor = true,
+    ClawsColor = true,
+}
+
+local function handleSkin(cmd)
+    local args = cmd.args or {}
+    local field = args.part
+
+    if type(field) ~= "string" or not COLOR_FIELDS[field] then
+        writeResult(cmd.id, "skin", cmd.steam, false, "that is not a colour I can set")
+        return
+    end
+
+    local r = tonumber(args.r) or 0
+    local g = tonumber(args.g) or 0
+    local b = tonumber(args.b) or 0
+
+    local pawn, err = resolvePlayer(cmd.steam)
+    if pawn == nil then
+        writeResult(cmd.id, "skin", cmd.steam, false, err)
+        return
+    end
+
+    local isDino, reason = dinosaurCheck(pawn)
+    if not isDino then
+        writeResult(cmd.id, "skin", cmd.steam, false, reason)
+        return
+    end
+
+    local applied = pcall(function()
+        local cd = pawn.CustomizerData
+        cd[field].R = r
+        cd[field].G = g
+        cd[field].B = b
+        cd[field].A = 1.0
+        pawn:ForceNetUpdate()
+    end)
+    if not applied then
+        writeResult(cmd.id, "skin", cmd.steam, false, "the server refused that colour")
+        return
+    end
+
+    -- why: a setter that raises no error proves nothing on this engine. Read it
+    -- back so a silent no-op is reported as a failure.
+    local got
+    pcall(function() got = pawn.CustomizerData[field].R end)
+    if type(got) ~= "number" or math.abs(got - r) > 0.02 then
+        writeResult(cmd.id, "skin", cmd.steam, false, "the colour did not take")
+        return
+    end
+
+    log(string.format("skin: %s %s = %.3f,%.3f,%.3f", cmd.steam, field, r, g, b))
+    writeResult(cmd.id, "skin", cmd.steam, true, field .. " updated")
+end
+
 local function dispatch(cmd)
     if type(cmd) ~= "table" then return end
 
@@ -1325,6 +1398,7 @@ local function dispatch(cmd)
     elseif verb == "players" then handlePlayers(cmd)
     elseif verb == "give" then handleGive(cmd)
     elseif verb == "teleport" then handleTeleport(cmd)
+    elseif verb == "skin" then handleSkin(cmd)
     else writeResult(cmd.id, verb, cmd.steam, false, "unknown command: " .. verb) end
 end
 
