@@ -20,16 +20,26 @@ import { encodeColours } from './skins.js';
  * minute forever, to fix something that only breaks on those three events.
  */
 
-/** Steam IDs whose current pawn we have already painted. */
+/**
+ * Which pawn we have already painted, as `steam|species`.
+ *
+ * The species is part of the key because switching species is exactly the case
+ * that must trigger a repaint — otherwise a Rex's colours would be considered
+ * "already applied" while the player is on a Dryosaurus.
+ */
 const painted = new Set<string>();
+
+const key = (steamId: string, species: string): string => `${steamId}|${species}`;
 
 /** Called when a pawn is replaced, so the next poll repaints it. */
 export function skinNeedsReapply(steamId: string): void {
-  painted.delete(steamId);
+  for (const entry of painted) {
+    if (entry.startsWith(`${steamId}|`)) painted.delete(entry);
+  }
 }
 
 export function forgetPainted(steamId: string): void {
-  painted.delete(steamId);
+  skinNeedsReapply(steamId);
 }
 
 export async function reapplySkins(
@@ -37,36 +47,45 @@ export async function reapplySkins(
   players: PlayerRow[],
   log: (m: string) => void,
 ): Promise<void> {
-  const online = new Set(players.map((p) => p.steam).filter((s): s is string => Boolean(s)));
+  const live = new Set(
+    players
+      .filter((p) => p.steam)
+      .map((p) => key(p.steam as string, p.species)),
+  );
 
-  // Anyone who left needs repainting when they come back.
-  for (const steamId of painted) {
-    if (!online.has(steamId)) painted.delete(steamId);
+  // Anyone no longer on that pawn needs repainting if they return to it.
+  for (const entry of painted) {
+    if (!live.has(entry)) painted.delete(entry);
   }
 
-  for (const steamId of online) {
-    if (painted.has(steamId)) continue;
+  for (const player of players) {
+    if (!player.steam) continue;
 
-    const colours = ctx.db.skinFor(steamId);
+    const entry = key(player.steam, player.species);
+    if (painted.has(entry)) continue;
+
+    const colours = ctx.db.skinFor(player.steam, player.species);
     if (!colours || Object.keys(colours).length === 0) {
-      // Nothing owed. Mark them so this is not re-checked every minute.
-      painted.add(steamId);
+      // Nothing owed for this species. Mark it so it is not re-checked every
+      // minute — and note this is per species, so their Rex colours are not
+      // considered "applied" while they are on something else.
+      painted.add(entry);
       continue;
     }
 
     try {
       const result = await ctx.mod.run(
         'skinmany',
-        steamId,
+        player.steam,
         { colors: encodeColours(colours) },
         { quiet: true },
       );
       if (result.ok) {
-        painted.add(steamId);
-        log(`skin: reapplied ${Object.keys(colours).length} colour(s) to ${steamId}`);
+        painted.add(entry);
+        log(`skin: reapplied ${Object.keys(colours).length} colour(s) ` +
+          `to ${player.steam} (${player.species})`);
       }
-      // On failure, leave them unpainted so the next poll tries again — they
-      // may simply not be spawned yet.
+      // On failure, leave it unpainted so the next poll tries again.
     } catch {
       // Server unreachable; try again next poll.
     }

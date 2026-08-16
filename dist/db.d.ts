@@ -59,9 +59,11 @@ export declare class Database {
         at: string;
     }>;
     /** Merges: setting one part must not wipe the others already applied. */
-    setSkin(steamId: string, colours: Record<string, string>): void;
-    skinFor(steamId: string): Record<string, string> | null;
-    clearSkin(steamId: string): boolean;
+    setSkin(steamId: string, species: string, colours: Record<string, string>): void;
+    skinFor(steamId: string, species: string): Record<string, string> | null;
+    /** Species omitted clears every look they have. */
+    clearSkin(steamId: string, species?: string): number;
+    skinSpecies(steamId: string): string[];
     savePreset(name: string, colours: Record<string, string>, madeBy: string): void;
     preset(name: string): Record<string, string> | null;
     presetNames(): string[];

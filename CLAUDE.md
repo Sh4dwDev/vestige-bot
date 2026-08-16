@@ -50,6 +50,9 @@ their exact ordering — `main.lua`'s restore stages especially.
 - `tostring()` on an FString/FName returns a **pointer**, different each read.
   Use `:ToString()`.
 - Lua pattern `%b{}` over a whole JSON file matches the **outermost** braces.
+- **No backticks in the SQL schema comments.** `src/db.ts` holds the schema in a
+  template literal, so a backtick inside a `--` comment closes it and the errors
+  point somewhere else entirely. Cost time twice.
 
 ## Terminology and voice
 

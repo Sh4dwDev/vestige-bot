@@ -989,18 +989,30 @@ async function handleSkin(ctx, i, action) {
         return;
     }
     if (action === 'reset') {
-        const had = ctx.db.clearSkin(link.steamId);
+        const cleared = ctx.db.clearSkin(link.steamId);
         forgetPainted(link.steamId);
         await i.reply({
-            embeds: [had
-                    ? embed(COLORS.good, 'Colours forgotten', `${user}'s colours are no longer kept. What they have now stays until ` +
-                        'they relog or die, then the game gives them their own back.')
+            embeds: [cleared > 0
+                    ? embed(COLORS.good, 'Colours forgotten', `Cleared ${cleared} saved look${cleared === 1 ? '' : 's'} for ${user}. ` +
+                        'What they have now stays until they relog or die, then the game gives ' +
+                        'them their own back.')
                     : embed(COLORS.quiet, 'Nothing kept', `${user} has no colours saved.`)],
             flags: MessageFlags.Ephemeral,
         });
         return;
     }
     await i.deferReply({ flags: MessageFlags.Ephemeral });
+    // Colours belong to the dinosaur they are playing, not to them, so we need to
+    // know what that is. It also means they have to be spawned.
+    const spawned = await ctx.mod.players().catch(() => []);
+    const species = spawned.find((p) => p.steam === link.steamId)?.species;
+    if (!species) {
+        await i.editReply({
+            embeds: [embed(COLORS.warn, 'They are not spawned in', `${user} needs to be playing a dinosaur — colours are saved per species, ` +
+                    'so there is nothing to attach them to yet.')],
+        });
+        return;
+    }
     try {
         if (action === 'save') {
             const name = i.options.getString('name', true).trim();
@@ -1069,7 +1081,7 @@ async function handleSkin(ctx, i, action) {
         }
         // Recorded so it survives relogs, respawns and restarts — the engine drops
         // colours on all three, so the bot repaints from this.
-        ctx.db.setSkin(link.steamId, colours);
+        ctx.db.setSkin(link.steamId, species, colours);
         forgetPainted(link.steamId);
         const first = Object.values(colours)[0] ?? '#57F287';
         await i.editReply({
@@ -1078,8 +1090,9 @@ async function handleSkin(ctx, i, action) {
                     .setTitle(title)
                     .setDescription(`On ${user}:\n` +
                     Object.entries(colours).map(([f, hex]) => `\`${hex.toUpperCase()}\`  ${PARTS.find((p) => p.field === f)?.label ?? f}`).join('\n') +
-                    '\n\nThis is remembered. The engine drops colours on relog, respawn and ' +
-                    'restart, so the bot repaints them within a minute of each.')
+                    `\n\nRemembered for their **${species}** specifically — other species keep ` +
+                    'their own looks. The engine drops colours on relog, respawn and restart, ' +
+                    'so the bot repaints them within a minute of each.')
                     .setFooter({ text: SIGNATURE })
                     .setTimestamp()],
         });

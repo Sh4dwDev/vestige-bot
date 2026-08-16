@@ -55,12 +55,19 @@ CREATE TABLE IF NOT EXISTS purchases (
 );
 CREATE INDEX IF NOT EXISTS purchases_who ON purchases (discord_id);
 
--- The look each player is meant to have. The engine forgets colours on relog,
--- respawn and restart, so this is the record and the bot reapplies from it.
-CREATE TABLE IF NOT EXISTS skins (
-  steam_id TEXT PRIMARY KEY,
+-- The look a player is meant to have **on a given species**. The engine forgets
+-- colours on relog, respawn and restart, so this is the record and the bot
+-- reapplies from it.
+--
+-- Keyed by species as well as player: keyed by player alone, a Rex's colours
+-- got repainted onto their Dryosaurus, which is not what anyone means by
+-- "their skin". Supersedes an earlier skins table keyed on steam_id alone.
+CREATE TABLE IF NOT EXISTS player_skins (
+  steam_id TEXT NOT NULL,
+  species  TEXT NOT NULL,
   colours  TEXT NOT NULL,
-  set_at   TEXT NOT NULL
+  set_at   TEXT NOT NULL,
+  PRIMARY KEY (steam_id, species)
 );
 
 -- Named skin presets. Colours are stored as sRGB hex per part, so a preset
@@ -263,18 +270,18 @@ export class Database {
     }
     // ---- applied skins -----------------------------------------------------
     /** Merges: setting one part must not wipe the others already applied. */
-    setSkin(steamId, colours) {
-        const merged = { ...(this.skinFor(steamId) ?? {}), ...colours };
+    setSkin(steamId, species, colours) {
+        const merged = { ...(this.skinFor(steamId, species) ?? {}), ...colours };
         this.#db
-            .prepare(`INSERT INTO skins (steam_id, colours, set_at) VALUES (?, ?, ?)
-         ON CONFLICT (steam_id) DO UPDATE SET colours = excluded.colours,
-                                              set_at = excluded.set_at`)
-            .run(steamId, JSON.stringify(merged), new Date().toISOString());
+            .prepare(`INSERT INTO player_skins (steam_id, species, colours, set_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT (steam_id, species) DO UPDATE SET colours = excluded.colours,
+                                                       set_at = excluded.set_at`)
+            .run(steamId, species, JSON.stringify(merged), new Date().toISOString());
     }
-    skinFor(steamId) {
+    skinFor(steamId, species) {
         const row = this.#db
-            .prepare('SELECT colours FROM skins WHERE steam_id = ?')
-            .get(steamId);
+            .prepare('SELECT colours FROM player_skins WHERE steam_id = ? AND species = ?')
+            .get(steamId, species);
         if (!row)
             return null;
         try {
@@ -284,8 +291,19 @@ export class Database {
             return null;
         }
     }
-    clearSkin(steamId) {
-        return Number(this.#db.prepare('DELETE FROM skins WHERE steam_id = ?').run(steamId).changes) > 0;
+    /** Species omitted clears every look they have. */
+    clearSkin(steamId, species) {
+        return Number(species === undefined
+            ? this.#db.prepare('DELETE FROM player_skins WHERE steam_id = ?').run(steamId).changes
+            : this.#db
+                .prepare('DELETE FROM player_skins WHERE steam_id = ? AND species = ?')
+                .run(steamId, species).changes);
+    }
+    skinSpecies(steamId) {
+        const rows = this.#db
+            .prepare('SELECT species FROM player_skins WHERE steam_id = ? ORDER BY species')
+            .all(steamId);
+        return rows.map((row) => String(row['species']));
     }
     // ---- skin presets ------------------------------------------------------
     savePreset(name, colours, madeBy) {

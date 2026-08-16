@@ -325,10 +325,18 @@ colours are runtime state. What it also says is that a mod is expected to store
 them and reapply, which is what [`src/skinsync.ts`](src/skinsync.ts) does. The
 database is the record; the pawn is just where they get painted.
 
-Repainting happens on the three events that replace a pawn: appearing online
-after being away, dying, and the bot starting up. Deliberately **not** every
-poll — that would be a write per player per minute forever to fix something
-that only breaks on those three.
+Colours are saved **per player per species**, not per player. Keyed by player
+alone, someone's Rex colours got repainted onto their Dryosaurus the moment they
+switched — which is not what anyone means by "their skin". Each species keeps
+its own look, and switching species repaints from that species' record.
+
+Repainting happens on the events that replace a pawn: appearing online after
+being away, switching species, dying, and the bot starting up. Deliberately
+**not** every poll — that would be a write per player per minute forever to fix
+something that only breaks on those.
+
+Setting a colour therefore needs the player **spawned**, since otherwise there
+is no species to attach it to.
 
 `/admin skin reset` stops keeping someone's colours.
 
