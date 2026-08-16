@@ -13,6 +13,18 @@ function int(name, fallback) {
         throw new Error(`${name} must be a number, got "${raw}"`);
     return parsed;
 }
+/** All three parts are needed or none of it works, so it is all-or-nothing. */
+function panelConfig() {
+    const url = process.env['PANEL_URL']?.trim();
+    const apiKey = process.env['PANEL_API_KEY']?.trim();
+    const serverId = process.env['PANEL_SERVER_ID']?.trim();
+    if (!url && !apiKey && !serverId)
+        return null;
+    if (!url || !apiKey || !serverId) {
+        throw new Error('PANEL_URL, PANEL_API_KEY and PANEL_SERVER_ID must all be set, or all be blank');
+    }
+    return { url, apiKey, serverId };
+}
 export function loadConfig() {
     return {
         discord: {
@@ -39,6 +51,7 @@ export function loadConfig() {
         gameIniPath: process.env['GAME_INI_PATH']?.trim() ||
             '/TheIsle/Saved/Config/WindowsServer/Game.ini',
         discordInvite: process.env['DISCORD_INVITE']?.trim() ?? '',
+        panel: panelConfig(),
     };
 }
 //# sourceMappingURL=config.js.map

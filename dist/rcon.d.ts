@@ -14,6 +14,7 @@ declare const OPCODES: {
     readonly announce: 16;
     readonly directmessage: 17;
     readonly playerlist: 64;
+    readonly save: 80;
 };
 export type RconCommand = keyof typeof OPCODES;
 export interface OnlinePlayer {
@@ -37,6 +38,10 @@ export declare class EvrimaRcon {
     send(command: RconCommand, args?: string[]): Promise<string>;
     players(): Promise<OnlinePlayer[]>;
     directMessage(steamId: string, message: string): Promise<void>;
+    /** Server-wide notice. Renders as a transient banner, so keep it short. */
+    announce(message: string): Promise<void>;
+    /** Writes the world to disk. Always do this before a restart. */
+    save(): Promise<void>;
     close(): void;
 }
 export declare function decodeResponse(buffer: Buffer): string;

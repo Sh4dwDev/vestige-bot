@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 const root = path.resolve(import.meta.dirname, '..');
 const load = (f) => import(pathToFileURL(path.join(root, 'dist', f)).href);
 
-const { buildStorageGuideEmbed, buildCommandsEmbed } = await load('guides.js');
+const { buildStorageGuideEmbed, buildCommandsEmbed, STAFF_COMMANDS } = await load('guides.js');
 const { commandData } = await load('commands.js');
 
 const results = [];
@@ -46,19 +46,25 @@ check('the guide states the slot limit', /three vaults/i.test(text(guide)));
 check('the guide explains same-species restore', /same species/i.test(text(guide)));
 check('the guide explains linking first', /\/link/.test(text(guide)));
 
-// Drift guard: every command the bot actually registers has to be documented.
+// Drift guard: every PLAYER command the bot registers has to be documented.
 {
-  const registered = commandData.map((c) => c.name);
-  const documented = registered.filter((name) => text(commands).includes(`/${name}`));
-  const missing = registered.filter((name) => !documented.includes(name));
+  const player = commandData.map((c) => c.name).filter((n) => !STAFF_COMMANDS.has(n));
+  const missing = player.filter((name) => !text(commands).includes(`/${name}`));
 
-  check('every registered command is documented', missing.length === 0,
-    missing.length ? `undocumented: ${missing.join(', ')}` : `${registered.length} commands`);
+  check('every player command is documented', missing.length === 0,
+    missing.length ? `undocumented: ${missing.join(', ')}` : `${player.length} commands`);
+}
+
+// The panel is pinned in a public channel, so staff commands must stay out of it.
+{
+  const leaked = [...STAFF_COMMANDS].filter((name) => text(commands).includes(`/${name}`));
+  check('staff commands are not shown to players', leaked.length === 0,
+    leaked.length ? `leaked: ${leaked.join(', ')}` : 'none');
 }
 
 // And the reverse: nothing documented that no longer exists.
 {
-  const registered = new Set(commandData.map((c) => c.name));
+  const registered = new Set(commandData.map((c) => c.name).filter((n) => !STAFF_COMMANDS.has(n)));
   const mentioned = [...text(commands).matchAll(/\\?\/([a-z]+)/g)].map((m) => m[1]);
   const ghosts = [...new Set(mentioned)].filter((name) => !registered.has(name));
 

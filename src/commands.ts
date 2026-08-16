@@ -21,6 +21,16 @@ import { buildCommandsEmbed, buildStorageGuideEmbed } from './guides.js';
 import { refreshPopulationPanel, setPopulationChannel } from './livepanel.js';
 import { showPanel, stopAutoRefresh } from './panel.js';
 import { postOrEdit } from './pinned.js';
+import type { Panel } from './pterodactyl.js';
+import {
+  nextRestart,
+  restartSettings,
+  setRestartAnnounce,
+  setRestartInterval,
+  setRestartsEnabled,
+  WARNINGS,
+} from './restarts.js';
+import { refreshStatusPanel, setStatusChannel } from './status.js';
 import { buildPopulationEmbed } from './population.js';
 import type { EvrimaRcon } from './rcon.js';
 
@@ -30,6 +40,8 @@ export interface Ctx {
   rcon: EvrimaRcon;
   mod: ModBridge;
   admins: AdminStore;
+  /** Null when no control panel is configured; restarts then warn but cannot act. */
+  panel: Panel | null;
 }
 
 const COLORS = { good: 0x57f287, bad: 0xed4245, warn: 0xfee75c, info: 0x5865f2, quiet: 0x4f545c };
@@ -153,6 +165,36 @@ export const commandData = [
             .addChannelOption((o) =>
               o.setName('channel').setDescription('Where it should live')
                 .addChannelTypes(ChannelType.GuildText).setRequired(true))),
+    )
+    .addSubcommandGroup((g) =>
+      g.setName('status').setDescription('The live server status panel')
+        .addSubcommand((s) =>
+          s.setName('channel').setDescription('Put the status panel in a channel')
+            .addChannelOption((o) =>
+              o.setName('channel').setDescription('Where it should live')
+                .addChannelTypes(ChannelType.GuildText).setRequired(true)))
+        .addSubcommand((s) => s.setName('off').setDescription('Stop updating the panel')),
+    )
+    .addSubcommandGroup((g) =>
+      g.setName('restarts').setDescription('Scheduled server restarts')
+        .addSubcommand((s) =>
+          s.setName('on').setDescription('Turn scheduled restarts on'))
+        .addSubcommand((s) =>
+          s.setName('off').setDescription('Turn scheduled restarts off'))
+        .addSubcommand((s) =>
+          s.setName('every').setDescription('How often to restart')
+            .addIntegerOption((o) =>
+              o.setName('hours').setDescription('Hours between restarts')
+                .setMinValue(1).setMaxValue(24).setRequired(true)))
+        .addSubcommand((s) =>
+          s.setName('announce').setDescription('Where to post restart warnings')
+            .addChannelOption((o) =>
+              o.setName('channel').setDescription('Channel for warnings')
+                .addChannelTypes(ChannelType.GuildText).setRequired(true))
+            .addRoleOption((o) =>
+              o.setName('role').setDescription('Role to ping (optional)')))
+        .addSubcommand((s) =>
+          s.setName('status').setDescription('Show the restart schedule')),
     ),
 ].map((b) => b.toJSON());
 
@@ -385,7 +427,107 @@ async function handleAdmin(ctx: Ctx, i: ChatInputCommandInteraction): Promise<vo
   if (group === 'population') return handlePopulationPanel(ctx, i, action);
   if (group === 'guide') return handleReferencePanel(ctx, i, 'guide');
   if (group === 'commands') return handleReferencePanel(ctx, i, 'commands');
+  if (group === 'status') return handleStatusPanel(ctx, i, action);
+  if (group === 'restarts') return handleRestarts(ctx, i, action);
   return handleGameAdmin(ctx, i, action);
+}
+
+async function handleStatusPanel(
+  ctx: Ctx,
+  i: ChatInputCommandInteraction,
+  action: string,
+): Promise<void> {
+  if (action === 'off') {
+    setStatusChannel(ctx, null);
+    await i.reply({
+      embeds: [embed(COLORS.good, 'Status panel stopped',
+        'The message stays where it is; it just stops updating.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const channel = i.options.getChannel('channel', true);
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+  setStatusChannel(ctx, channel.id);
+
+  try {
+    const online = await ctx.rcon.players().then((p) => p.length).catch(() => null);
+    await refreshStatusPanel(ctx, i.client, online);
+    await i.editReply({
+      embeds: [embed(COLORS.good, 'Status panel is live',
+        `It is in <#${channel.id}> and updates every minute.`)],
+    });
+  } catch (err) {
+    await i.editReply({
+      embeds: [embed(COLORS.bad, 'Could not post there',
+        `${describeError(err)}\n\nCheck the bot can **View Channel**, ` +
+        '**Send Messages** and **Embed Links** there.')],
+    });
+  }
+}
+
+/**
+ * Restarts land on fixed clock times, so the reply always states the next one
+ * rather than "in six hours" — the whole point is that players can learn them.
+ */
+async function handleRestarts(
+  ctx: Ctx,
+  i: ChatInputCommandInteraction,
+  action: string,
+): Promise<void> {
+  if (action === 'announce') {
+    const channel = i.options.getChannel('channel', true);
+    const role = i.options.getRole('role');
+    setRestartAnnounce(ctx, channel.id, role?.id ?? null);
+    await i.reply({
+      embeds: [embed(COLORS.good, 'Warnings set up',
+        `Restart warnings go to <#${channel.id}>` +
+        (role ? `, pinging ${role}` : ', with no role ping') +
+        `.\n\nDiscord gets the 60, 15 and 5 minute warnings; in game gets all of ` +
+        `them: ${WARNINGS.join(', ')} minutes.`)],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (action === 'every') {
+    const hours = i.options.getInteger('hours', true);
+    setRestartInterval(ctx, hours);
+  } else if (action === 'on' || action === 'off') {
+    setRestartsEnabled(ctx, action === 'on');
+  }
+
+  const settings = restartSettings(ctx);
+  const next = nextRestart(new Date(), settings.intervalHours);
+  const stamp = `<t:${Math.floor(next.getTime() / 1000)}:F>`;
+  const relative = `<t:${Math.floor(next.getTime() / 1000)}:R>`;
+
+  // Slots are anchored to midnight, so an interval that does not divide 24
+  // leaves a short gap before midnight. Better said than discovered.
+  const uneven = 24 % settings.intervalHours !== 0
+    ? ` ⚠️ ${settings.intervalHours}h does not divide into 24, so the last gap before ` +
+      'midnight is shorter. Use 1, 2, 3, 4, 6, 8, 12 or 24 for an even spread.'
+    : '';
+
+  const lines = [
+    settings.enabled ? '**On**' : '**Off**',
+    `Every **${settings.intervalHours}h**, on the clock — so the times are the same every day.${uneven}`,
+    settings.enabled ? `Next: ${stamp} (${relative})` : '',
+    settings.channelId
+      ? `Warnings in <#${settings.channelId}>${settings.roleId ? ` pinging <@&${settings.roleId}>` : ''}`
+      : '⚠️ No warning channel set — run `/admin restarts announce`',
+    ctx.panel
+      ? 'The panel performs the restart.'
+      : '⚠️ No control panel configured, so the bot can warn and save but **cannot restart**. ' +
+        'The host must do it at those times.',
+  ].filter(Boolean);
+
+  await i.reply({
+    embeds: [embed(settings.enabled ? COLORS.good : COLORS.quiet, 'Scheduled restarts',
+      lines.join('\n\n'))],
+    flags: MessageFlags.Ephemeral,
+  });
 }
 
 /**

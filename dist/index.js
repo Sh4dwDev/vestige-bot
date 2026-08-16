@@ -6,6 +6,9 @@ import { announceLinked, describeError, handleCommand } from './commands.js';
 import { loadConfig } from './config.js';
 import { Database } from './db.js';
 import { startPopulationPanel } from './livepanel.js';
+import { Panel } from './pterodactyl.js';
+import { startRestartScheduler } from './restarts.js';
+import { refreshStatusPanel } from './status.js';
 import { handlePanelInteraction } from './panel.js';
 import { EvrimaRcon } from './rcon.js';
 const log = (message) => {
@@ -17,7 +20,8 @@ async function main() {
     const rcon = new EvrimaRcon({ ...config.rcon, onLog: log });
     const mod = new ModBridge(config.sftp, log);
     const admins = new AdminStore(config.sftp, config.gameIniPath, db, log);
-    const ctx = { config, db, rcon, mod, admins };
+    const panel = config.panel ? new Panel(config.panel) : null;
+    const ctx = { config, db, rcon, mod, admins, panel };
     // Fail at boot rather than on someone's first command.
     await mod.check();
     log(`mod directory OK: ${mod.modDir}`);
@@ -31,6 +35,18 @@ async function main() {
     }
     if (!config.discordInvite)
         log('note: DISCORD_INVITE is unset, so !discord is disabled');
+    // Prove the panel credentials now rather than at 3am when a restart is due.
+    if (panel) {
+        try {
+            log(`control panel OK, server is ${await panel.check()}`);
+        }
+        catch (err) {
+            log(`WARNING: control panel unusable, restarts will not fire: ${describeError(err)}`);
+        }
+    }
+    else {
+        log('note: no control panel configured, so restarts warn and save but cannot restart');
+    }
     try {
         log(`${(await rcon.players()).length} player(s) online`);
     }
@@ -44,6 +60,7 @@ async function main() {
         startChatWatcher(ctx);
         startServerPoll(ctx, ready);
         startPopulationPanel(ctx, ready, log);
+        startRestartScheduler(ctx, ready, log);
     });
     client.on(Events.InteractionCreate, (interaction) => {
         void dispatch(ctx, interaction);
@@ -206,6 +223,9 @@ function startServerPoll(ctx, client) {
             // SFTP hiccup, or a config being rewritten right now; next pass retries.
         }
         setStatus(client, online, ctx.admins.maxPlayers);
+        // Shares this poll rather than running its own, so the panel and the bot's
+        // own status can never disagree.
+        await refreshStatusPanel(ctx, client, online).catch(() => undefined);
         // Only on a change, so an idle server does not fill the log — and so a
         // drop-out is obvious when reading it back.
         if (online !== previous) {

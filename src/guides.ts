@@ -69,9 +69,14 @@ export function buildStorageGuideEmbed(): EmbedBuilder {
 }
 
 /**
- * Every command a player can use. Staff commands are listed too, but marked —
- * hiding them entirely just produces questions about what the buttons do.
+ * Commands a **player** can use.
+ *
+ * Staff commands are deliberately absent: this embed is pinned in a public
+ * channel, and advertising `/admin` to everyone invites people to try it and
+ * then ask why it was refused. Staff already know what they have.
  */
+export const STAFF_COMMANDS = new Set(['admin']);
+
 export function buildCommandsEmbed(): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(ACCENT)
@@ -111,13 +116,6 @@ export function buildCommandsEmbed(): EmbedBuilder {
         value:
           '`!discord` — Vesta sends you the invite link\n' +
           '`!link CODE` — finishes linking your account',
-      },
-      {
-        name: '🛡️  Staff only',
-        value:
-          '`/admin game` — grant or revoke in-game admin\n' +
-          '`/admin bot` — who may use `/admin`\n' +
-          '`/admin population` · `/admin guide` · `/admin commands` — place these panels',
       },
     )
     .setFooter({ text: SIGNATURE });

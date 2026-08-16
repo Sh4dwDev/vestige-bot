@@ -17,6 +17,7 @@ const OPCODES = {
   announce: 0x10,
   directmessage: 0x11,
   playerlist: 0x40,
+  save: 0x50,
 } as const;
 
 export type RconCommand = keyof typeof OPCODES;
@@ -203,6 +204,16 @@ export class EvrimaRcon {
 
   async directMessage(steamId: string, message: string): Promise<void> {
     await this.send('directmessage', [steamId, message]);
+  }
+
+  /** Server-wide notice. Renders as a transient banner, so keep it short. */
+  async announce(message: string): Promise<void> {
+    await this.send('announce', [message]);
+  }
+
+  /** Writes the world to disk. Always do this before a restart. */
+  async save(): Promise<void> {
+    await this.send('save', []);
   }
 
   close(): void {

@@ -29,6 +29,27 @@ export interface Config {
   gameIniPath: string;
   /** Sent to anyone who types `!discord` in game. Empty disables the command. */
   discordInvite: string;
+  /**
+   * The game host's control panel. Null when unset — scheduled restarts then
+   * warn and save but cannot restart, because RCON has no such command.
+   */
+  panel: { url: string; apiKey: string; serverId: string } | null;
+}
+
+/** All three parts are needed or none of it works, so it is all-or-nothing. */
+function panelConfig(): Config['panel'] {
+  const url = process.env['PANEL_URL']?.trim();
+  const apiKey = process.env['PANEL_API_KEY']?.trim();
+  const serverId = process.env['PANEL_SERVER_ID']?.trim();
+
+  if (!url && !apiKey && !serverId) return null;
+  if (!url || !apiKey || !serverId) {
+    throw new Error(
+      'PANEL_URL, PANEL_API_KEY and PANEL_SERVER_ID must all be set, or all be blank',
+    );
+  }
+
+  return { url, apiKey, serverId };
 }
 
 export function loadConfig(): Config {
@@ -58,5 +79,6 @@ export function loadConfig(): Config {
       process.env['GAME_INI_PATH']?.trim() ||
       '/TheIsle/Saved/Config/WindowsServer/Game.ini',
     discordInvite: process.env['DISCORD_INVITE']?.trim() ?? '',
+    panel: panelConfig(),
   };
 }

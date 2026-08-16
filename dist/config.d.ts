@@ -22,5 +22,14 @@ export interface Config {
     gameIniPath: string;
     /** Sent to anyone who types `!discord` in game. Empty disables the command. */
     discordInvite: string;
+    /**
+     * The game host's control panel. Null when unset — scheduled restarts then
+     * warn and save but cannot restart, because RCON has no such command.
+     */
+    panel: {
+        url: string;
+        apiKey: string;
+        serverId: string;
+    } | null;
 }
 export declare function loadConfig(): Config;

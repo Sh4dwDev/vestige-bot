@@ -15,6 +15,7 @@ const OPCODES = {
     announce: 0x10,
     directmessage: 0x11,
     playerlist: 0x40,
+    save: 0x50,
 };
 export class EvrimaRcon {
     opts;
@@ -181,6 +182,14 @@ export class EvrimaRcon {
     }
     async directMessage(steamId, message) {
         await this.send('directmessage', [steamId, message]);
+    }
+    /** Server-wide notice. Renders as a transient banner, so keep it short. */
+    async announce(message) {
+        await this.send('announce', [message]);
+    }
+    /** Writes the world to disk. Always do this before a restart. */
+    async save() {
+        await this.send('save', []);
     }
     close() {
         const socket = this.#socket;

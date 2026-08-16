@@ -135,6 +135,8 @@ and administration.
 | `/admin population channel\|off` | staff | The self-updating population panel |
 | `/admin guide channel` | staff | Post the storage guide in a channel |
 | `/admin commands channel` | staff | Post the command reference in a channel |
+| `/admin status channel\|off` | staff | The live server status panel |
+| `/admin restarts on\|off\|every\|announce\|status` | staff | Scheduled restarts and their warnings |
 
 Staff means **Manage Server**, or an entry on the bot admin list. Manage Server
 is the bootstrap, so the owner can never lock themselves out.
@@ -205,6 +207,35 @@ Note the status counts **connected players** while the panel counts **dinosaurs
 playing**. They differ legitimately — somebody sitting on the spawn screen is
 connected but is not a dinosaur — so the two figures are deliberately not
 conflated.
+
+---
+
+## Scheduled restarts
+
+**Evrima's RCON cannot restart the server.** It can announce, DM, kick, ban,
+list players and save — that is the whole protocol. So the restart itself comes
+from the host's Pterodactyl panel ([`src/pterodactyl.ts`](src/pterodactyl.ts)),
+using a client API key. With no panel configured the bot still warns and saves;
+the host's own scheduler then has to do the restart at the same times.
+
+Restarts land on **fixed clock times anchored to midnight UTC**, not "six hours
+after the bot started". Players can learn them, and they survive a bot restart.
+Six-hourly means 00:00, 06:00, 12:00 and 18:00.
+
+Warnings go out at 60, 30, 15, 10, 5, 3 and 1 minutes in game; Discord gets the
+60, 15 and 5 minute ones, optionally pinging a role — pinging seven times an
+evening is how a role gets muted.
+
+At zero the bot **saves first, always**, and saves even if the panel call then
+fails: a late restart is a nuisance, a lost world is not.
+
+An interval that does not divide 24 (5, 7, …) leaves a short gap before
+midnight, because slots are anchored there. The command says so rather than
+letting you find out.
+
+`test/restarts.test.mjs` covers the boundaries that break schedulers: exactly on
+the hour — which must move *forward*, or the bot would sit on a restart it has
+already done — plus midnight and month rollover.
 
 ---
 
