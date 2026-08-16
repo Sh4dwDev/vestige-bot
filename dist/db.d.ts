@@ -43,6 +43,14 @@ export declare class Database {
     isBotAdmin(discordId: string): boolean;
     addBotAdmin(discordId: string, addedBy: string): void;
     removeBotAdmin(discordId: string): boolean;
+    speciesCaps(): Array<{
+        species: string;
+        cap: number;
+        locked: boolean;
+    }>;
+    setSpeciesCap(species: string, cap: number): void;
+    removeSpeciesCap(species: string): boolean;
+    setSpeciesLocked(species: string, locked: boolean): void;
     /** Milliseconds remaining, or 0 when the action is available. */
     cooldownLeft(steamId: string, action: string, windowMs: number): number;
     startCooldown(steamId: string, action: string): void;

@@ -3,6 +3,7 @@ import type { Client } from 'discord.js';
 import type { Ctx } from './commands.js';
 import { postOrEdit } from './pinned.js';
 import { buildPopulationEmbed } from './population.js';
+import { checkSpeciesLocks } from './species.js';
 
 /**
  * The population embed that lives in a channel and edits itself.
@@ -41,7 +42,10 @@ export async function refreshPopulationPanel(ctx: Ctx, client: Client): Promise<
 
   let embed;
   try {
-    embed = buildPopulationEmbed(await ctx.mod.players(), { live: true });
+    embed = buildPopulationEmbed(await ctx.mod.players(), {
+      live: true,
+      caps: ctx.db.speciesCaps(),
+    });
   } catch {
     // An unreachable server still gets an embed; a panel that vanishes when the
     // server hiccups looks broken.
@@ -55,6 +59,13 @@ export function startPopulationPanel(ctx: Ctx, client: Client, log: (m: string) 
   let lastFailure = '';
 
   const tick = async (): Promise<void> => {
+    // Lock checking is independent of the panel: caps still matter when nobody
+    // has set a population channel.
+    await ctx.mod
+      .players()
+      .then((players) => checkSpeciesLocks(ctx, client, players, log))
+      .catch(() => undefined);
+
     if (!populationChannel(ctx)) return;
     try {
       await refreshPopulationPanel(ctx, client);

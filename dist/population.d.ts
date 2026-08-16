@@ -29,5 +29,11 @@ export interface PopulationOptions {
     live?: boolean;
     /** Shown instead of the table when the server could not be read. */
     unreachable?: boolean;
+    /** Per-species caps, so the panel can show what is full and what is locked. */
+    caps?: Array<{
+        species: string;
+        cap: number;
+        locked: boolean;
+    }>;
 }
 export declare function buildPopulationEmbed(players: PlayerRow[], options?: PopulationOptions): EmbedBuilder;

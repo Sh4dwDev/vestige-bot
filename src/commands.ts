@@ -40,6 +40,7 @@ import {
   setRestartsEnabled,
   WARNINGS,
 } from './restarts.js';
+import { setSpeciesChannel } from './species.js';
 import { refreshStatusPanel, setStatusChannel } from './status.js';
 import { buildPopulationEmbed } from './population.js';
 import type { EvrimaRcon } from './rcon.js';
@@ -190,6 +191,27 @@ export const commandData = [
           s.setName('channel').setDescription('Post the command list in a channel')
             .addChannelOption((o) =>
               o.setName('channel').setDescription('Where it should live')
+                .addChannelTypes(ChannelType.GuildText).setRequired(true))),
+    )
+    .addSubcommandGroup((g) =>
+      g.setName('species').setDescription('Per-species population caps')
+        .addSubcommand((s) =>
+          s.setName('cap').setDescription('Cap how many of a species may be online')
+            .addStringOption((o) =>
+              o.setName('species').setDescription('Exact species name, e.g. Tyrannosaurus')
+                .setRequired(true))
+            .addIntegerOption((o) =>
+              o.setName('max').setDescription('How many may be online at once')
+                .setMinValue(0).setMaxValue(200).setRequired(true)))
+        .addSubcommand((s) =>
+          s.setName('clear').setDescription('Remove a species cap')
+            .addStringOption((o) =>
+              o.setName('species').setDescription('Exact species name').setRequired(true)))
+        .addSubcommand((s) => s.setName('list').setDescription('Show every cap and its state'))
+        .addSubcommand((s) =>
+          s.setName('channel').setDescription('Where locks and unlocks are announced')
+            .addChannelOption((o) =>
+              o.setName('channel').setDescription('Channel for lock notices')
                 .addChannelTypes(ChannelType.GuildText).setRequired(true))),
     )
     .addSubcommandGroup((g) =>
@@ -655,6 +677,67 @@ async function handleKills(ctx: Ctx, i: ChatInputCommandInteraction): Promise<vo
   });
 }
 
+// ---------------------------------------------------------------- species --
+
+async function handleSpecies(
+  ctx: Ctx,
+  i: ChatInputCommandInteraction,
+  action: string,
+): Promise<void> {
+  if (action === 'channel') {
+    const channel = i.options.getChannel('channel', true);
+    setSpeciesChannel(ctx, channel.id);
+    await i.reply({
+      embeds: [embed(COLORS.good, 'Lock notices set up',
+        `Locks and unlocks will be posted in <#${channel.id}>, and announced in game.`)],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (action === 'list') {
+    const caps = ctx.db.speciesCaps();
+    await i.reply({
+      embeds: [embed(COLORS.info, 'Species caps',
+        caps.length === 0
+          ? 'No caps set. Use `/admin species cap` to add one.'
+          : caps.map((c) => `${c.locked ? '🔒' : '🔓'} **${c.species}** — max ${c.cap}`).join('\n'),
+        )],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const species = i.options.getString('species', true).trim();
+
+  if (action === 'clear') {
+    const removed = ctx.db.removeSpeciesCap(species);
+    await i.reply({
+      embeds: [removed
+        ? embed(COLORS.good, 'Cap removed', `**${species}** is uncapped again.`)
+        : embed(COLORS.quiet, 'Nothing to remove', `**${species}** had no cap. ` +
+            'Names are case sensitive — check `/admin species list`.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const max = i.options.getInteger('max', true);
+  ctx.db.setSpeciesCap(species, max);
+
+  await i.reply({
+    embeds: [embed(COLORS.good, 'Cap set',
+      `**${species}** is capped at **${max}** online.\n\n` +
+      '⚠️ This **announces**, it does not enforce. Nothing in Evrima lets the ' +
+      'server refuse a spawn, so a locked species is a rule staff and players ' +
+      'act on — the bot tells everyone, in Discord and in game, the moment it ' +
+      'fills up or frees up.\n\n' +
+      'The name must match exactly as the game reports it — `/population` ' +
+      'shows the spellings in use.')],
+    flags: MessageFlags.Ephemeral,
+  });
+}
+
 // ------------------------------------------------------------------ admin --
 
 /**
@@ -685,6 +768,8 @@ async function handleAdmin(ctx: Ctx, i: ChatInputCommandInteraction): Promise<vo
   if (group === 'guide') return handleReferencePanel(ctx, i, 'guide');
   if (group === 'commands') return handleReferencePanel(ctx, i, 'commands');
   if (group === 'status') return handleStatusPanel(ctx, i, action);
+
+  if (group === 'species') return handleSpecies(ctx, i, action);
 
   if (group === 'slay') {
     const minutes = i.options.getInteger('minutes', true);

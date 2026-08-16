@@ -43,6 +43,14 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL
 );
 
+-- Per-species population caps. The locked column is the last announced state,
+-- kept so a bot restart does not re-announce a lock already reported.
+CREATE TABLE IF NOT EXISTS species_caps (
+  species TEXT PRIMARY KEY,
+  cap     INTEGER NOT NULL,
+  locked  INTEGER NOT NULL DEFAULT 0
+);
+
 -- Per-player action cooldowns. Keyed by Steam ID so unlinking and relinking is
 -- not a way to clear one.
 CREATE TABLE IF NOT EXISTS cooldowns (
@@ -245,6 +253,40 @@ export class Database {
     return Number(
       this.#db.prepare('DELETE FROM bot_admins WHERE discord_id = ?').run(discordId).changes,
     ) > 0;
+  }
+
+  // ---- species caps ------------------------------------------------------
+
+  speciesCaps(): Array<{ species: string; cap: number; locked: boolean }> {
+    const rows = this.#db
+      .prepare('SELECT species, cap, locked FROM species_caps ORDER BY species')
+      .all() as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      species: String(row['species']),
+      cap: Number(row['cap']),
+      locked: Number(row['locked']) === 1,
+    }));
+  }
+
+  setSpeciesCap(species: string, cap: number): void {
+    this.#db
+      .prepare(
+        `INSERT INTO species_caps (species, cap, locked) VALUES (?, ?, 0)
+         ON CONFLICT (species) DO UPDATE SET cap = excluded.cap`,
+      )
+      .run(species, cap);
+  }
+
+  removeSpeciesCap(species: string): boolean {
+    return Number(
+      this.#db.prepare('DELETE FROM species_caps WHERE species = ?').run(species).changes,
+    ) > 0;
+  }
+
+  setSpeciesLocked(species: string, locked: boolean): void {
+    this.#db
+      .prepare('UPDATE species_caps SET locked = ? WHERE species = ?')
+      .run(locked ? 1 : 0, species);
   }
 
   // ---- cooldowns ---------------------------------------------------------

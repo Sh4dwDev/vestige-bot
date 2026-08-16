@@ -48,12 +48,17 @@ export function buildStatusEmbed(view, restart) {
             'usually sorts itself out within a few minutes.');
     }
     const { online, max } = view;
+    // An empty bar next to "0% full" is two ways of saying nothing is happening.
+    // When nobody is on, say that in words and drop the meter entirely.
+    const body = online === 0
+        ? '## 🟢  Online\nNobody is playing right now — the island is wide open.'
+        : '## 🟢  Online\n' +
+            (max === null ? '' : `\`${bar(online, max)}\`  ${Math.round((online / max) * 100)}% full`);
     embed
         // Grey rather than green when empty: technically online, but "join, it is
         // busy" is the wrong impression to give.
         .setColor(online > 0 ? 0x57f287 : 0x4f545c)
-        .setDescription('## 🟢  Online\n' +
-        (max === null ? '' : `\`${bar(online, max)}\`  ${Math.round((online / max) * 100)}% full`))
+        .setDescription(body)
         .addFields({
         name: '👥  Players',
         value: max === null ? `**${online}**` : `**${online}** / ${max}`,

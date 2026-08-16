@@ -231,6 +231,29 @@ conflated.
 
 ---
 
+## Species caps
+
+`/admin species cap Tyrannosaurus 10` caps how many of a species may be online.
+When the count reaches the cap the species is announced as **locked**, in
+Discord and in game; when it drops back it is announced as **open**.
+
+**It announces, it does not enforce.** Nothing in Evrima lets a server refuse a
+spawn from Lua, so a locked species is a rule staff and players act on. The
+command says this when you set a cap, rather than implying a wall that is not
+there.
+
+Announcements fire **only on the change**, and the state is stored — so a bot
+restart does not re-announce a lock that was already reported, and a species
+sitting on its cap does not flap.
+
+The population panel marks locked species with 🔒, shows `online / cap` on
+capped cards, and lists what is locked at the top.
+
+Species names must match what the game reports; `/population` shows the
+spellings in use.
+
+---
+
 ## Kills
 
 **Evrima fires no death event a server can hook.** `OnDeath`, `OnPawnDeath`,

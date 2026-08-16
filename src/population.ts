@@ -121,7 +121,12 @@ export interface PopulationOptions {
   live?: boolean;
   /** Shown instead of the table when the server could not be read. */
   unreachable?: boolean;
+  /** Per-species caps, so the panel can show what is full and what is locked. */
+  caps?: Array<{ species: string; cap: number; locked: boolean }>;
 }
+
+const percent = (part: number, whole: number): string =>
+  whole === 0 ? '0%' : `${Math.round((part / whole) * 100)}%`;
 
 export function buildPopulationEmbed(
   players: PlayerRow[],
@@ -165,10 +170,14 @@ export function buildPopulationEmbed(
       .setFooter({ text: signature });
   }
 
+  const capFor = new Map((options.caps ?? []).map((c) => [c.species, c]));
+  const locked = (options.caps ?? []).filter((c) => c.locked).map((c) => c.species);
+
   const headline =
     `**${totals.online}** playing · **${totals.adults}** adult · ` +
-    `**${totals.prime}** prime · **${rows.length}** ` +
-    (rows.length === 1 ? 'species' : 'species');
+    `**${totals.prime}** prime (${percent(totals.prime, totals.adults)} of adults) · ` +
+    `**${rows.length}** species` +
+    (locked.length > 0 ? `\n\n🔒 **Locked:** ${locked.join(', ')}` : '');
 
   embed.setColor(0x5865f2);
 
@@ -179,14 +188,20 @@ export function buildPopulationEmbed(
     embed
       .setDescription(headline)
       .addFields(
-        rows.map((row) => ({
-          name: `${icon(row.species)}  ${row.species}`,
-          value:
-            `**${row.online}** online\n` +
-            `${row.adults} adult · ${row.prime} prime\n` +
-            `♂ ${row.males} · ♀ ${row.females}`,
-          inline: true,
-        })),
+        rows.map((row) => {
+          const cap = capFor.get(row.species);
+          return {
+            name: `${cap?.locked ? '🔒' : icon(row.species)}  ${row.species}`,
+            value:
+              // The threshold is shown per species because it differs, and a
+              // reader comparing two cards would otherwise think it is wrong.
+              `Online **${row.online}**${cap ? ` / ${cap.cap}` : ''}\n` +
+              `Adults (${Math.round(adultThreshold(row.species) * 100)}%+) **${row.adults}**\n` +
+              `Prime **${row.prime}/${row.adults}** (${percent(row.prime, row.adults)})\n` +
+              `♂ ${row.males} · ♀ ${row.females}`,
+            inline: true,
+          };
+        }),
       )
       .setFooter({
         text: `Adults are 50% growth for large species, 75% for the rest\n${signature}`,

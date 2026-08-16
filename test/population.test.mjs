@@ -109,7 +109,7 @@ check('an 80% Dryo is an adult', isAdult('Dryosaurus', 0.8) === true);
     (few.fields ?? []).length === 2 && !/[█░]/.test(few.description ?? ''),
     `${(few.fields ?? []).length} fields`);
   check('each card shows online, adults, prime and gender',
-    /online/.test(few.fields?.[0]?.value ?? '') && /♂/.test(few.fields?.[0]?.value ?? ''),
+    ['Online', 'Adults', 'Prime', '♂'].every((s) => (few.fields?.[0]?.value ?? '').includes(s)),
     few.fields?.[0]?.value);
   // Ties sort alphabetically, so look the rows up by name rather than position.
   const named = (s) => (few.fields ?? []).find((f) => f.name.includes(s))?.name ?? '';
