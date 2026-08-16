@@ -738,7 +738,18 @@ async function handleAdmin(ctx: Ctx, i: ChatInputCommandInteraction): Promise<vo
     });
     return;
   }
-  return handleGameAdmin(ctx, i, action);
+  if (group === 'game') return handleGameAdmin(ctx, i, action);
+
+  // Discord registers commands against the application, while the handlers ship
+  // with the running process — so a subcommand can exist in the client before
+  // the bot restarts to pick it up. Falling through to another handler produced
+  // a baffling "required option steamid not found"; say what actually happened.
+  await i.reply({
+    embeds: [embed(COLORS.warn, 'That command is newer than the bot',
+      `\`/admin ${group}\` has been registered with Discord, but this bot is still ` +
+      'running an older build.\n\n**Restart the bot** and it will work.')],
+    flags: MessageFlags.Ephemeral,
+  });
 }
 
 async function handleStatusPanel(
