@@ -12,6 +12,7 @@
     "typecheck": "tsc -b --pretty",
     "test": "node test/rcon.test.mjs && node test/bridge.test.mjs && node test/population.test.mjs && node test/admins.test.mjs",
     "verify": "pnpm typecheck && pnpm build && pnpm test",
+    "prestart": "npm run build",
     "start": "node --experimental-sqlite --env-file-if-exists=.env dist/index.js",
     "commands": "node --experimental-sqlite --env-file-if-exists=.env dist/deploy-commands.js",
     "deploy": "node scripts/deploy-mod.mjs",
