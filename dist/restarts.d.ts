@@ -1,8 +1,8 @@
 import { EmbedBuilder, type Client } from 'discord.js';
 import type { Ctx } from './commands.js';
 export declare const DEFAULT_INTERVAL_HOURS = 6;
-/** Minutes before a restart at which players are told. */
-export declare const WARNINGS: readonly [60, 30, 15, 10, 5, 3, 1];
+/** Minutes before a restart at which players are told, in game. */
+export declare const WARNINGS: readonly [60, 30, 15, 5, 1];
 /**
  * The next restart at or after `now`, aligned to midnight UTC.
  *

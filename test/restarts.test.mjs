@@ -78,6 +78,9 @@ check('warnings are ordered longest-first and all positive',
   WARNINGS.every((w, n) => w > 0 && (n === 0 || w < WARNINGS[n - 1])),
   WARNINGS.join(', '));
 
+check('the in-game schedule is the agreed one',
+  WARNINGS.join(',') === '60,30,15,5,1', WARNINGS.join(','));
+
 // ---- embeds -----------------------------------------------------------------
 
 {

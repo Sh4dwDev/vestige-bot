@@ -331,9 +331,10 @@ Restarts land on **fixed clock times anchored to midnight UTC**, not "six hours
 after the bot started". Players can learn them, and they survive a bot restart.
 Six-hourly means 00:00, 06:00, 12:00 and 18:00.
 
-Warnings go out at 60, 30, 15, 10, 5, 3 and 1 minutes in game; Discord gets the
-60, 15 and 5 minute ones, optionally pinging a role — pinging seven times an
-evening is how a role gets muted.
+Warnings go out at **60, 30, 15, 5 and 1** minutes in game. Discord gets the 60,
+15 and 5 minute ones, and the role is mentioned **only on the first** — the
+later notices still post, they just do not buzz everybody again. Pinging a role
+repeatedly through an evening is how that role ends up muted.
 
 At zero the bot **saves first, always**, and saves even if the panel call then
 fails: a late restart is a nuisance, a lost world is not.

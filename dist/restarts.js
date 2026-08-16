@@ -16,9 +16,9 @@ const ROLE_KEY = 'restart_role';
 const HOURS_KEY = 'restart_hours';
 const ENABLED_KEY = 'restart_enabled';
 export const DEFAULT_INTERVAL_HOURS = 6;
-/** Minutes before a restart at which players are told. */
-export const WARNINGS = [60, 30, 15, 10, 5, 3, 1];
-/** Announced loudly in Discord as well as in game; the rest are in game only. */
+/** Minutes before a restart at which players are told, in game. */
+export const WARNINGS = [60, 30, 15, 5, 1];
+/** Also posted to Discord; the rest are in game only. */
 const DISCORD_WARNINGS = new Set([60, 15, 5]);
 /**
  * The next restart at or after `now`, aligned to midnight UTC.
@@ -90,6 +90,8 @@ export function startRestartScheduler(ctx, client, log) {
     let cycle = 0;
     const sent = new Set();
     let restarting = false;
+    /** The role is mentioned once per restart; later notices post silently. */
+    let pinged = false;
     const tick = async () => {
         const settings = restartSettings(ctx);
         if (!settings.enabled)
@@ -101,6 +103,7 @@ export function startRestartScheduler(ctx, client, log) {
             cycle = restart.getTime();
             sent.clear();
             restarting = false;
+            pinged = false;
         }
         const minutes = minutesUntil(now, restart);
         // Fire the largest warning we have passed but not yet sent, so a bot that
@@ -110,7 +113,10 @@ export function startRestartScheduler(ctx, client, log) {
         if (warning !== null) {
             for (const w of due)
                 sent.add(w);
-            await announce(ctx, client, settings, warning, restart, log);
+            const shouldPing = !pinged && DISCORD_WARNINGS.has(warning);
+            if (shouldPing)
+                pinged = true;
+            await announce(ctx, client, settings, warning, restart, log, shouldPing);
         }
         // Within the last 20 seconds: save, then hand over to the panel.
         if (minutes <= 0 && !restarting) {
@@ -121,7 +127,7 @@ export function startRestartScheduler(ctx, client, log) {
     setInterval(() => void tick(), 20_000).unref();
     void tick();
 }
-async function announce(ctx, client, settings, minutes, restart, log) {
+async function announce(ctx, client, settings, minutes, restart, log, ping) {
     try {
         await ctx.rcon.announce(inGameWarning(minutes));
     }
@@ -133,8 +139,10 @@ async function announce(ctx, client, settings, minutes, restart, log) {
     try {
         const channel = await client.channels.fetch(settings.channelId).catch(() => null);
         if (channel?.isTextBased() && 'send' in channel) {
+            // Only the first notice of a cycle mentions the role. The later ones
+            // still post, they just do not buzz everybody again.
             await channel.send({
-                content: settings.roleId ? `<@&${settings.roleId}>` : undefined,
+                content: ping && settings.roleId ? `<@&${settings.roleId}>` : undefined,
                 embeds: [buildRestartEmbed(minutes, restart)],
             });
         }

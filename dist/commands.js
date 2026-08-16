@@ -828,8 +828,9 @@ async function handleRestarts(ctx, i, action) {
         await i.reply({
             embeds: [embed(COLORS.good, 'Warnings set up', `Restart warnings go to <#${channel.id}>` +
                     (role ? `, pinging ${role}` : ', with no role ping') +
-                    `.\n\nDiscord gets the 60, 15 and 5 minute warnings; in game gets all of ` +
-                    `them: ${WARNINGS.join(', ')} minutes.`)],
+                    `.\n\nIn game: **${WARNINGS.join(', ')}** minutes before.\n` +
+                    'Discord: 60, 15 and 5 — but the role is only pinged **once**, on the ' +
+                    'first one. The later notices post without buzzing anybody again.')],
             flags: MessageFlags.Ephemeral,
         });
         return;
