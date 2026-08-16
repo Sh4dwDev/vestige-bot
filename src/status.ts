@@ -27,11 +27,17 @@ export function statusChannel(ctx: Ctx): string | null {
   return ctx.db.getSetting(CHANNEL_KEY) || null;
 }
 
-/** Full bar at capacity, empty when nobody is on. */
+/**
+ * Anyone at all gets one segment. A server with a player on it showing a
+ * completely empty bar reads as broken, and at 1/100 honest rounding does
+ * exactly that.
+ */
 function bar(online: number, max: number): string {
-  const width = 12;
-  const filled = max <= 0 ? 0 : Math.min(width, Math.round((online / max) * width));
-  return '█'.repeat(filled) + '░'.repeat(width - filled);
+  const width = 10;
+  if (max <= 0) return '';
+  const exact = (online / max) * width;
+  const filled = Math.min(width, online > 0 ? Math.max(1, Math.round(exact)) : 0);
+  return '▰'.repeat(filled) + '▱'.repeat(width - filled);
 }
 
 export interface StatusView {
@@ -41,34 +47,50 @@ export interface StatusView {
 }
 
 export function buildStatusEmbed(view: StatusView, restart: Date | null): EmbedBuilder {
+  // The embed's own timestamp already shows freshness under the footer, so an
+  // "updated N seconds ago" line was saying the same thing twice.
   const embed = new EmbedBuilder()
     .setTitle(`🌐  ${SERVER}`)
-    .setFooter({ text: SIGNATURE })
+    .setFooter({ text: `Refreshes every minute · ${SIGNATURE}` })
     .setTimestamp();
-
-  const updated = `\n\nUpdated <t:${Math.floor(Date.now() / 1000)}:R> · refreshes every minute`;
-  const restartLine = restart
-    ? `\n\n**Next restart** <t:${Math.floor(restart.getTime() / 1000)}:R>, ` +
-      `at <t:${Math.floor(restart.getTime() / 1000)}:t>`
-    : '';
 
   if (view.online === null) {
     return embed
       .setColor(0xed4245)
       .setDescription(
-        `### 🔴  Offline\n${SERVER} is not responding. It may be restarting — ` +
-        `this usually sorts itself out within a few minutes.${restartLine}${updated}`,
+        '## 🔴  Offline\n' +
+        `${SERVER} is not responding. It is most likely restarting — this ` +
+        'usually sorts itself out within a few minutes.',
       );
   }
 
-  const max = view.max;
-  const capacity = max === null
-    ? `**${view.online}** playing`
-    : `**${view.online} / ${max}** playing\n\`${bar(view.online, max)}\``;
+  const { online, max } = view;
 
-  return embed
-    .setColor(0x57f287)
-    .setDescription(`### 🟢  Online\n${capacity}${restartLine}${updated}`);
+  embed
+    // Grey rather than green when empty: technically online, but "join, it is
+    // busy" is the wrong impression to give.
+    .setColor(online > 0 ? 0x57f287 : 0x4f545c)
+    .setDescription(
+      '## 🟢  Online\n' +
+      (max === null ? '' : `\`${bar(online, max)}\`  ${Math.round((online / max) * 100)}% full`),
+    )
+    .addFields({
+      name: '👥  Players',
+      value: max === null ? `**${online}**` : `**${online}** / ${max}`,
+      inline: true,
+    });
+
+  if (restart) {
+    embed.addFields({
+      name: '🔄  Next restart',
+      value:
+        `<t:${Math.floor(restart.getTime() / 1000)}:R>\n` +
+        `<t:${Math.floor(restart.getTime() / 1000)}:t>`,
+      inline: true,
+    });
+  }
+
+  return embed;
 }
 
 /** Called from the minute poll, which already knows these numbers. */

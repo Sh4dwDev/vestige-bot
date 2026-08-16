@@ -80,24 +80,25 @@ export function buildPopulationEmbed(players, options = {}) {
         adults: acc.adults + row.adults,
         prime: acc.prime + row.prime,
     }), { online: 0, adults: 0, prime: 0 });
-    const embed = new EmbedBuilder().setTitle(`🦕  ${SERVER} right now`);
-    // Timestamps only render in a description, never in a footer, so the
-    // "as of" line has to live in the body.
-    const stamp = `<t:${Math.floor(Date.now() / 1000)}:R>`;
-    const updated = options.live
-        ? `\n\nUpdated ${stamp} · refreshes every minute`
-        : `\n\nAs of ${stamp}`;
+    // The embed's own timestamp shows freshness under the footer, so there is no
+    // need for an "updated N seconds ago" line repeating it.
+    const embed = new EmbedBuilder()
+        .setTitle(`🦕  ${SERVER} right now`)
+        .setTimestamp();
+    const signature = options.live ? `Refreshes every minute · ${SIGNATURE}` : SIGNATURE;
     if (options.unreachable) {
         return embed
             .setColor(0xed4245)
-            .setDescription(`${SERVER} is not responding — it may be restarting.${updated}`)
-            .setFooter({ text: SIGNATURE });
+            .setDescription('## 🔴  Unreachable\n' +
+            `${SERVER} is not responding. It is most likely restarting.`)
+            .setFooter({ text: signature });
     }
     if (totals.online === 0) {
         return embed
             .setColor(0x4f545c)
-            .setDescription(`The island is quiet. Nobody is playing a dinosaur right now.${updated}`)
-            .setFooter({ text: SIGNATURE });
+            .setDescription('## 🌙  All quiet\n' +
+            'Nobody is out there right now. The island is yours if you want it.')
+            .setFooter({ text: signature });
     }
     const headline = `**${totals.online}** playing · **${totals.adults}** adult · ` +
         `**${totals.prime}** prime · **${rows.length}** ` +
@@ -108,7 +109,7 @@ export function buildPopulationEmbed(players, options = {}) {
     // count the cards wrap badly and the dense table earns its place again.
     if (rows.length <= FIELD_LIMIT) {
         embed
-            .setDescription(headline + updated)
+            .setDescription(headline)
             .addFields(rows.map((row) => ({
             name: `${icon(row.species)}  ${row.species}`,
             value: `**${row.online}** online\n` +
@@ -116,7 +117,9 @@ export function buildPopulationEmbed(players, options = {}) {
                 `♂ ${row.males} · ♀ ${row.females}`,
             inline: true,
         })))
-            .setFooter({ text: `Adults are 50% growth for large species, 75% for the rest\n${SIGNATURE}` });
+            .setFooter({
+            text: `Adults are 50% growth for large species, 75% for the rest\n${signature}`,
+        });
         return embed;
     }
     // A very long table would blow the 4096-character description limit, so the
@@ -126,10 +129,9 @@ export function buildPopulationEmbed(players, options = {}) {
     embed
         .setDescription(headline + '\n' +
         table(shown, totals.online) +
-        (hidden > 0 ? `\n…and ${hidden} more species` : '') +
-        updated)
+        (hidden > 0 ? `\n…and ${hidden} more species` : ''))
         .setFooter({
-        text: `ON online · AD adults · PR prime · M/F male and female\n${SIGNATURE}`,
+        text: `ON online · AD adults · PR prime · M/F male and female\n${signature}`,
     });
     return embed;
 }

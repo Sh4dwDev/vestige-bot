@@ -137,27 +137,32 @@ export function buildPopulationEmbed(
     { online: 0, adults: 0, prime: 0 },
   );
 
-  const embed = new EmbedBuilder().setTitle(`🦕  ${SERVER} right now`);
+  // The embed's own timestamp shows freshness under the footer, so there is no
+  // need for an "updated N seconds ago" line repeating it.
+  const embed = new EmbedBuilder()
+    .setTitle(`🦕  ${SERVER} right now`)
+    .setTimestamp();
 
-  // Timestamps only render in a description, never in a footer, so the
-  // "as of" line has to live in the body.
-  const stamp = `<t:${Math.floor(Date.now() / 1000)}:R>`;
-  const updated = options.live
-    ? `\n\nUpdated ${stamp} · refreshes every minute`
-    : `\n\nAs of ${stamp}`;
+  const signature = options.live ? `Refreshes every minute · ${SIGNATURE}` : SIGNATURE;
 
   if (options.unreachable) {
     return embed
       .setColor(0xed4245)
-      .setDescription(`${SERVER} is not responding — it may be restarting.${updated}`)
-      .setFooter({ text: SIGNATURE });
+      .setDescription(
+        '## 🔴  Unreachable\n' +
+        `${SERVER} is not responding. It is most likely restarting.`,
+      )
+      .setFooter({ text: signature });
   }
 
   if (totals.online === 0) {
     return embed
       .setColor(0x4f545c)
-      .setDescription(`The island is quiet. Nobody is playing a dinosaur right now.${updated}`)
-      .setFooter({ text: SIGNATURE });
+      .setDescription(
+        '## 🌙  All quiet\n' +
+        'Nobody is out there right now. The island is yours if you want it.',
+      )
+      .setFooter({ text: signature });
   }
 
   const headline =
@@ -172,7 +177,7 @@ export function buildPopulationEmbed(
   // count the cards wrap badly and the dense table earns its place again.
   if (rows.length <= FIELD_LIMIT) {
     embed
-      .setDescription(headline + updated)
+      .setDescription(headline)
       .addFields(
         rows.map((row) => ({
           name: `${icon(row.species)}  ${row.species}`,
@@ -183,7 +188,9 @@ export function buildPopulationEmbed(
           inline: true,
         })),
       )
-      .setFooter({ text: `Adults are 50% growth for large species, 75% for the rest\n${SIGNATURE}` });
+      .setFooter({
+        text: `Adults are 50% growth for large species, 75% for the rest\n${signature}`,
+      });
 
     return embed;
   }
@@ -197,11 +204,10 @@ export function buildPopulationEmbed(
     .setDescription(
       headline + '\n' +
       table(shown, totals.online) +
-      (hidden > 0 ? `\n…and ${hidden} more species` : '') +
-      updated,
+      (hidden > 0 ? `\n…and ${hidden} more species` : ''),
     )
     .setFooter({
-      text: `ON online · AD adults · PR prime · M/F male and female\n${SIGNATURE}`,
+      text: `ON online · AD adults · PR prime · M/F male and female\n${signature}`,
     });
 
   return embed;

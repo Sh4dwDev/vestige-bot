@@ -96,13 +96,26 @@ check('warnings are ordered longest-first and all positive',
   const down = buildStatusEmbed({ online: null, max: 100 }, null).toJSON();
   const unknown = buildStatusEmbed({ online: 3, max: null }, null).toJSON();
 
-  check('online shows the count against capacity', /12 \/ 100/.test(up.description ?? ''),
-    up.description);
-  check('online shows the next restart', /Next restart/.test(up.description ?? ''));
+  const field = (json, needle) =>
+    (json.fields ?? []).find((f) => f.name.includes(needle))?.value ?? '';
+
+  check('online shows the count against capacity', /12.*\/ 100/.test(field(up, 'Players')),
+    field(up, 'Players'));
+  check('online shows the next restart', /<t:\d+:R>/.test(field(up, 'restart')),
+    field(up, 'restart'));
   check('offline still renders', /Offline/.test(down.description ?? ''));
   check('offline is red', down.color === 0xed4245);
-  check('an unknown capacity does not print "/0"', !/\/\s*0/.test(unknown.description ?? ''),
-    unknown.description);
+  check('offline shows no player count', (down.fields ?? []).length === 0);
+
+  check('an unknown capacity does not print "/0"',
+    !/\/\s*0/.test(field(unknown, 'Players')) && !/\/\s*0/.test(unknown.description ?? ''),
+    `${unknown.description} | ${field(unknown, 'Players')}`);
+
+  // An empty server showing a full green banner reads as "join, it is busy".
+  const quiet = buildStatusEmbed({ online: 0, max: 100 }, null).toJSON();
+  check('an empty server is not painted green', quiet.color !== up.color);
+  check('a lone player still moves the bar', /▰/.test(
+    buildStatusEmbed({ online: 1, max: 100 }, null).toJSON().description ?? ''));
   check('status embeds stay within the 6000 char limit',
     JSON.stringify(up).length < 6000 && JSON.stringify(down).length < 6000);
 }

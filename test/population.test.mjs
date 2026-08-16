@@ -56,15 +56,22 @@ check('an 80% Dryo is an adult', isAdult('Dryosaurus', 0.8) === true);
 {
   // The panel is always on screen, so every state has to render something.
   const empty = buildPopulationEmbed([]).toJSON();
-  check('empty server renders a message, not a crash', /Nobody is playing/.test(empty.description ?? ''));
+  check('empty server renders a message, not a crash', /All quiet/.test(empty.description ?? ''),
+    empty.description);
 
   const down = buildPopulationEmbed([], { unreachable: true }).toJSON();
   check('an unreachable server still renders', /not responding/.test(down.description ?? ''));
 
   const live = buildPopulationEmbed([], { live: true }).toJSON();
-  check('the live panel says it refreshes', /refreshes every minute/.test(live.description ?? ''));
-  check('the timestamp is in the description, where Discord renders it',
-    /<t:\d+:R>/.test(live.description ?? ''));
+  check('the live panel says it refreshes', /Refreshes every minute/.test(live.footer?.text ?? ''),
+    live.footer?.text);
+
+  // The embed's own timestamp carries freshness; a second "updated N ago" line
+  // said the same thing twice.
+  check('freshness comes from the embed timestamp', typeof live.timestamp === 'string',
+    String(live.timestamp));
+  check('no duplicated updated line', !/Updated/.test(live.description ?? ''),
+    live.description);
 }
 
 {

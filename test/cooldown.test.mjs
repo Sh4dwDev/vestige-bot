@@ -29,7 +29,10 @@ check('starting one blocks the action', left > 0 && left <= FIFTEEN, `${Math.rou
 check('it does not block anyone else', db.cooldownLeft(B, 'slay', FIFTEEN) === 0);
 check('it does not block other actions', db.cooldownLeft(A, 'store', FIFTEEN) === 0);
 
-// A shorter window than the elapsed time means it has already expired.
+// A shorter window than the elapsed time means it has already expired. The
+// wait matters: with a 1ms window and no pause this can be checked inside the
+// same millisecond it was started, which is not expiry, it is a race.
+await new Promise((r) => setTimeout(r, 10));
 check('an expired cooldown reads as available', db.cooldownLeft(A, 'slay', 1) === 0,
   String(db.cooldownLeft(A, 'slay', 1)));
 
