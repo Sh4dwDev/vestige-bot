@@ -4,6 +4,7 @@ import { ARCHIVE_CAP, SERVER, SIGNATURE } from './brand.js';
 import { buildCommandsEmbed, buildStorageGuideEmbed } from './guides.js';
 import { refreshPopulationPanel, setPopulationChannel } from './livepanel.js';
 import { showPanel, stopAutoRefresh } from './panel.js';
+import { buildHubEmbed, hubRows, HUB_MESSAGE_KEY, setHubChannel } from './hub.js';
 import { buildKillsEmbed, setKillfeedChannel } from './kills.js';
 import { postOrEdit } from './pinned.js';
 import { buildBalanceEmbed, buildLeaderboardEmbed, display, ratePerHour, setRatePerHour, } from './points.js';
@@ -26,14 +27,6 @@ function embed(color, title, description, fields) {
     return e;
 }
 const isSteamId = (v) => /^7656119\d{10}$/.test(v);
-/**
- * The /link reply, kept so the watcher can turn it into "linked" in place once
- * the player types their code in game.
- *
- * Better than a DM: it stays in the channel they are already looking at, only
- * they can see it, and plenty of people have DMs closed. Interaction tokens are
- * valid for 15 minutes, which is longer than the code itself lasts.
- */
 const linkReplies = new Map();
 export async function announceLinked(discordId) {
     const interaction = linkReplies.get(discordId);
@@ -109,6 +102,14 @@ export const commandData = [
         .addSubcommand((s) => s.setName('channel').setDescription('Post the command list in a channel')
         .addChannelOption((o) => o.setName('channel').setDescription('Where it should live')
         .addChannelTypes(ChannelType.GuildText).setRequired(true))))
+        .addSubcommandGroup((g) => g.setName('slay').setDescription('Slay limits')
+        .addSubcommand((s) => s.setName('cooldown').setDescription('Minutes players must wait between slays')
+        .addIntegerOption((o) => o.setName('minutes').setDescription('0 disables the limit')
+        .setMinValue(0).setMaxValue(1440).setRequired(true))))
+        .addSubcommandGroup((g) => g.setName('panel').setDescription('The main player panel')
+        .addSubcommand((s) => s.setName('channel').setDescription('Post the player panel in a channel')
+        .addChannelOption((o) => o.setName('channel').setDescription('Where it should live')
+        .addChannelTypes(ChannelType.GuildText).setRequired(true))))
         .addSubcommandGroup((g) => g.setName('status').setDescription('The live server status panel')
         .addSubcommand((s) => s.setName('channel').setDescription('Put the status panel in a channel')
         .addChannelOption((o) => o.setName('channel').setDescription('Where it should live')
@@ -161,26 +162,32 @@ export async function handleCommand(ctx, i) {
 // ---------------------------------------------------------------- linking --
 async function handleLink(ctx, i) {
     const steamId = i.options.getString('steamid', true).trim();
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    await beginLink(ctx, i, i.user.id, steamId);
+}
+/**
+ * Issues a link code. Shared by `/link` and the Verify button, so both routes
+ * behave identically — the interaction must already be deferred, ephemerally.
+ */
+export async function beginLink(ctx, i, discordId, rawSteamId) {
+    const steamId = rawSteamId.trim();
     if (!isSteamId(steamId)) {
-        await i.reply({
+        await i.editReply({
             embeds: [embed(COLORS.warn, 'That is not a Steam64 ID', 'It is 17 digits and starts with 7656119. You can find yours on steamid.io.')],
-            flags: MessageFlags.Ephemeral,
         });
         return;
     }
     const taken = ctx.db.linkBySteam(steamId);
-    if (taken && taken.discordId !== i.user.id) {
-        await i.reply({
+    if (taken && taken.discordId !== discordId) {
+        await i.editReply({
             embeds: [embed(COLORS.bad, 'Already linked', 'That Steam account is connected to a different Discord account.')],
-            flags: MessageFlags.Ephemeral,
         });
         return;
     }
-    await i.deferReply({ flags: MessageFlags.Ephemeral });
-    const online = await ctx.rcon.players();
+    const online = await ctx.rcon.players().catch(() => []);
     if (!online.some((p) => p.steamId === steamId)) {
         await i.editReply({
-            embeds: [embed(COLORS.warn, `You need to be on ${SERVER}`, `Join ${SERVER}, then run \`/link\` again — you finish this in game chat.`)],
+            embeds: [embed(COLORS.warn, `You need to be on ${SERVER}`, `Join ${SERVER}, then try again — you finish this in game chat.`)],
         });
         return;
     }
@@ -189,10 +196,10 @@ async function handleLink(ctx, i) {
     let code = '';
     for (let n = 0; n < 6; n += 1)
         code += alphabet[Math.floor(Math.random() * alphabet.length)];
-    ctx.db.setPending(i.user.id, steamId, code, ctx.config.linkCodeTtlMinutes * 60_000);
+    ctx.db.setPending(discordId, steamId, code, ctx.config.linkCodeTtlMinutes * 60_000);
     // Typing the code IN GAME is what proves they control the Steam account —
     // only someone playing as it can put it in that account's chat.
-    linkReplies.set(i.user.id, i);
+    linkReplies.set(discordId, i);
     await i.editReply({
         embeds: [embed(COLORS.info, 'Prove it is you', `Type this in **game chat**:\n\n\`\`\`\n!link ${code}\n\`\`\`\n` +
                 `${ARCHIVE_CAP} will recognise you within a few seconds. The code lasts ` +
@@ -215,11 +222,10 @@ async function handleUnlink(ctx, i) {
         flags: MessageFlags.Ephemeral,
     });
 }
-// ------------------------------------------------------------------- slay --
 /** Confirmation for anything that destroys a dinosaur. */
 async function confirm(i, prompt, label) {
     const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('yes').setLabel(label).setStyle(ButtonStyle.Danger), new ButtonBuilder().setCustomId('no').setLabel('Cancel').setStyle(ButtonStyle.Secondary));
-    const message = await i.editReply({ embeds: [prompt], components: [row] });
+    const message = (await i.editReply({ embeds: [prompt], components: [row] }));
     try {
         const click = await message.awaitMessageComponent({
             componentType: ComponentType.Button,
@@ -253,21 +259,7 @@ async function handleSlay(ctx, i) {
     }
     await i.deferReply({ flags: MessageFlags.Ephemeral });
     try {
-        const proceed = await confirm(i, embed(COLORS.warn, 'Kill your dinosaur?', 'Nothing is kept. If you want it back later, use `/storage` instead.'), 'Kill it');
-        if (!proceed) {
-            await i.editReply({
-                embeds: [embed(COLORS.quiet, 'Cancelled', 'Your dinosaur is fine.')],
-                components: [],
-            });
-            return;
-        }
-        const result = await ctx.mod.run('slay', link.steamId);
-        await i.editReply({
-            embeds: [result.ok
-                    ? embed(COLORS.good, 'It is done', `${result.msg}.\n\nSpawn again whenever you like.`)
-                    : embed(COLORS.bad, 'Could not do that', result.msg)],
-            components: [],
-        });
+        await runSlay(ctx, i, link.steamId);
     }
     catch (err) {
         await i.editReply({
@@ -275,6 +267,55 @@ async function handleSlay(ctx, i) {
             components: [],
         });
     }
+}
+/**
+ * Confirms, then kills. Shared by `/slay` and the panel button so both ask the
+ * same question. The interaction must already be deferred, ephemerally.
+ *
+ * The Steam ID comes from the link table, never from user input, so this cannot
+ * be pointed at anyone else.
+ */
+/** Minutes between slays. Zero disables the limit entirely. */
+export function slayCooldownMinutes(ctx) {
+    const raw = Number.parseInt(ctx.db.getSetting('slay_cooldown_minutes') ?? '', 10);
+    return Number.isFinite(raw) && raw >= 0 ? raw : 15;
+}
+export async function runSlay(ctx, i, steamId) {
+    // why: without this, slaying is a free reroll — kill, respawn, repeat until
+    // the spawn lands somewhere good.
+    const windowMs = slayCooldownMinutes(ctx) * 60_000;
+    const left = ctx.db.cooldownLeft(steamId, 'slay', windowMs);
+    if (left > 0) {
+        const ready = Math.floor((Date.now() + left) / 1000);
+        await i.editReply({
+            embeds: [embed(COLORS.warn, 'Not yet', `You can slay again <t:${ready}:R>.\n\n` +
+                    'The wait is there so slaying cannot be used to reroll your spawn. ' +
+                    'Storing a dinosaur is not affected.')],
+            components: [],
+        });
+        return;
+    }
+    const proceed = await confirm(i, embed(COLORS.warn, 'Kill your dinosaur?', 'Nothing is kept. If you want it back later, store it instead.'), 'Kill it');
+    if (!proceed) {
+        await i.editReply({
+            embeds: [embed(COLORS.quiet, 'Cancelled', 'Your dinosaur is fine.')],
+            components: [],
+        });
+        return;
+    }
+    const result = await ctx.mod.run('slay', steamId);
+    // Only on success: a failed slay left the dinosaur alive, so charging them
+    // the wait would be punishing them for the server's problem.
+    if (result.ok)
+        ctx.db.startCooldown(steamId, 'slay');
+    const minutes = slayCooldownMinutes(ctx);
+    await i.editReply({
+        embeds: [result.ok
+                ? embed(COLORS.good, 'It is done', `${result.msg}.\n\nSpawn again whenever you like.` +
+                    (minutes > 0 ? `\n\nYou can slay again in ${minutes} minutes.` : ''))
+                : embed(COLORS.bad, 'Could not do that', result.msg)],
+        components: [],
+    });
 }
 // ------------------------------------------------------------- population --
 /** Public: no link needed, and it names nobody. */
@@ -433,6 +474,37 @@ async function handleAdmin(ctx, i) {
         return handleReferencePanel(ctx, i, 'commands');
     if (group === 'status')
         return handleStatusPanel(ctx, i, action);
+    if (group === 'slay') {
+        const minutes = i.options.getInteger('minutes', true);
+        ctx.db.setSetting('slay_cooldown_minutes', String(minutes));
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Slay cooldown set', minutes === 0
+                    ? 'There is now **no limit** on how often players can slay.'
+                    : `Players must wait **${minutes} minutes** between slays.\n\n` +
+                        'Storing is unaffected — that is limited by slots instead.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (group === 'panel') {
+        const channel = i.options.getChannel('channel', true);
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        setHubChannel(ctx, channel.id);
+        try {
+            await postOrEdit(ctx.db, i.client, channel.id, HUB_MESSAGE_KEY, [buildHubEmbed()], hubRows());
+            await i.editReply({
+                embeds: [embed(COLORS.good, 'Panel is live', `It is in <#${channel.id}>.\n\nThe buttons keep working after a restart, ` +
+                        'so this message can stay pinned indefinitely.')],
+            });
+        }
+        catch (err) {
+            await i.editReply({
+                embeds: [embed(COLORS.bad, 'Could not post there', `${describeError(err)}\n\nCheck the bot can **View Channel**, ` +
+                        '**Send Messages** and **Embed Links** there.')],
+            });
+        }
+        return;
+    }
     if (group === 'restarts')
         return handleRestarts(ctx, i, action);
     if (group === 'points')

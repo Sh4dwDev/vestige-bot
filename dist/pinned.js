@@ -1,4 +1,4 @@
-import { ChannelType } from 'discord.js';
+import { ChannelType, } from 'discord.js';
 /**
  * A message the bot owns and keeps in a channel.
  *
@@ -9,7 +9,7 @@ import { ChannelType } from 'discord.js';
  * If the message is gone (deleted, or the channel changed) a fresh one is
  * posted and the new id recorded.
  */
-export async function postOrEdit(db, client, channelId, messageKey, embeds) {
+export async function postOrEdit(db, client, channelId, messageKey, embeds, components = []) {
     const channel = await client.channels.fetch(channelId).catch(() => null);
     if (!channel || channel.type !== ChannelType.GuildText) {
         throw new Error('That is not a text channel the bot can see.');
@@ -19,11 +19,11 @@ export async function postOrEdit(db, client, channelId, messageKey, embeds) {
     if (existingId) {
         const existing = await text.messages.fetch(existingId).catch(() => null);
         if (existing) {
-            await existing.edit({ embeds });
+            await existing.edit({ embeds, components });
             return;
         }
     }
-    const sent = await text.send({ embeds });
+    const sent = await text.send({ embeds, components });
     db.setSetting(messageKey, sent.id);
 }
 //# sourceMappingURL=pinned.js.map

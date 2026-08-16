@@ -1,4 +1,4 @@
-import { type Client, type EmbedBuilder } from 'discord.js';
+import { type ActionRowBuilder, type ButtonBuilder, type Client, type EmbedBuilder } from 'discord.js';
 import type { Database } from './db.js';
 /**
  * A message the bot owns and keeps in a channel.
@@ -10,4 +10,4 @@ import type { Database } from './db.js';
  * If the message is gone (deleted, or the channel changed) a fresh one is
  * posted and the new id recorded.
  */
-export declare function postOrEdit(db: Database, client: Client, channelId: string, messageKey: string, embeds: EmbedBuilder[]): Promise<void>;
+export declare function postOrEdit(db: Database, client: Client, channelId: string, messageKey: string, embeds: EmbedBuilder[], components?: ActionRowBuilder<ButtonBuilder>[]): Promise<void>;

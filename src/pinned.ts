@@ -1,4 +1,11 @@
-import { ChannelType, type Client, type EmbedBuilder, type TextChannel } from 'discord.js';
+import {
+  ChannelType,
+  type ActionRowBuilder,
+  type ButtonBuilder,
+  type Client,
+  type EmbedBuilder,
+  type TextChannel,
+} from 'discord.js';
 
 import type { Database } from './db.js';
 
@@ -18,6 +25,7 @@ export async function postOrEdit(
   channelId: string,
   messageKey: string,
   embeds: EmbedBuilder[],
+  components: ActionRowBuilder<ButtonBuilder>[] = [],
 ): Promise<void> {
   const channel = await client.channels.fetch(channelId).catch(() => null);
   if (!channel || channel.type !== ChannelType.GuildText) {
@@ -30,11 +38,11 @@ export async function postOrEdit(
   if (existingId) {
     const existing = await text.messages.fetch(existingId).catch(() => null);
     if (existing) {
-      await existing.edit({ embeds });
+      await existing.edit({ embeds, components });
       return;
     }
   }
 
-  const sent = await text.send({ embeds });
+  const sent = await text.send({ embeds, components });
   db.setSetting(messageKey, sent.id);
 }

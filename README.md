@@ -136,6 +136,8 @@ and administration.
 | `/admin points give\|take\|set\|rate` | staff | Adjust balances and the earning rate |
 | `/admin game add\|remove\|list` | staff | In-game admins, via Game.ini |
 | `/admin bot add\|remove\|list` | staff | Who may use `/admin` |
+| `/admin panel channel` | staff | The main player panel — buttons, no commands to learn |
+| `/admin slay cooldown` | staff | Minutes between slays (0 disables) |
 | `/admin population channel\|off` | staff | The self-updating population panel |
 | `/admin guide channel` | staff | Post the storage guide in a channel |
 | `/admin commands channel` | staff | Post the command reference in a channel |
@@ -163,6 +165,21 @@ also what actually proves account ownership.
 `!discord` has the opposite shape: the mod detects it but **cannot reply in
 chat**, so the bot sends the invite over RCON. That message is transient by
 nature, which is why the invite should be short.
+
+### The player panel
+
+`/admin panel channel #x` posts a hub with category buttons — Archive, In-game
+actions, Stats, Verify — each opening a private reply. Nobody has to know a
+command name to use the bot.
+
+**Its buttons carry no state**, so the message keeps working indefinitely,
+including across restarts and redeploys. A pinned panel that quietly stops
+responding after a restart is worse than no panel, and stateful custom IDs are
+the usual way that happens.
+
+Verify opens a modal for the Steam64 ID and then runs the same code path as
+`/link` — one flow, so the two cannot drift apart. Same for the panel's Slay
+button and `/slay`.
 
 ### Channel panels
 

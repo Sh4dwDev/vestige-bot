@@ -1,4 +1,4 @@
-import { type ChatInputCommandInteraction } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, EmbedBuilder, type ChatInputCommandInteraction } from 'discord.js';
 import { AdminStore } from './admins.js';
 import type { ModBridge } from './bridge.js';
 import type { Config } from './config.js';
@@ -14,7 +14,48 @@ export interface Ctx {
     /** Null when no control panel is configured; restarts then warn but cannot act. */
     panel: Panel | null;
 }
+/**
+ * The /link reply, kept so the watcher can turn it into "linked" in place once
+ * the player types their code in game.
+ *
+ * Better than a DM: it stays in the channel they are already looking at, only
+ * they can see it, and plenty of people have DMs closed. Interaction tokens are
+ * valid for 15 minutes, which is longer than the code itself lasts.
+ */
+interface Editable {
+    editReply: (options: {
+        embeds: EmbedBuilder[];
+    }) => Promise<unknown>;
+}
 export declare function announceLinked(discordId: string): Promise<boolean>;
 export declare const commandData: import("discord.js").RESTPostAPIChatInputApplicationCommandsJSONBody[];
 export declare function handleCommand(ctx: Ctx, i: ChatInputCommandInteraction): Promise<void>;
+/**
+ * Issues a link code. Shared by `/link` and the Verify button, so both routes
+ * behave identically — the interaction must already be deferred, ephemerally.
+ */
+export declare function beginLink(ctx: Ctx, i: Editable, discordId: string, rawSteamId: string): Promise<void>;
+/** Anything that can show a prompt and wait on a button click. */
+interface Confirmable {
+    editReply: (options: {
+        embeds: EmbedBuilder[];
+        components?: ActionRowBuilder<ButtonBuilder>[];
+    }) => Promise<{
+        awaitMessageComponent: (o: never) => Promise<never>;
+    } | unknown>;
+    user: {
+        id: string;
+    };
+}
+/**
+ * Confirms, then kills. Shared by `/slay` and the panel button so both ask the
+ * same question. The interaction must already be deferred, ephemerally.
+ *
+ * The Steam ID comes from the link table, never from user input, so this cannot
+ * be pointed at anyone else.
+ */
+/** Minutes between slays. Zero disables the limit entirely. */
+export declare function slayCooldownMinutes(ctx: Ctx): number;
+export declare function runSlay(ctx: Ctx, i: Confirmable, steamId: string): Promise<void>;
 export declare function describeError(err: unknown): string;
+export {};

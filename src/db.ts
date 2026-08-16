@@ -43,6 +43,15 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL
 );
 
+-- Per-player action cooldowns. Keyed by Steam ID so unlinking and relinking is
+-- not a way to clear one.
+CREATE TABLE IF NOT EXISTS cooldowns (
+  steam_id TEXT NOT NULL,
+  action   TEXT NOT NULL,
+  at       INTEGER NOT NULL,
+  PRIMARY KEY (steam_id, action)
+);
+
 -- One row per death. killer_steam is empty when nothing could be attributed —
 -- bleed, starvation, drowning, AI and falls leave no attacker, so kills and
 -- deaths deliberately do not reconcile.
@@ -236,6 +245,27 @@ export class Database {
     return Number(
       this.#db.prepare('DELETE FROM bot_admins WHERE discord_id = ?').run(discordId).changes,
     ) > 0;
+  }
+
+  // ---- cooldowns ---------------------------------------------------------
+
+  /** Milliseconds remaining, or 0 when the action is available. */
+  cooldownLeft(steamId: string, action: string, windowMs: number): number {
+    if (windowMs <= 0) return 0;
+    const row = this.#db
+      .prepare('SELECT at FROM cooldowns WHERE steam_id = ? AND action = ?')
+      .get(steamId, action) as Record<string, unknown> | undefined;
+    if (!row) return 0;
+    return Math.max(0, Number(row['at']) + windowMs - Date.now());
+  }
+
+  startCooldown(steamId: string, action: string): void {
+    this.#db
+      .prepare(
+        `INSERT INTO cooldowns (steam_id, action, at) VALUES (?, ?, ?)
+         ON CONFLICT (steam_id, action) DO UPDATE SET at = excluded.at`,
+      )
+      .run(steamId, action, Date.now());
   }
 
   // ---- kills -------------------------------------------------------------

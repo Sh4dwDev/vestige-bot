@@ -43,6 +43,9 @@ export declare class Database {
     isBotAdmin(discordId: string): boolean;
     addBotAdmin(discordId: string, addedBy: string): void;
     removeBotAdmin(discordId: string): boolean;
+    /** Milliseconds remaining, or 0 when the action is available. */
+    cooldownLeft(steamId: string, action: string, windowMs: number): number;
+    startCooldown(steamId: string, action: string): void;
     recordKill(killerSteam: string, victimSteam: string, species: string, cause: string): void;
     /** Attributed kills only — an empty killer is a death nobody gets credit for. */
     topKillers(limit: number): Array<{

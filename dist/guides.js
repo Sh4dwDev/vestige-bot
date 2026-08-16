@@ -76,7 +76,8 @@ export function buildCommandsEmbed() {
     }, {
         name: '💀  `/slay`',
         value: 'Kill your own dinosaur. Nothing is kept — use `/storage` if you want it back later.\n' +
-            'It only ever targets **you**.',
+            'It only ever targets **you**, and there is a wait between slays so it ' +
+            'cannot be used to reroll your spawn.',
     }, {
         name: '🦕  `/population`',
         value: `What is roaming ${SERVER} right now: species, adults, gender split and ` +

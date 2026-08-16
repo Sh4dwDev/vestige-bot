@@ -14,6 +14,7 @@ import { announceLinked, describeError, handleCommand, type Ctx } from './comman
 import { loadConfig } from './config.js';
 import { Database } from './db.js';
 import { startPopulationPanel } from './livepanel.js';
+import { handleHubInteraction } from './hub.js';
 import { buildKillEmbed, killfeedChannel, type KillEvent } from './kills.js';
 import { awardOnline } from './points.js';
 import { Panel } from './pterodactyl.js';
@@ -117,8 +118,10 @@ async function dispatch(ctx: Ctx, interaction: Interaction): Promise<void> {
       await handleCommand(ctx, interaction);
       return;
     }
-    // Everything on the storage panel is a button, select or modal.
+    // Everything else is a button, select or modal, on either the hub panel or
+    // the storage panel. The hub gets first refusal; it answers only its own.
     if (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) {
+      if (await handleHubInteraction(ctx, interaction)) return;
       await handlePanelInteraction(ctx, interaction);
     }
   } catch (err) {
