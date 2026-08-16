@@ -1,10 +1,11 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, UserSelectMenuBuilder, } from 'discord.js';
 import { SERVER, SIGNATURE } from './brand.js';
-import { beginLink, describeError, runSlay, steamNamer } from './commands.js';
+import { beginLink, describeError, runSlay, startTeleport, steamNamer, } from './commands.js';
 import { buildKillsEmbed } from './kills.js';
 import { showPanel } from './panel.js';
 import { buildBalanceEmbed, buildLeaderboardEmbed, ratePerHour } from './points.js';
 import { buildPopulationEmbed } from './population.js';
+import { clearRequest, requestFor, runAccepted } from './teleport.js';
 /**
  * One panel in a channel, with everything behind category buttons.
  *
@@ -77,6 +78,41 @@ const notLinked = () => new EmbedBuilder()
 /** Returns true when the interaction was ours. */
 export async function handleHubInteraction(ctx, interaction) {
     const id = interaction.customId;
+    // Accept/decline arrive as a DM button, so they are handled here rather than
+    // on the panel — the person answering may never have opened the panel.
+    if (id.startsWith('tp:') && interaction.isButton()) {
+        const [, answer] = id.split(':');
+        const link = ctx.db.linkFor(interaction.user.id);
+        const request = link ? requestFor(link.steamId) : null;
+        if (!request) {
+            await interaction.update({
+                embeds: [new EmbedBuilder().setColor(COLORS.warn).setTitle('Too late')
+                        .setDescription('That request has expired or was already answered.')],
+                components: [],
+            });
+            return true;
+        }
+        clearRequest(request.toSteam);
+        if (answer === 'no') {
+            await interaction.update({
+                embeds: [new EmbedBuilder().setColor(COLORS.warn).setTitle('Declined')
+                        .setDescription('They have not been moved.')],
+                components: [],
+            });
+            await ctx.rcon.directMessage(request.fromSteam, 'Your teleport request was declined.')
+                .catch(() => undefined);
+            return true;
+        }
+        request.accepted = true;
+        await interaction.update({
+            embeds: [new EmbedBuilder().setColor(COLORS.good).setTitle('Accepted')
+                    .setDescription('They will arrive shortly. You do not need to do anything else.')],
+            components: [],
+        });
+        // Not awaited: it waits out the delay before moving them.
+        void runAccepted(ctx, interaction.client, request, () => { });
+        return true;
+    }
     if (!id.startsWith('hub:'))
         return false;
     // The modal has to be the first response, so it cannot be deferred first.
@@ -88,6 +124,11 @@ export async function handleHubInteraction(ctx, interaction) {
         const steamId = interaction.fields.getTextInputValue('steamid');
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         await beginLink(ctx, interaction, interaction.user.id, steamId);
+        return true;
+    }
+    if (interaction.isUserSelectMenu() && id === 'hub:tppick') {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await startTeleport(ctx, interaction, interaction.values[0] ?? '');
         return true;
     }
     if (!interaction.isButton())
@@ -114,10 +155,12 @@ export async function handleHubInteraction(ctx, interaction) {
                     .setDescription('These act on the dinosaur you are playing right now, so you must be ' +
                     'on the server.\n\n' +
                     '**Open archive** — store this dinosaur, or release one you kept.\n' +
+                    '**Travel to a friend** — they have to agree, and you move a short while after.\n' +
                     '**Slay** — kill it. Nothing is kept.')
                     .setFooter({ text: SIGNATURE })],
             components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('hub:archive').setLabel('Open archive')
-                    .setEmoji('🏛️').setStyle(ButtonStyle.Success), new ButtonBuilder().setCustomId('hub:slay').setLabel('Slay')
+                    .setEmoji('🏛️').setStyle(ButtonStyle.Success), new ButtonBuilder().setCustomId('hub:teleport').setLabel('Travel to a friend')
+                    .setEmoji('🧭').setStyle(ButtonStyle.Primary), new ButtonBuilder().setCustomId('hub:slay').setLabel('Slay')
                     .setEmoji('💀').setStyle(ButtonStyle.Danger))],
             flags: MessageFlags.Ephemeral,
         });
@@ -139,6 +182,26 @@ export async function handleHubInteraction(ctx, interaction) {
                 components: [],
             });
         }
+        return true;
+    }
+    if (id === 'hub:teleport') {
+        if (!link) {
+            await interaction.reply({ embeds: [notLinked()], flags: MessageFlags.Ephemeral });
+            return true;
+        }
+        // A user picker beats asking them to type a name — and it only offers
+        // people who are actually in the server.
+        await interaction.reply({
+            embeds: [new EmbedBuilder()
+                    .setColor(COLORS.info)
+                    .setTitle('🧭  Travel to a friend')
+                    .setDescription('Pick who you want to go to. They have to agree — with a button here ' +
+                    'or `!accept` in game — and you move a short while after they do.\n\n' +
+                    'You both need to be spawned in.')
+                    .setFooter({ text: SIGNATURE })],
+            components: [new ActionRowBuilder().addComponents(new UserSelectMenuBuilder().setCustomId('hub:tppick').setPlaceholder('Choose a friend'))],
+            flags: MessageFlags.Ephemeral,
+        });
         return true;
     }
     if (id === 'hub:stats') {

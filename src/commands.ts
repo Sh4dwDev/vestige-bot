@@ -10,6 +10,7 @@ import {
   SlashCommandBuilder,
   type APIEmbedField,
   type AutocompleteInteraction,
+  type Client,
   type ChatInputCommandInteraction,
   type Message,
 } from 'discord.js';
@@ -23,6 +24,14 @@ import { buildCommandsEmbed, buildStorageGuideEmbed } from './guides.js';
 import { refreshPopulationPanel, setPopulationChannel } from './livepanel.js';
 import { mutationList, speciesList, suggest } from './catalog.js';
 import { cleanSlotName, showPanel, stopAutoRefresh } from './panel.js';
+import {
+  addRequest,
+  askEmbed,
+  askRows,
+  cooldownMinutes,
+  delaySeconds,
+  requestFor,
+} from './teleport.js';
 import { buildHubEmbed, hubRows, HUB_MESSAGE_KEY, setHubChannel } from './hub.js';
 import { buildKillsEmbed, setKillfeedChannel } from './kills.js';
 import { postOrEdit } from './pinned.js';
@@ -135,6 +144,12 @@ export const commandData = [
     .addSubcommand((s) => s.setName('top').setDescription('Who has the most')),
 
   new SlashCommandBuilder()
+    .setName('teleport')
+    .setDescription('Ask a friend if you can travel to them')
+    .addUserOption((o) =>
+      o.setName('friend').setDescription('Who you want to travel to').setRequired(true)),
+
+  new SlashCommandBuilder()
     .setName('kills')
     .setDescription('Kill counts')
     .addSubcommand((s) => s.setName('top').setDescription('The deadliest players'))
@@ -242,6 +257,19 @@ export const commandData = [
                 .addChannelTypes(ChannelType.GuildText).setRequired(true))),
     )
     .addSubcommandGroup((g) =>
+      g.setName('teleport').setDescription('Travel limits')
+        .addSubcommand((s) =>
+          s.setName('delay').setDescription('Seconds between accepting and arriving')
+            .addIntegerOption((o) =>
+              o.setName('seconds').setDescription('10 to 120, default 45')
+                .setMinValue(10).setMaxValue(120).setRequired(true)))
+        .addSubcommand((s) =>
+          s.setName('cooldown').setDescription('Minutes between travels')
+            .addIntegerOption((o) =>
+              o.setName('minutes').setDescription('0 disables the limit')
+                .setMinValue(0).setMaxValue(1440).setRequired(true))),
+    )
+    .addSubcommandGroup((g) =>
       g.setName('slay').setDescription('Slay limits')
         .addSubcommand((s) =>
           s.setName('cooldown').setDescription('Minutes players must wait between slays')
@@ -330,6 +358,7 @@ export async function handleCommand(ctx: Ctx, i: ChatInputCommandInteraction): P
     case 'population': return handlePopulation(ctx, i);
     case 'points': return handlePoints(ctx, i);
     case 'kills': return handleKills(ctx, i);
+    case 'teleport': return handleTeleport(ctx, i);
     case 'admin': return handleAdmin(ctx, i);
     default:
       await i.reply({ content: 'Unknown command.', flags: MessageFlags.Ephemeral });
@@ -704,6 +733,110 @@ async function handleKills(ctx: Ctx, i: ChatInputCommandInteraction): Promise<vo
   });
 }
 
+// --------------------------------------------------------------- teleport --
+
+export async function startTeleport(
+  ctx: Ctx,
+  i: { editReply: (o: { embeds: EmbedBuilder[] }) => Promise<unknown>; client: Client; user: { id: string; tag: string } },
+  friendId: string,
+): Promise<void> {
+  const mine = ctx.db.linkFor(i.user.id);
+  if (!mine) {
+    await i.editReply({
+      embeds: [embed(COLORS.warn, 'Link your account first',
+        'Travelling moves your live dinosaur, so the bot needs to know which account is yours.')],
+    });
+    return;
+  }
+
+  if (friendId === i.user.id) {
+    await i.editReply({
+      embeds: [embed(COLORS.warn, 'That is you', 'Pick somebody else.')],
+    });
+    return;
+  }
+
+  const theirs = ctx.db.linkFor(friendId);
+  if (!theirs) {
+    await i.editReply({
+      embeds: [embed(COLORS.warn, 'They are not linked',
+        `<@${friendId}> has not linked a Steam account, so there is no way to find them.`)],
+    });
+    return;
+  }
+
+  const left = ctx.db.cooldownLeft(mine.steamId, 'teleport', cooldownMinutes(ctx) * 60_000);
+  if (left > 0) {
+    await i.editReply({
+      embeds: [embed(COLORS.warn, 'Not yet',
+        `You can travel again <t:${Math.floor((Date.now() + left) / 1000)}:R>.`)],
+    });
+    return;
+  }
+
+  // Both must be spawned: the mod moves a live pawn, and there is nothing to
+  // move or move to otherwise.
+  const online = await ctx.rcon.players().catch(() => []);
+  const onServer = (steamId: string): boolean => online.some((p) => p.steamId === steamId);
+
+  if (!onServer(mine.steamId)) {
+    await i.editReply({
+      embeds: [embed(COLORS.warn, `You are not on ${SERVER}`, 'Join first, then ask again.')],
+    });
+    return;
+  }
+  if (!onServer(theirs.steamId)) {
+    await i.editReply({
+      embeds: [embed(COLORS.warn, 'They are not on the server',
+        `<@${friendId}> is not playing right now.`)],
+    });
+    return;
+  }
+
+  if (requestFor(theirs.steamId)) {
+    await i.editReply({
+      embeds: [embed(COLORS.warn, 'They are already being asked',
+        'Someone else asked them a moment ago. Wait for that to resolve.')],
+    });
+    return;
+  }
+
+  addRequest({
+    fromDiscord: i.user.id,
+    fromSteam: mine.steamId,
+    toDiscord: friendId,
+    toSteam: theirs.steamId,
+    askedAt: Date.now(),
+    accepted: false,
+  });
+
+  // Ask in game first: that reaches them whether or not their DMs are open.
+  await ctx.rcon
+    .directMessage(theirs.steamId, `${i.user.tag} wants to teleport to you — type !accept`)
+    .catch(() => undefined);
+
+  const friend = await i.client.users.fetch(friendId).catch(() => null);
+  const dmSent = friend
+    ? await friend
+        .send({ embeds: [askEmbed(i.user.tag)], components: askRows(mine.steamId) })
+        .then(() => true)
+        .catch(() => false)
+    : false;
+
+  await i.editReply({
+    embeds: [embed(COLORS.info, 'Asked',
+      `<@${friendId}> has been asked${dmSent ? ' in Discord and in game' : ' in game'}.\n\n` +
+      (dmSent ? '' : '⚠️ Their DMs are closed, so they can only answer with `!accept` in game.\n\n') +
+      `They can accept with the button or by typing \`!accept\`. You will travel ` +
+      `**${delaySeconds(ctx)} seconds** after they do — stay put until then.`)],
+  });
+}
+
+async function handleTeleport(ctx: Ctx, i: ChatInputCommandInteraction): Promise<void> {
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+  await startTeleport(ctx, i, i.options.getUser('friend', true).id);
+}
+
 // ------------------------------------------------------------------- give --
 
 /**
@@ -871,6 +1004,31 @@ async function handleAdmin(ctx: Ctx, i: ChatInputCommandInteraction): Promise<vo
 
   if (group === 'give') return handleGive(ctx, i);
   if (group === 'species') return handleSpecies(ctx, i, action);
+
+  if (group === 'teleport') {
+    if (action === 'delay') {
+      const seconds = i.options.getInteger('seconds', true);
+      ctx.db.setSetting('teleport_delay_seconds', String(seconds));
+      await i.reply({
+        embeds: [embed(COLORS.good, 'Travel delay set',
+          `Players arrive **${seconds} seconds** after their friend accepts.\n\n` +
+          'The wait is what stops travelling being an instant escape from a fight.')],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const minutes = i.options.getInteger('minutes', true);
+    ctx.db.setSetting('teleport_cooldown_minutes', String(minutes));
+    await i.reply({
+      embeds: [embed(COLORS.good, 'Travel cooldown set',
+        minutes === 0
+          ? 'There is now **no limit** on how often players can travel.'
+          : `Players must wait **${minutes} minutes** between travels.`)],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
 
   if (group === 'slay') {
     const minutes = i.options.getInteger('minutes', true);

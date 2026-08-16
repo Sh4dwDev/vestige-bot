@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.0.0"
+local MOD_VERSION = "3.1.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1199,6 +1199,104 @@ local function handleGive(cmd)
         "%s added to their archive as %s", species, slot))
 end
 
+-- ---------------------------------------------------------------------------
+-- Teleport
+--
+-- why the offset: landing exactly on someone stacks two collision capsules in
+-- the same space, which the engine resolves by shoving one of them somewhere
+-- unpredictable. A few metres to the side is enough to avoid it.
+--
+-- why the read-back: a setter that raises no error proves nothing here. The
+-- move is confirmed by reading the location again and checking it actually
+-- moved, so a silent no-op is reported as a failure rather than a success.
+-- ---------------------------------------------------------------------------
+
+local TELEPORT_OFFSET = 300.0
+local TELEPORT_TOLERANCE = 2000.0
+
+local function locationOf(pawn)
+    local loc
+    if not pcall(function() loc = pawn:K2_GetActorLocation() end) then return nil end
+    if loc == nil then return nil end
+
+    local x, y, z
+    local ok = pcall(function() x, y, z = loc.X, loc.Y, loc.Z end)
+    if not ok or type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then
+        return nil
+    end
+    return { X = x, Y = y, Z = z }
+end
+
+local function handleTeleport(cmd)
+    local target = cmd.args and cmd.args.to
+    if not isSteamId(target) then
+        writeResult(cmd.id, "teleport", cmd.steam, false, "no destination given")
+        return
+    end
+    if target == cmd.steam then
+        writeResult(cmd.id, "teleport", cmd.steam, false, "you are already where you are")
+        return
+    end
+
+    local mover, moverErr = resolvePlayer(cmd.steam)
+    if mover == nil then
+        writeResult(cmd.id, "teleport", cmd.steam, false, moverErr)
+        return
+    end
+
+    local anchor, anchorErr = resolvePlayer(target)
+    if anchor == nil then
+        -- resolvePlayer phrases its errors for the caller ("you are not..."),
+        -- which reads as nonsense when the subject is somebody else.
+        local about = "your friend is not available"
+        if anchorErr == "you are not spawned in yet" then
+            about = "your friend is not spawned in yet"
+        elseif anchorErr == "you are not on the server" then
+            about = "your friend is not on the server"
+        elseif anchorErr ~= nil then
+            about = tostring(anchorErr)
+        end
+        writeResult(cmd.id, "teleport", cmd.steam, false, about)
+        return
+    end
+
+    local to = locationOf(anchor)
+    if to == nil then
+        writeResult(cmd.id, "teleport", cmd.steam, false, "could not find where your friend is")
+        return
+    end
+
+    local from = locationOf(mover)
+    to.X = to.X + TELEPORT_OFFSET
+
+    local moved = pcall(function()
+        mover:K2_SetActorLocation(to, false, {}, true)
+    end)
+    if not moved then
+        writeResult(cmd.id, "teleport", cmd.steam, false, "the server refused the move")
+        return
+    end
+
+    local now = locationOf(mover)
+    if now == nil then
+        writeResult(cmd.id, "teleport", cmd.steam, false, "could not confirm the move")
+        return
+    end
+
+    local dx, dy = now.X - to.X, now.Y - to.Y
+    if math.sqrt(dx * dx + dy * dy) > TELEPORT_TOLERANCE then
+        log(string.format("teleport: %s did not move (still %.0f,%.0f)", cmd.steam, now.X, now.Y))
+        writeResult(cmd.id, "teleport", cmd.steam, false,
+            "the move did not take — you may be somewhere the server will not place you")
+        return
+    end
+
+    log(string.format("teleport: %s -> %s (%.0f,%.0f -> %.0f,%.0f)",
+        cmd.steam, target,
+        from and from.X or 0, from and from.Y or 0, now.X, now.Y))
+    writeResult(cmd.id, "teleport", cmd.steam, true, "you have been moved to your friend")
+end
+
 local function dispatch(cmd)
     if type(cmd) ~= "table" then return end
 
@@ -1224,6 +1322,7 @@ local function dispatch(cmd)
     elseif verb == "slay" then handleSlay(cmd)
     elseif verb == "players" then handlePlayers(cmd)
     elseif verb == "give" then handleGive(cmd)
+    elseif verb == "teleport" then handleTeleport(cmd)
     else writeResult(cmd.id, verb, cmd.steam, false, "unknown command: " .. verb) end
 end
 
@@ -1350,6 +1449,18 @@ local function onChat(a, b, c)
     -- why the bot answers instead of the mod: UpdateChat is unreachable from
     -- Lua (rule 13), so the mod can read chat but cannot write to it. It raises
     -- the request and the bot replies over RCON.
+    -- Consent for a teleport, so a player never has to leave the game to
+    -- answer. The bot matches it to whoever asked to come to them.
+    if text:match("^%s*!accept%s*$") then
+        local key = steam .. "|accept"
+        if recentChat[key] ~= nil and (now - recentChat[key]) < CHAT_DEDUPE_SEC then return end
+        recentChat[key] = now
+
+        log(string.format("accept: %s accepted", steam))
+        writeResult("chat-" .. steam .. "-" .. tostring(now), "tpaccept", steam, true, "")
+        return
+    end
+
     if text:match("^%s*!discord%s*$") then
         local key = steam .. "|discord"
         if recentChat[key] ~= nil and (now - recentChat[key]) < CHAT_DEDUPE_SEC then return end

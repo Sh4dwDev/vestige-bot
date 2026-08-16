@@ -1,4 +1,4 @@
-import { ModalBuilder, type ButtonInteraction, type InteractionUpdateOptions, type ModalSubmitInteraction, type StringSelectMenuInteraction } from 'discord.js';
+import { ModalBuilder, type ButtonInteraction, type InteractionUpdateOptions, type ModalSubmitInteraction, type StringSelectMenuInteraction, type UserSelectMenuInteraction } from 'discord.js';
 import type { Ctx } from './commands.js';
 /**
  * Names are cleaned up rather than rejected.
@@ -29,5 +29,5 @@ export declare function storeModal(): ModalBuilder;
  * Handles every component and modal on the panel. Returns true when the
  * interaction belonged to us.
  */
-export declare function handlePanelInteraction(ctx: Ctx, interaction: ButtonInteraction | StringSelectMenuInteraction | ModalSubmitInteraction): Promise<boolean>;
+export declare function handlePanelInteraction(ctx: Ctx, interaction: ButtonInteraction | StringSelectMenuInteraction | ModalSubmitInteraction | UserSelectMenuInteraction): Promise<boolean>;
 export {};

@@ -16,7 +16,8 @@ import type { Config } from './config.js';
  *   results.ndjson   results out, append-only
  */
 
-export type Verb = 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players' | 'give';
+export type Verb =
+  | 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players' | 'give' | 'teleport';
 
 export interface StoredSlot {
   slot: string;
@@ -207,7 +208,7 @@ export class ModBridge {
   async chatEvents(): Promise<
     Array<{ id: string; verb: string; steam: string; text: string; data?: unknown }>
   > {
-    const wanted = new Set(['linkcode', 'discordreq', 'kill']);
+    const wanted = new Set(['linkcode', 'discordreq', 'kill', 'tpaccept']);
     return (await this.#readResults())
       .filter((entry) => entry.ok && wanted.has(entry.verb))
       .map((entry) => ({

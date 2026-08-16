@@ -1,4 +1,4 @@
-import { ActionRowBuilder, ButtonBuilder, EmbedBuilder, type AutocompleteInteraction, type ChatInputCommandInteraction } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, EmbedBuilder, type AutocompleteInteraction, type Client, type ChatInputCommandInteraction } from 'discord.js';
 import { AdminStore } from './admins.js';
 import type { ModBridge } from './bridge.js';
 import type { Config } from './config.js';
@@ -59,6 +59,16 @@ export declare function slayCooldownMinutes(ctx: Ctx): number;
 export declare function runSlay(ctx: Ctx, i: Confirmable, steamId: string): Promise<void>;
 /** Steam IDs are the key, so anyone unlinked shows as a partial ID. */
 export declare function steamNamer(ctx: Ctx): (steamId: string) => string;
+export declare function startTeleport(ctx: Ctx, i: {
+    editReply: (o: {
+        embeds: EmbedBuilder[];
+    }) => Promise<unknown>;
+    client: Client;
+    user: {
+        id: string;
+        tag: string;
+    };
+}, friendId: string): Promise<void>;
 /**
  * Suggestions for the gift command. Both lists come from the server, so they
  * cannot drift out of date the way a hardcoded list would.

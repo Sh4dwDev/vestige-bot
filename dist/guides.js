@@ -83,6 +83,11 @@ export function buildCommandsEmbed() {
         value: `What is roaming ${SERVER} right now: species, adults, gender split and ` +
             'prime. Names nobody.',
     }, {
+        name: '🧭  `/teleport`',
+        value: 'Ask a friend if you can travel to them. They must agree — with a button ' +
+            'or by typing `!accept` in game — and you arrive a short while after, not ' +
+            'instantly. There is a wait between travels.',
+    }, {
         name: '🪙  `/points`',
         value: 'What you have earned by playing, and `/points top` for the leaderboard.\n' +
             'You earn simply by being on the server — there is nothing to spend them ' +
@@ -95,7 +100,8 @@ export function buildCommandsEmbed() {
     }, {
         name: '💬  In game',
         value: '`!discord` — Vesta sends you the invite link\n' +
-            '`!link CODE` — finishes linking your account',
+            '`!link CODE` — finishes linking your account\n' +
+            '`!accept` — lets a friend travel to you',
     })
         .setFooter({ text: SIGNATURE });
 }

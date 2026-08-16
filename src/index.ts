@@ -23,6 +23,7 @@ import { startPopulationPanel } from './livepanel.js';
 import { handleHubInteraction } from './hub.js';
 import { buildKillEmbed, killfeedChannel, type KillEvent } from './kills.js';
 import { awardOnline } from './points.js';
+import { clearRequest, requestFor, runAccepted } from './teleport.js';
 import { Panel } from './pterodactyl.js';
 import { startRestartScheduler } from './restarts.js';
 import { refreshStatusPanel } from './status.js';
@@ -130,7 +131,10 @@ async function dispatch(ctx: Ctx, interaction: Interaction): Promise<void> {
     }
     // Everything else is a button, select or modal, on either the hub panel or
     // the storage panel. The hub gets first refusal; it answers only its own.
-    if (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) {
+    if (
+      interaction.isButton() || interaction.isStringSelectMenu() ||
+      interaction.isModalSubmit() || interaction.isUserSelectMenu()
+    ) {
       if (await handleHubInteraction(ctx, interaction)) return;
       await handlePanelInteraction(ctx, interaction);
     }
@@ -229,6 +233,21 @@ async function handleChatEvent(
   lastReply: Map<string, number>,
   client?: Client,
 ): Promise<void> {
+  if (event.verb === 'tpaccept') {
+    const request = requestFor(event.steam);
+    if (!request) return;
+    if (request.accepted) return;
+
+    request.accepted = true;
+    clearRequest(event.steam);
+    log(`teleport: ${event.steam} accepted in game`);
+
+    // Deliberately not awaited: this waits out the delay, and the watcher must
+    // keep polling meanwhile.
+    void runAccepted(ctx, client as Client, request, log);
+    return;
+  }
+
   if (event.verb === 'kill') {
     const raw = (event.data ?? {}) as Partial<KillEvent>;
     const kill: KillEvent = {

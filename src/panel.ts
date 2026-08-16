@@ -11,6 +11,7 @@ import {
   type InteractionUpdateOptions,
   type ModalSubmitInteraction,
   type StringSelectMenuInteraction,
+  type UserSelectMenuInteraction,
 } from 'discord.js';
 
 import { ARCHIVE_CAP, SECURED, SERVER, SIGNATURE } from './brand.js';
@@ -278,7 +279,11 @@ function confirmRows(action: string, slot: string): ActionRowBuilder<ButtonBuild
  */
 export async function handlePanelInteraction(
   ctx: Ctx,
-  interaction: ButtonInteraction | StringSelectMenuInteraction | ModalSubmitInteraction,
+  interaction:
+    | ButtonInteraction
+    | StringSelectMenuInteraction
+    | ModalSubmitInteraction
+    | UserSelectMenuInteraction,
 ): Promise<boolean> {
   const id = interaction.customId;
   if (!id.startsWith('st:')) return false;
