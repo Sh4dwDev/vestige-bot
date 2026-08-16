@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "2.5.0"
+local MOD_VERSION = "2.6.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1270,6 +1270,71 @@ end
 -- Ticks
 -- ---------------------------------------------------------------------------
 
+-- ---------------------------------------------------------------------------
+-- Kill attribution
+--
+-- why this shape: Evrima has **no server-side death event**. OnDeath,
+-- OnPawnDeath, SetHealth and SetIsAlive all either never fire or fire
+-- unreliably on a natural death (upstream EVRIMA_KillFeed_Design). So the only
+-- workable split is: ApplyDamage says who hit whom, polling says who died, and
+-- a time window joins the two.
+--
+-- ApplyDamage covers **direct player attacks only** — never damage over time,
+-- environmental or AI damage. Those deaths are real and will have no attacker.
+--
+-- Stage 1: record and log only. Nothing depends on this yet; it exists to prove
+-- the hook fires on this build before any leaderboard is built on top.
+-- ---------------------------------------------------------------------------
+
+local HIT_WINDOW_SEC = 20
+local HIT_LOG_QUIET_SEC = 5
+
+local lastHit = {}      -- victim steam -> { by = attacker steam, at = unix }
+local hitLogged = {}    -- pair -> unix, purely to keep the log readable
+local hitSeen = 0
+
+local function steamIdOfPawn(pawn)
+    if pawn == nil then return "" end
+    -- why: never keep this controller. Take the ID and drop the pointer.
+    local ctrl
+    pcall(function() ctrl = pawn:GetController() end)
+    if ctrl == nil then pcall(function() ctrl = pawn.Controller end) end
+    return steamIdOf(ctrl)
+end
+
+local function pruneHits()
+    hitSeen = hitSeen + 1
+    if hitSeen < 200 then return end
+    hitSeen = 0
+    local cutoff = os.time() - HIT_WINDOW_SEC
+    for victim, hit in pairs(lastHit) do
+        if hit.at < cutoff then lastHit[victim] = nil end
+    end
+    for pair, at in pairs(hitLogged) do
+        if at < cutoff then hitLogged[pair] = nil end
+    end
+end
+
+local function onApplyDamage(selfParam, targetParam)
+    local attacker = steamIdOfPawn(unwrap(selfParam))
+    local victim = steamIdOfPawn(unwrap(targetParam))
+
+    -- Self-damage and anything involving AI carries no Steam ID on one side.
+    if attacker == "" or victim == "" or attacker == victim then return end
+
+    local now = os.time()
+    lastHit[victim] = { by = attacker, at = now }
+    pruneHits()
+
+    -- Combat produces a great many of these; log one line per pair per few
+    -- seconds so the file stays readable while still proving the hook fires.
+    local pair = attacker .. ">" .. victim
+    if (hitLogged[pair] == nil) or ((now - hitLogged[pair]) >= HIT_LOG_QUIET_SEC) then
+        hitLogged[pair] = now
+        log(string.format("hit: %s -> %s", attacker, victim))
+    end
+end
+
 if LoopInGameThreadWithDelay == nil then
     log("FATAL: LoopInGameThreadWithDelay unavailable — nothing can run")
 else
@@ -1291,6 +1356,16 @@ else
         end)
     end)
     log(chatHooked and "chat hook registered (!link CODE)" or "WARNING: chat hook failed — linking will not work")
+
+    -- A failure here must not stop the mod: kills are a nice-to-have, storage
+    -- is not.
+    local damageHooked = pcall(function()
+        RegisterHook("/Script/TheIsle.TICharacterBase:ApplyDamage", function(a, b)
+            safeCall("onApplyDamage", function() onApplyDamage(a, b) end)
+        end)
+    end)
+    log(damageHooked and "damage hook registered (kill attribution, stage 1)"
+        or "WARNING: damage hook failed — kills cannot be attributed")
 
     LoopInGameThreadWithDelay(15000, function()
         safeCall("presence", function()
