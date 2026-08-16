@@ -113,6 +113,7 @@ Two rules worth keeping:
 | `scripts/deploy-mod.mjs` | Uploads the mod and confirms it hot-reloaded |
 | `test/*.test.mjs` | Plain Node scripts, no framework. Run against `dist/` |
 | `docs/NOTES.md` | Engine behaviour, mostly things that fail silently |
+| `docs/DEPLOY.md` | Putting the bot on a host that keeps it running |
 
 The database is **not** the source of truth for stored dinosaurs — those live in
 the mod's own files on the game server. SQLite holds only Discord↔Steam links
@@ -277,8 +278,11 @@ protocol, the bridge against a fake mod over a real in-process SFTP server.
 
 ## Not built yet
 
-A shop/economy, breeding, playtime tracking, a heatmap. The bot also runs in the
-foreground — it needs a service wrapper to survive a reboot.
+A shop/economy, breeding, playtime tracking, a heatmap.
+
+For putting this somewhere it keeps running, see [docs/DEPLOY.md](docs/DEPLOY.md)
+— note the **Node 22.5+** requirement, which is the usual reason a first deploy
+fails.
 
 **Untested:** store→restore of a dinosaur with mutations or `elderStacks > 0`.
 Those code paths exist and follow the documented ordering, but no live run has
