@@ -126,6 +126,15 @@ check('an out-of-range channel clamps rather than producing nonsense hex',
 
   check('every look encodes to the wire format',
     looks.every(([, c]) => encodeColours(c).split('|').length === Object.keys(c).length));
+
+  check('look names are unique', new Set(looks.map(([n]) => n)).size === looks.length);
+
+  // They share the preset picker with anything saved, and Discord caps that at
+  // 25 — so shipping more built-ins than that would crowd saved ones out.
+  check('the built-in looks fit the picker alongside saved ones', looks.length <= 25,
+    String(looks.length));
+
+  check('no look is an empty object', looks.every(([, c]) => Object.keys(c).length > 0));
 }
 
 check('every preset is a valid colour', PRESETS.every((p) => parseHex(p.hex) !== null));

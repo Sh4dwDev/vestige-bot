@@ -1380,7 +1380,9 @@ async function handleSkin(
     await i.reply({
       embeds: [embed(COLORS.info, 'Skins',
         '**Ready made**\n' +
+        // Sorted: two dozen is enough that insertion order stops being findable.
         Object.entries(BUILT_IN)
+          .sort(([a], [b]) => a.localeCompare(b))
           .map(([name, colours]) => `${swatch(colours)}**${name}**`)
           .join('\n') +
         '\n\n**Saved here**\n' +

@@ -97,6 +97,66 @@ export const BUILT_IN: Record<string, Record<string, string>> = {
     BodyColor: '#4A2545', FlankColor: '#5E3059', UnderbellyColor: '#8A5E80',
     MarkingsColor: '#D8A93A', Detail1Color: '#C8871B', EyesColor: '#D8A93A',
   },
+
+  // --- naturalistic ---------------------------------------------------------
+  Tiger: {
+    BodyColor: '#C86A1E', FlankColor: '#B05614', UnderbellyColor: '#EDE0C8',
+    MarkingsColor: '#1A1410', Detail1Color: '#8C4410', EyesColor: '#D8A93A',
+  },
+  Albino: {
+    BodyColor: '#F6F1E7', FlankColor: '#EADFCE', UnderbellyColor: '#FFFFFF',
+    MarkingsColor: '#E0CDB4', Detail1Color: '#F2D9D9', EyesColor: '#C9414B',
+  },
+  Melanistic: {
+    BodyColor: '#101013', FlankColor: '#191A1F', UnderbellyColor: '#26282E',
+    MarkingsColor: '#08080A', Detail1Color: '#33363D', EyesColor: '#9BA3AD',
+  },
+  Swamp: {
+    BodyColor: '#4A4A2E', FlankColor: '#3B3B24', UnderbellyColor: '#6E6A46',
+    MarkingsColor: '#2A2A18', Detail1Color: '#5F6B3A', EyesColor: '#A8B04A',
+  },
+  Savanna: {
+    BodyColor: '#B08E5A', FlankColor: '#9A7A48', UnderbellyColor: '#E0CFAE',
+    MarkingsColor: '#6E5430', Detail1Color: '#C8A96E', EyesColor: '#8C6238',
+  },
+  Autumn: {
+    BodyColor: '#8C4A1E', FlankColor: '#A85E24', UnderbellyColor: '#D9B375',
+    MarkingsColor: '#5A2C10', Detail1Color: '#D8A93A', EyesColor: '#C8871B',
+  },
+  Coral: {
+    BodyColor: '#C2635E', FlankColor: '#A94E49', UnderbellyColor: '#F0CBBE',
+    MarkingsColor: '#7A2E2E', Detail1Color: '#E08A5A', EyesColor: '#2E6E6E',
+  },
+
+  // --- striking -------------------------------------------------------------
+  Nightstalker: {
+    BodyColor: '#14161F', FlankColor: '#1B1F2C', UnderbellyColor: '#2A3040',
+    MarkingsColor: '#0A0B10', Detail1Color: '#3E4A6B', EyesColor: '#5AA0FF',
+  },
+  Volcanic: {
+    BodyColor: '#1A1412', FlankColor: '#241A16', UnderbellyColor: '#3A2018',
+    MarkingsColor: '#C43A0E', Detail1Color: '#FF7A1A', EyesColor: '#FF9A3A',
+  },
+  Toxic: {
+    BodyColor: '#2A2E14', FlankColor: '#3A4018', UnderbellyColor: '#C8D84A',
+    MarkingsColor: '#1A1C0C', Detail1Color: '#9BD84A', EyesColor: '#D8F04A',
+  },
+  Obsidian: {
+    BodyColor: '#15121C', FlankColor: '#1E1A28', UnderbellyColor: '#2C2438',
+    MarkingsColor: '#0A080E', Detail1Color: '#6E4A9A', EyesColor: '#A87ADA',
+  },
+  Arctic: {
+    BodyColor: '#E8EEF2', FlankColor: '#CFDAE2', UnderbellyColor: '#FFFFFF',
+    MarkingsColor: '#8FA3B0', Detail1Color: '#B8CDD8', EyesColor: '#3A6E8C',
+  },
+  Copper: {
+    BodyColor: '#8C4A2A', FlankColor: '#A85E36', UnderbellyColor: '#D9A06E',
+    MarkingsColor: '#5A2E18', Detail1Color: '#C8871B', EyesColor: '#3A5A4A',
+  },
+  Stormfront: {
+    BodyColor: '#3E4650', FlankColor: '#2E353E', UnderbellyColor: '#7A8894',
+    MarkingsColor: '#1E2228', Detail1Color: '#C3CED6', EyesColor: '#7FC8E6',
+  },
 };
 
 export interface Rgb {
