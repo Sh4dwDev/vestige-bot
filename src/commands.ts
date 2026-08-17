@@ -2300,13 +2300,30 @@ export async function handleAutocomplete(
   } else if (focused.name === 'preset') {
     const typed = focused.value.trim().toLowerCase();
     const saved = new Set(ctx.db.presetNames());
-    // Saved first — an admin's own work is what they are usually reaching for.
-    const all = [...saved, ...Object.keys(BUILT_IN).filter((n) => !saved.has(n))];
 
-    choices = all
-      .filter((n) => !typed || n.toLowerCase().includes(typed))
+    // Saved first — an admin's own work is what they are usually reaching for —
+    // then the built-ins **sorted**. In insertion order everything added after
+    // the first two dozen fell past Discord's 25-choice cap and was invisible
+    // unless you already knew its name.
+    const all = [
+      ...[...saved].sort((a, b) => a.localeCompare(b)),
+      ...Object.keys(BUILT_IN).filter((n) => !saved.has(n)).sort((a, b) => a.localeCompare(b)),
+    ];
+
+    const matches = all.filter((n) => !typed || n.toLowerCase().includes(typed));
+
+    choices = matches
       .slice(0, 25)
       .map((n) => ({ name: saved.has(n) ? n : `${n} · ready made`, value: n }));
+
+    // Say so rather than silently truncating, so nobody concludes a look is
+    // missing when it is only further down the alphabet.
+    if (matches.length > 25) {
+      choices[24] = {
+        name: `…and ${matches.length - 24} more — keep typing to narrow it down`,
+        value: matches[24] ?? '',
+      };
+    }
   } else if (focused.name.startsWith('colour')) {
     const typed = focused.value.trim().toLowerCase();
     choices = PRESETS
