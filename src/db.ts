@@ -617,6 +617,26 @@ export class Database {
     }));
   }
 
+  // ---- managed Game.ini settings -----------------------------------------
+
+  /**
+   * Single Game.ini keys the bot keeps at a chosen value. Stored under a
+   * prefix so the reconciler can find them without a second table.
+   */
+  managedGameSettings(): Array<{ key: string; value: string }> {
+    const rows = this.#db
+      .prepare("SELECT key, value FROM settings WHERE key LIKE 'gameini:%'")
+      .all() as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      key: String(row['key']).slice('gameini:'.length),
+      value: String(row['value']),
+    }));
+  }
+
+  setManagedGameSetting(key: string, value: string): void {
+    this.setSetting(`gameini:${key}`, value);
+  }
+
   // ---- settings ----------------------------------------------------------
 
   getSetting(key: string): string | null {

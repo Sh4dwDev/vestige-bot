@@ -122,6 +122,15 @@ export declare class Database {
         balance: number;
         minutes: number;
     }>;
+    /**
+     * Single Game.ini keys the bot keeps at a chosen value. Stored under a
+     * prefix so the reconciler can find them without a second table.
+     */
+    managedGameSettings(): Array<{
+        key: string;
+        value: string;
+    }>;
+    setManagedGameSetting(key: string, value: string): void;
     getSetting(key: string): string | null;
     setSetting(key: string, value: string): void;
 }

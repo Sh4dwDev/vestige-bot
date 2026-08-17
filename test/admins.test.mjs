@@ -114,6 +114,23 @@ const SAMPLE = [
 }
 
 {
+  // Single settings the bot manages, edited in place. Only ever a key the file
+  // already has: inventing a section for a missing key produces a setting the
+  // engine silently ignores.
+  const changed = AdminStore.replaceKey(SAMPLE, 'MaxPlayerCount', '80');
+  check('an existing key is replaced', AdminStore.readKey(changed, 'MaxPlayerCount') === '80');
+  check('replacing one key leaves the rest alone',
+    changed.includes('bServerWhitelist=false') && changed.includes('ServerName=Test'));
+  check('the admin lines survive a key edit',
+    AdminStore.parseAdmins(changed).length === 3);
+  check('a key the file does not have is refused rather than invented',
+    AdminStore.replaceKey(SAMPLE, 'NoSuchSetting', '5') === null);
+  check('reading a missing key gives null',
+    AdminStore.readKey(SAMPLE, 'NoSuchSetting') === null);
+  check('key matching ignores case', AdminStore.readKey(SAMPLE, 'maxplayercount') === '100');
+}
+
+{
   const next = AdminStore.replaceAdmins(SAMPLE, ['76561198398925364']);
   check('removing drops exactly the removed ones',
     AdminStore.parseAdmins(next).join(',') === '76561198398925364');

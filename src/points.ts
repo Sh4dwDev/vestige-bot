@@ -89,8 +89,9 @@ export function buildBalanceEmbed(
     .setDescription(
       `## ${display(balance).toLocaleString()}\n` +
       `Earned over **${hours(minutes)}** on ${SERVER}.\n\n` +
-      `You earn **${rate}** points an hour just by playing. ` +
-      'There is nothing to spend them on yet — that comes later.',
+      `You earn **${rate}** points an hour just by playing, more on higher tiers ` +
+      'and for kills.\n\nSpend them with `/shop` on a **fully grown** dinosaur, ' +
+      'delivered into your archive.',
     )
     .setFooter({ text: SIGNATURE })
     .setTimestamp();

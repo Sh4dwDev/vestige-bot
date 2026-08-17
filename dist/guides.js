@@ -96,8 +96,7 @@ export function buildCommandsEmbed() {
     }, {
         name: '🪙  `/points`',
         value: 'What you have earned by playing, and `/points top` for the leaderboard.\n' +
-            'You earn simply by being on the server — there is nothing to spend them ' +
-            'on yet.',
+            'Higher tiers earn faster, and kills pay too. Spend them in `/shop`.',
     }, {
         name: '⚔️  `/kills`',
         value: '`/kills top` for the deadliest players, `/kills me` for your own record.\n' +

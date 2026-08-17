@@ -37,8 +37,18 @@ export declare class AdminStore {
      * this config holds the entire server's settings and is not ours to reformat.
      */
     static replaceAdmins(ini: string, steamIds: string[]): string;
+    /**
+     * Replaces a simple `Key=value` line, in place, wherever it already is.
+     *
+     * Only ever edits a key the file already has: guessing which section a
+     * missing key belongs in is how you end up with a setting the engine
+     * silently ignores, and this file holds the whole server's configuration.
+     */
+    static replaceKey(ini: string, key: string, value: string): string | null;
+    static readKey(ini: string, key: string): string | null;
     /** Writes atomically, so a dropped connection cannot truncate the config. */
     writeAdmins(steamIds: string[]): Promise<void>;
+    writeIni(next: string): Promise<void>;
     /**
      * On first run, adopt whoever is already in the file — otherwise the first
      * write would quietly remove admins nobody asked to remove.

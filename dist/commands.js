@@ -218,6 +218,11 @@ export const commandData = [
         .addIntegerOption((o) => o.setName('points').setDescription('Default 50')
         .setMinValue(0).setMaxValue(100_000).setRequired(true)))
         .addSubcommand((s) => s.setName('list').setDescription('Show every species and its tier')))
+        .addSubcommandGroup((g) => g.setName('cleanup').setDescription('How quickly the world tidies itself')
+        .addSubcommand((s) => s.setName('corpses').setDescription('How fast corpses rot away')
+        .addNumberOption((o) => o.setName('multiplier').setDescription('1 is default, 2 is twice as fast')
+        .setMinValue(0.1).setMaxValue(20).setRequired(true)))
+        .addSubcommand((s) => s.setName('status').setDescription('What cleanup is configured')))
         .addSubcommandGroup((g) => g.setName('species').setDescription('Per-species population caps')
         .addSubcommand((s) => s.setName('cap').setDescription('Cap how many of a species may be online')
         .addStringOption((o) => o.setName('species').setDescription('Exact species name, e.g. Tyrannosaurus')
@@ -1237,6 +1242,50 @@ async function handleTiers(ctx, i, action) {
         flags: MessageFlags.Ephemeral,
     });
 }
+// ---------------------------------------------------------------- cleanup --
+/**
+ * There is no safe way to sweep the world from Lua — destroying actors crashes
+ * the server when gameplay already removed one. So cleanup means two things the
+ * game does for itself: rotting corpses faster, and restarting.
+ */
+async function handleCleanup(ctx, i, action) {
+    const restarts = restartSettings(ctx);
+    if (action === 'status') {
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        let live = null;
+        try {
+            live = AdminStore.readKey(await ctx.admins.readIni(), 'CorpseDecayMultiplier');
+        }
+        catch {
+            // Config unreadable; the desired value is still worth showing.
+        }
+        const wanted = ctx.db.managedGameSettings()
+            .find((s) => s.key === 'CorpseDecayMultiplier')?.value;
+        await i.editReply({
+            embeds: [embed(COLORS.info, 'Cleanup', `**Corpse decay** — currently \`${live ?? 'unknown'}\`` +
+                    (wanted && wanted !== live ? `, set to \`${wanted}\` at the next restart` : '') +
+                    '\n\n**Restarts** — ' +
+                    (restarts.enabled
+                        ? `every ${restarts.intervalHours}h. This is the real cleanup: it is the only ` +
+                            'supported way to clear stuck AI and accumulated actors.'
+                        : '**off**. Turn them on with `/admin restarts on` — a periodic restart is the ' +
+                            'only supported way to clear stuck AI and accumulated actors.'))],
+        });
+        return;
+    }
+    const multiplier = i.options.getNumber('multiplier', true);
+    ctx.db.setManagedGameSetting('CorpseDecayMultiplier', String(multiplier));
+    await i.reply({
+        embeds: [embed(COLORS.good, 'Corpse decay set', `Corpses will rot **${multiplier}×** as fast as default.\n\n` +
+                'Written to Game.ini during the next restart — the server rewrites that ' +
+                'file when it stops, so the bot applies it while the server is down.' +
+                (restarts.enabled
+                    ? ''
+                    : '\n\n⚠️ Scheduled restarts are off, so nothing will apply it. ' +
+                        'Turn them on with `/admin restarts on`.'))],
+        flags: MessageFlags.Ephemeral,
+    });
+}
 // ---------------------------------------------------------------- species --
 async function handleSpecies(ctx, i, action) {
     if (action === 'channel') {
@@ -1352,6 +1401,8 @@ async function handleAdmin(ctx, i) {
         return handleSkin(ctx, i, action);
     if (group === 'tier')
         return handleTiers(ctx, i, action);
+    if (group === 'cleanup')
+        return handleCleanup(ctx, i, action);
     if (group === 'species')
         return handleSpecies(ctx, i, action);
     if (group === 'teleport') {

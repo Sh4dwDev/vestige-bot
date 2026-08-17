@@ -153,10 +153,29 @@ export class AdminStore {
         }
         return out.join('\n');
     }
+    /**
+     * Replaces a simple `Key=value` line, in place, wherever it already is.
+     *
+     * Only ever edits a key the file already has: guessing which section a
+     * missing key belongs in is how you end up with a setting the engine
+     * silently ignores, and this file holds the whole server's configuration.
+     */
+    static replaceKey(ini, key, value) {
+        const pattern = new RegExp(`^(\\s*)${key}\\s*=.*$`, 'im');
+        if (!pattern.test(ini))
+            return null;
+        return ini.replace(pattern, `$1${key}=${value}`);
+    }
+    static readKey(ini, key) {
+        const match = new RegExp(`^\\s*${key}\\s*=\\s*(\\S+)\\s*$`, 'im').exec(ini);
+        return match?.[1] ?? null;
+    }
     /** Writes atomically, so a dropped connection cannot truncate the config. */
     async writeAdmins(steamIds) {
+        await this.writeIni(AdminStore.replaceAdmins(await this.readIni(), steamIds));
+    }
+    async writeIni(next) {
         const ini = await this.readIni();
-        const next = AdminStore.replaceAdmins(ini, steamIds);
         await this.#withClient(async (client) => {
             const tmp = `${this.gameIniPath}.bot-tmp`;
             const backup = `${this.gameIniPath}.bot-backup`;
@@ -168,7 +187,7 @@ export class AdminStore {
             }
             await client.rename(tmp, this.gameIniPath);
         });
-        this.log(`Game.ini updated: ${steamIds.length} admin(s)`);
+        this.log('Game.ini updated');
     }
     /**
      * On first run, adopt whoever is already in the file — otherwise the first
@@ -189,14 +208,22 @@ export class AdminStore {
      * overwrite it — so changes wait for the window where they will survive.
      */
     async reconcile(serverIsUp) {
+        const ini = await this.readIni();
         const desired = this.db.gameAdmins();
-        const current = AdminStore.parseAdmins(await this.readIni());
-        const same = desired.length === current.length && desired.every((id) => current.includes(id));
-        if (same)
+        const current = AdminStore.parseAdmins(ini);
+        const adminsMatch = desired.length === current.length && desired.every((id) => current.includes(id));
+        // Any other single settings the bot has been asked to manage.
+        const managed = this.db.managedGameSettings();
+        const settingsMatch = managed.every(({ key, value }) => AdminStore.readKey(ini, key) === value);
+        if (adminsMatch && settingsMatch)
             return 'in-sync';
         if (serverIsUp)
             return 'pending';
-        await this.writeAdmins(desired);
+        let next = AdminStore.replaceAdmins(ini, desired);
+        for (const { key, value } of managed) {
+            next = AdminStore.replaceKey(next, key, value) ?? next;
+        }
+        await this.writeIni(next);
         return 'applied';
     }
     async close() {
