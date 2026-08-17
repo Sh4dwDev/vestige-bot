@@ -18,7 +18,7 @@ import type { Config } from './config.js';
 
 export type Verb =
   | 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players'
-  | 'give' | 'teleport' | 'where' | 'skinget' | 'skinmany';
+  | 'give' | 'teleport' | 'where' | 'skinget' | 'skinmany' | 'pattern';
 
 export interface StoredSlot {
   slot: string;

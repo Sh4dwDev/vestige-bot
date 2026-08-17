@@ -159,6 +159,21 @@ export const BUILT_IN: Record<string, Record<string, string>> = {
   },
 };
 
+/**
+ * Patterns are numbered on the wire and lettered in the game, so the picker
+ * speaks letters and the mod speaks numbers.
+ */
+export const patternLetter = (index: number): string =>
+  index >= 0 && index < 26 ? String.fromCharCode(65 + index) : `#${index}`;
+
+/**
+ * How many to offer. The real count is **per species** and the game does not
+ * tell us, so this is a generous menu — picking one a species does not have
+ * simply does nothing visible, which is why patterns are never sent in the same
+ * write as colours.
+ */
+export const PATTERN_CHOICES = 8;
+
 export interface Rgb {
   r: number;
   g: number;

@@ -308,15 +308,30 @@ Three things from upstream that this depends on:
 
 - **`SetCustomizerData()` is silently broken** since 0.21.720. The colour is
   written to the live replicated property and followed by `ForceNetUpdate()`.
-- **`PatternIndex` is never touched.** It is validated per species, and an
-  out-of-range value makes the client abort the entire skin rebuild — dropping
-  every colour in the same apply. Only colours are writable here.
+- **`PatternIndex` is never sent with colours.** It is validated per species, and
+  an out-of-range value makes the client abort the entire skin rebuild —
+  dropping every colour in the same apply. It therefore has its own command and
+  its own write, so a wrong pattern can only ever cost the pattern.
 - **`SkinCode` is never written**; it is the engine's own persistence field.
 
 Hex is sRGB and the engine wants linear, so the conversion is applied on the
 way in. Skipping it is the classic mistake: mid grey is `0.5` in sRGB but
 `0.214` linear, so a naive write lands about twice as bright as the picker
 showed.
+
+### Patterns
+
+`/admin skin pattern @player "Pattern C"` sets the pattern, lettered like the
+game and numbered on the wire.
+
+**How many patterns a species has is not discoverable.** The property accepts
+any value and only the client validates it, so a read-back proves the write
+landed but not that the pattern exists — picking one a species does not have
+simply shows nothing. The reply says so and suggests a lower letter.
+
+That is survivable only because the pattern is written **alone**, never
+alongside colours. Bundled, a wrong pattern would silently take the whole skin
+with it.
 
 ### Making colours stick
 

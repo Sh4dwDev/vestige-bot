@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.6.0"
+local MOD_VERSION = "3.7.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1403,6 +1403,14 @@ local function handleSkinGet(cmd)
         end
     end
 
+    -- Reported so an admin can see what pattern they are on before changing it,
+    -- and so the bot can put it back.
+    local pattern
+    pcall(function() pattern = pawn.CustomizerData.PatternIndex end)
+    if type(pattern) == "number" then
+        parts[#parts + 1] = string.format('"PatternIndex":%d', math.floor(pattern))
+    end
+
     if #parts == 0 then
         writeResult(cmd.id, "skinget", cmd.steam, false, "could not read their colours")
         return
@@ -1467,6 +1475,65 @@ local function handleSkinMany(cmd)
         skipped > 0 and (", " .. skipped .. " skipped") or ""))
 end
 
+-- ---------------------------------------------------------------------------
+-- Pattern
+--
+-- why this is its own verb and never bundled with colours: PatternIndex is
+-- validated per species, and upstream is explicit that an out-of-range value
+-- makes the client abort the **entire** skin rebuild — every colour in the same
+-- apply is dropped with it. Sent alone, a bad pattern can only cost the
+-- pattern.
+--
+-- The old value is returned so the bot can put it back.
+-- ---------------------------------------------------------------------------
+
+local function handlePattern(cmd)
+    local wanted = tonumber(cmd.args and cmd.args.index)
+    if wanted == nil or wanted < 0 or wanted > 63 then
+        writeResult(cmd.id, "pattern", cmd.steam, false, "that is not a pattern number")
+        return
+    end
+    wanted = math.floor(wanted)
+
+    local pawn, err = resolvePlayer(cmd.steam)
+    if pawn == nil then
+        writeResult(cmd.id, "pattern", cmd.steam, false, err)
+        return
+    end
+
+    local isDino, reason = dinosaurCheck(pawn)
+    if not isDino then
+        writeResult(cmd.id, "pattern", cmd.steam, false, reason)
+        return
+    end
+
+    local before
+    pcall(function() before = pawn.CustomizerData.PatternIndex end)
+
+    local applied = pcall(function()
+        pawn.CustomizerData.PatternIndex = wanted
+        pawn:ForceNetUpdate()
+    end)
+    if not applied then
+        writeResult(cmd.id, "pattern", cmd.steam, false, "the server refused that pattern")
+        return
+    end
+
+    -- The property accepts anything; only the client validates it. So this
+    -- confirms the write landed, NOT that the pattern exists for this species.
+    local now
+    pcall(function() now = pawn.CustomizerData.PatternIndex end)
+    if type(now) ~= "number" or math.floor(now) ~= wanted then
+        writeResult(cmd.id, "pattern", cmd.steam, false, "the pattern did not take")
+        return
+    end
+
+    log(string.format("pattern: %s %s -> %d", cmd.steam, tostring(before), wanted))
+    writeResult(cmd.id, "pattern", cmd.steam, true, "pattern set",
+        string.format('{"before":%d,"now":%d}',
+            type(before) == "number" and math.floor(before) or 0, wanted))
+end
+
 local function dispatch(cmd)
     if type(cmd) ~= "table" then return end
 
@@ -1496,6 +1563,7 @@ local function dispatch(cmd)
     elseif verb == "where" then handleWhere(cmd)
     elseif verb == "skinget" then handleSkinGet(cmd)
     elseif verb == "skinmany" then handleSkinMany(cmd)
+    elseif verb == "pattern" then handlePattern(cmd)
     else writeResult(cmd.id, verb, cmd.steam, false, "unknown command: " .. verb) end
 end
 

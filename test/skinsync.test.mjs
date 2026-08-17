@@ -19,11 +19,14 @@ const REX = { steam: '76561198000000001', species: 'Tyrannosaurus', growth: 1, f
 const DRYO = { steam: '76561198000000001', species: 'Dryosaurus', growth: 1, female: false, prime: false };
 
 /** Records every skinmany the bot sends. */
-function makeCtx(skins) {
+function makeCtx(skins, patterns = {}) {
   const sent = [];
   return {
     sent,
-    db: { skinFor: (steam, species) => skins[`${steam}|${species}`] ?? null },
+    db: {
+      skinFor: (steam, species) => skins[`${steam}|${species}`] ?? null,
+      patternFor: (steam, species) => patterns[`${steam}|${species}`] ?? null,
+    },
     mod: {
       run: async (verb, steam, args) => {
         sent.push({ verb, steam, args });
@@ -116,6 +119,36 @@ const quiet = () => {};
   await reapplySkins(ctx, [REX], quiet);
 
   check('repaints after they were seen offline', ctx.sent.length === 2, String(ctx.sent.length));
+}
+
+// ---- patterns ---------------------------------------------------------------------
+
+{
+  // An out-of-range pattern makes the client drop the whole rebuild, so it must
+  // never share a write with the colours.
+  forgetAllPainted();
+  const ctx = makeCtx(skins, { '76561198000000001|Tyrannosaurus': 2 });
+
+  await reapplySkins(ctx, [REX], quiet);
+
+  const verbs = ctx.sent.map((s) => s.verb);
+  check('the pattern is reapplied too', verbs.includes('pattern'), verbs.join(','));
+  check('it is sent separately from the colours',
+    verbs.filter((v) => v === 'pattern').length === 1 && verbs.includes('skinmany'),
+    verbs.join(','));
+  check('and it goes first, so a bad one cannot take the colours with it',
+    verbs.indexOf('pattern') < verbs.indexOf('skinmany'), verbs.join(','));
+  check('no colour write mentions the pattern',
+    ctx.sent.filter((s) => s.verb === 'skinmany')
+      .every((s) => !JSON.stringify(s.args).includes('Pattern')));
+}
+
+{
+  forgetAllPainted();
+  const ctx = makeCtx(skins);
+  await reapplySkins(ctx, [REX], quiet);
+  check('nobody without a saved pattern gets one',
+    !ctx.sent.some((s) => s.verb === 'pattern'), ctx.sent.map((s) => s.verb).join(','));
 }
 
 // ---- failure handling -------------------------------------------------------------

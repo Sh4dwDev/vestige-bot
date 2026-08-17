@@ -76,6 +76,15 @@ export async function reapplySkins(
     const entry = key(player.steam, player.species);
     if (painted.has(entry)) continue;
 
+    // Sent first and on its own: an out-of-range pattern makes the client drop
+    // the whole rebuild, so it must never share a write with the colours.
+    const pattern = ctx.db.patternFor(player.steam, player.species);
+    if (pattern !== null) {
+      await ctx.mod
+        .run('pattern', player.steam, { index: pattern }, { quiet: true })
+        .catch(() => undefined);
+    }
+
     const colours = ctx.db.skinFor(player.steam, player.species);
     if (!colours || Object.keys(colours).length === 0) {
       // Nothing owed for this species. Mark it so it is not re-checked every

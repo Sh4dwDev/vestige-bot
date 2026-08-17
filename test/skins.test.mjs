@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 const root = path.resolve(import.meta.dirname, '..');
 const {
   PARTS, PRESETS, parseHex, toLinear, hexToLinear, hexToInt,
-  toSrgb, linearToHex, encodeColours, BUILT_IN,
+  toSrgb, linearToHex, encodeColours, BUILT_IN, patternLetter, PATTERN_CHOICES,
 } = await import(pathToFileURL(path.join(root, 'dist/skins.js')).href);
 
 const results = [];
@@ -62,10 +62,28 @@ check('field names match the engine', PARTS.some((p) => p.field === 'BodyColor')
   PARTS.some((p) => p.field === 'ClawsColor'));
 check('every part has a readable label', PARTS.every((p) => p.label && !p.label.includes('Color')));
 
-// PatternIndex aborts the whole apply if out of range, and SkinCode is the
-// engine's own persistence — neither is ours to write.
-check('the picker offers no pattern or skin code fields',
+// PatternIndex has its own command and is never written alongside colours,
+// because out of range it drops the entire apply. SkinCode is the engine's own
+// persistence and is never written at all.
+check('the colour picker offers no pattern or skin code fields',
   !PARTS.some((p) => /Pattern|SkinCode/i.test(p.field)));
+
+// ---- patterns -------------------------------------------------------------------
+
+check('patterns are lettered like the game', patternLetter(0) === 'A' && patternLetter(2) === 'C');
+check('the letters keep going', patternLetter(25) === 'Z');
+check('past the alphabet falls back to a number rather than nonsense',
+  patternLetter(26) === '#26', patternLetter(26));
+check('a negative index is not lettered', patternLetter(-1) === '#-1');
+
+check('the pattern menu fits Discord’s 25 choice cap', PATTERN_CHOICES <= 25,
+  String(PATTERN_CHOICES));
+check('enough patterns are offered to be useful', PATTERN_CHOICES >= 4);
+
+// A pattern must never ride along with colours — that is the whole reason it
+// has its own verb.
+check('encoding colours never emits a pattern field',
+  !encodeColours({ BodyColor: '#FFFFFF' }).includes('Pattern'));
 
 // ---- round trip, for saving a live look as a preset ----------------------------
 

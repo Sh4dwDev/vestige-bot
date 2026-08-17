@@ -46,6 +46,8 @@ import {
 import {
   BUILT_IN,
   encodeColours,
+  patternLetter,
+  PATTERN_CHOICES,
   hexToInt,
   hexToLinear,
   linearToHex,
@@ -353,6 +355,16 @@ export const commandData = [
             .addStringOption((o) =>
               o.setName('colour4').setDescription('Its colour').setAutocomplete(true)))
         .addSubcommand((s) => s.setName('palette').setDescription('Show the preset colours'))
+        .addSubcommand((s) =>
+          s.setName('pattern').setDescription('Change the pattern (A, B, C…)')
+            .addUserOption((o) => o.setName('user').setDescription('Whose dinosaur').setRequired(true))
+            .addStringOption((o) =>
+              o.setName('pattern').setDescription('Which pattern')
+                .addChoices(...Array.from({ length: PATTERN_CHOICES }, (_, n) => ({
+                  name: `Pattern ${patternLetter(n)}`,
+                  value: String(n),
+                })))
+                .setRequired(true)))
         .addSubcommand((s) =>
           s.setName('save').setDescription('Save a player’s current colours as a preset')
             .addUserOption((o) => o.setName('user').setDescription('Whose look to save').setRequired(true))
@@ -1448,6 +1460,46 @@ async function handleSkin(
         `${user} has not linked a Steam account, so there is no dinosaur to find.`)],
       flags: MessageFlags.Ephemeral,
     });
+    return;
+  }
+
+  if (action === 'pattern') {
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const spawned = await ctx.mod.players().catch(() => []);
+    const species = spawned.find((p) => p.steam === link.steamId)?.species;
+    if (!species) {
+      await i.editReply({
+        embeds: [embed(COLORS.warn, 'They are not spawned in',
+          `${user} needs to be playing a dinosaur.`)],
+      });
+      return;
+    }
+
+    const index = Number.parseInt(i.options.getString('pattern', true), 10);
+
+    try {
+      const result = await ctx.mod.run('pattern', link.steamId, { index });
+      if (!result.ok) {
+        await i.editReply({ embeds: [embed(COLORS.bad, 'Could not do that', result.msg)] });
+        return;
+      }
+
+      ctx.db.setPattern(link.steamId, species, index);
+
+      await i.editReply({
+        embeds: [embed(COLORS.good, `Pattern ${patternLetter(index)}`,
+          `${user}'s **${species}** is on pattern **${patternLetter(index)}**.\n\n` +
+          'How many patterns a species has varies, and the game does not say. If ' +
+          'nothing changed, that species has no pattern ' +
+          `${patternLetter(index)} — try a lower letter. **Their colours are ` +
+          'untouched either way**, because the pattern is sent on its own.')],
+      });
+    } catch (err) {
+      await i.editReply({
+        embeds: [embed(COLORS.bad, 'Something went wrong', describeError(err))],
+      });
+    }
     return;
   }
 

@@ -149,6 +149,15 @@ export class Database {
     this.#db = new DatabaseSync(this.file);
     this.#db.exec('PRAGMA journal_mode = WAL;');
     this.#db.exec(SCHEMA);
+
+    // Added after player_skins shipped. CREATE TABLE IF NOT EXISTS will not
+    // alter an existing table, so the column is added separately and the error
+    // from it already being there is the expected case.
+    try {
+      this.#db.exec('ALTER TABLE player_skins ADD COLUMN pattern INTEGER');
+    } catch {
+      // Already present.
+    }
   }
 
   /**
@@ -373,6 +382,26 @@ export class Database {
             .prepare('DELETE FROM player_skins WHERE steam_id = ? AND species = ?')
             .run(steamId, species).changes,
     );
+  }
+
+  /** Null when they have never been given one, so the game's own is left alone. */
+  setPattern(steamId: string, species: string, pattern: number | null): void {
+    this.#db
+      .prepare(
+        `INSERT INTO player_skins (steam_id, species, colours, set_at, pattern)
+         VALUES (?, ?, '{}', ?, ?)
+         ON CONFLICT (steam_id, species) DO UPDATE SET pattern = excluded.pattern,
+                                                       set_at = excluded.set_at`,
+      )
+      .run(steamId, species, new Date().toISOString(), pattern);
+  }
+
+  patternFor(steamId: string, species: string): number | null {
+    const row = this.#db
+      .prepare('SELECT pattern FROM player_skins WHERE steam_id = ? AND species = ?')
+      .get(steamId, species) as Record<string, unknown> | undefined;
+    const value = row?.['pattern'];
+    return typeof value === 'number' ? value : null;
   }
 
   skinSpecies(steamId: string): string[] {

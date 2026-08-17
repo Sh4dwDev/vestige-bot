@@ -153,6 +153,18 @@ export const BUILT_IN = {
         MarkingsColor: '#1E2228', Detail1Color: '#C3CED6', EyesColor: '#7FC8E6',
     },
 };
+/**
+ * Patterns are numbered on the wire and lettered in the game, so the picker
+ * speaks letters and the mod speaks numbers.
+ */
+export const patternLetter = (index) => index >= 0 && index < 26 ? String.fromCharCode(65 + index) : `#${index}`;
+/**
+ * How many to offer. The real count is **per species** and the game does not
+ * tell us, so this is a generous menu — picking one a species does not have
+ * simply does nothing visible, which is why patterns are never sent in the same
+ * write as colours.
+ */
+export const PATTERN_CHOICES = 8;
 /** Accepts `#RGB`, `#RRGGBB`, with or without the hash. */
 export function parseHex(input) {
     const cleaned = input.trim().replace(/^#/, '');

@@ -63,6 +63,9 @@ export declare class Database {
     skinFor(steamId: string, species: string): Record<string, string> | null;
     /** Species omitted clears every look they have. */
     clearSkin(steamId: string, species?: string): number;
+    /** Null when they have never been given one, so the game's own is left alone. */
+    setPattern(steamId: string, species: string, pattern: number | null): void;
+    patternFor(steamId: string, species: string): number | null;
     skinSpecies(steamId: string): string[];
     savePreset(name: string, colours: Record<string, string>, madeBy: string): void;
     preset(name: string): Record<string, string> | null;

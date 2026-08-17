@@ -28,6 +28,18 @@ export declare const PRESETS: Array<{
  * striking. A saved preset of the same name wins, so these can be overridden.
  */
 export declare const BUILT_IN: Record<string, Record<string, string>>;
+/**
+ * Patterns are numbered on the wire and lettered in the game, so the picker
+ * speaks letters and the mod speaks numbers.
+ */
+export declare const patternLetter: (index: number) => string;
+/**
+ * How many to offer. The real count is **per species** and the game does not
+ * tell us, so this is a generous menu — picking one a species does not have
+ * simply does nothing visible, which is why patterns are never sent in the same
+ * write as colours.
+ */
+export declare const PATTERN_CHOICES = 8;
 export interface Rgb {
     r: number;
     g: number;
