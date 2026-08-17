@@ -144,6 +144,15 @@ const LOOKS = {
         BodyColor: '#3E4650', FlankColor: '#2E353E', UnderbellyColor: '#7A8894',
         MarkingsColor: '#1E2228', Detail1Color: '#C3CED6', EyesColor: '#7FC8E6',
     },
+    // --- silly, and none the worse for it -------------------------------------
+    Rainbow: {
+        BodyColor: '#E02020', FlankColor: '#FF7A00', UnderbellyColor: '#FFD400',
+        MarkingsColor: '#2ECC40', Detail1Color: '#0074D9', EyesColor: '#B10DC9',
+    },
+    Lollipop: {
+        BodyColor: '#FF4FA3', FlankColor: '#FFFFFF', UnderbellyColor: '#FFD9EC',
+        MarkingsColor: '#E01B4C', Detail1Color: '#FFFFFF', EyesColor: '#FF87C6',
+    },
 };
 /**
  * The pattern each look is built around. Spread across the low indices, which
@@ -156,6 +165,9 @@ const LOOK_PATTERNS = {
     Tiger: 3, Albino: 0, Melanistic: 1, Swamp: 2, Savanna: 0, Autumn: 1,
     Coral: 3, Nightstalker: 2, Volcanic: 3, Toxic: 1, Obsidian: 2,
     Arctic: 0, Copper: 1, Stormfront: 3,
+    // The busiest patterns, so the colours land on as many separate parts as
+    // possible — the whole point of both of these.
+    Rainbow: 3, Lollipop: 2,
 };
 export const BUILT_IN = Object.fromEntries(Object.entries(LOOKS).map(([name, colours]) => [
     name,

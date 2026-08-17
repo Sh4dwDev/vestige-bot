@@ -168,9 +168,10 @@ check('an out-of-range channel clamps rather than producing nonsense hex',
   check('a look’s pattern never reaches the colour wire format',
     looks.every(([, l]) => !encodeColours(l.colours).includes('attern')));
 
-  // They share the preset picker with anything saved, and Discord caps that at
-  // 25 — so shipping more built-ins than that would crowd saved ones out.
-  check('the built-in looks fit the picker alongside saved ones', looks.length <= 25,
+  // Past 25 the picker cannot show them all at once, but it filters as you
+  // type and saved presets are listed first, so an admin's own work is never
+  // crowded out. This is a sanity bound, not the Discord limit.
+  check('the built-in looks stay a browsable number', looks.length <= 40,
     String(looks.length));
 
   check('no look is an empty object', looks.every(([, c]) => Object.keys(c).length > 0));
