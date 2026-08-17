@@ -80,6 +80,35 @@ check('a free species is allowed', (setSpeciesPrice(ctx, 'Troodon', 0), priceOf(
   check('someone with no offer gets nothing', takePending('nobody') === null);
 }
 
+// ---- the panel's split mutation picker -------------------------------------------
+
+{
+  const { splitMutations, peekPending } = await load('shop.js');
+
+  // Discord allows 25 options in a select, and this build has around forty
+  // mutations, so the list is split across two menus.
+  const forty = Array.from({ length: 40 }, (_, n) => `Mutation ${String(n).padStart(2, '0')}`);
+  const { first, second } = splitMutations(forty);
+
+  check('both halves fit a select menu', first.length <= 25 && second.length <= 25,
+    `${first.length} / ${second.length}`);
+  check('nothing is lost in the split', first.length + second.length === forty.length);
+  check('nothing is in both halves',
+    first.every((m) => !second.includes(m)));
+  check('the halves are in order', first[0] < second[0], `${first[0]} vs ${second[0]}`);
+
+  const odd = splitMutations(['B', 'A', 'C']);
+  check('an odd count still splits', odd.first.length + odd.second.length === 3);
+  check('the split sorts, so the halves are predictable', odd.first[0] === 'A');
+  check('an empty list does not break it', splitMutations([]).first.length === 0);
+
+  // Peeking must not consume, or redrawing the basket would lose the purchase.
+  setPending('peeker', { species: 'Rex', mutations: [], price: 1, at: Date.now() });
+  check('peeking leaves the offer in place',
+    peekPending('peeker')?.species === 'Rex' && peekPending('peeker')?.species === 'Rex');
+  check('taking it still consumes', takePending('peeker') !== null && peekPending('peeker') === null);
+}
+
 // ---- the receipt trail -----------------------------------------------------------
 
 {

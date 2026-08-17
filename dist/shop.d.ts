@@ -12,8 +12,22 @@ export interface Pending {
     mutations: string[];
     price: number;
     at: number;
+    /**
+     * Mutations chosen from each half of the picker, kept apart so re-picking in
+     * one menu replaces only that half. Discord caps a select at 25 options and
+     * there are more mutations than that, so the list is split in two.
+     */
+    mutA?: string[];
+    mutB?: string[];
 }
+/** The two halves of the mutation list, split so each fits a select menu. */
+export declare function splitMutations(all: string[]): {
+    first: string[];
+    second: string[];
+};
 export declare function setPending(discordId: string, purchase: Pending): void;
+/** Reads without consuming, for redrawing the panel as choices change. */
+export declare function peekPending(discordId: string): Pending | null;
 export declare function takePending(discordId: string): Pending | null;
 export declare function buildCatalogue(ctx: Ctx, species: string[], balance: number): EmbedBuilder;
 export declare function buildReceipt(species: string, mutations: string[], price: number, left: number, slot: string): EmbedBuilder;

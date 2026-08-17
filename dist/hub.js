@@ -1,6 +1,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, UserSelectMenuBuilder, } from 'discord.js';
 import { SERVER, SIGNATURE } from './brand.js';
-import { beginLink, completePurchase, describeError, runSlay, startTeleport, steamNamer, } from './commands.js';
+import { handleShopPanel } from './shoppanel.js';
+import { beginLink, describeError, runSlay, startTeleport, steamNamer, } from './commands.js';
 import { buildKillsEmbed } from './kills.js';
 import { showPanel } from './panel.js';
 import { buildBalanceEmbed, buildLeaderboardEmbed, ratePerHour } from './points.js';
@@ -113,17 +114,10 @@ export async function handleHubInteraction(ctx, interaction) {
         void runAccepted(ctx, interaction.client, request, () => { });
         return true;
     }
-    if (id.startsWith('shop:') && interaction.isButton()) {
-        if (id === 'shop:cancel') {
-            await interaction.update({
-                embeds: [new EmbedBuilder().setColor(COLORS.warn).setTitle('Cancelled')
-                        .setDescription('Nothing was bought.')],
-                components: [],
-            });
-            return true;
-        }
-        await completePurchase(ctx, interaction);
-        return true;
+    // The shop panel owns everything prefixed shop:, including the confirm
+    // buttons that /shop buy also raises.
+    if (id.startsWith('shop:') && (interaction.isButton() || interaction.isStringSelectMenu())) {
+        return handleShopPanel(ctx, interaction);
     }
     if (!id.startsWith('hub:'))
         return false;

@@ -38,6 +38,12 @@ import {
 } from './shop.js';
 import { forgetPainted } from './skinsync.js';
 import {
+  buildShopPanel,
+  setShopPanelChannel,
+  shopPanelRows,
+  SHOP_PANEL_MESSAGE_KEY,
+} from './shoppanel.js';
+import {
   BUILT_IN,
   encodeColours,
   hexToInt,
@@ -304,7 +310,12 @@ export const commandData = [
             .addChannelOption((o) =>
               o.setName('channel').setDescription('Where purchases are logged')
                 .addChannelTypes(ChannelType.GuildText).setRequired(true)))
-        .addSubcommand((s) => s.setName('recent').setDescription('The last purchases')),
+        .addSubcommand((s) => s.setName('recent').setDescription('The last purchases'))
+        .addSubcommand((s) =>
+          s.setName('panel').setDescription('Put the shop panel in a channel')
+            .addChannelOption((o) =>
+              o.setName('channel').setDescription('Where the shop panel lives')
+                .addChannelTypes(ChannelType.GuildText).setRequired(true))),
     )
     .addSubcommandGroup((g) =>
       g.setName('joinrole').setDescription('Role given to new members')
@@ -1303,6 +1314,29 @@ async function handleShopAdmin(
           : 'Nothing has been bought yet.')],
       flags: MessageFlags.Ephemeral,
     });
+    return;
+  }
+
+  if (action === 'panel') {
+    const channel = i.options.getChannel('channel', true);
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    setShopPanelChannel(ctx, channel.id);
+
+    try {
+      await postOrEdit(ctx.db, i.client, channel.id, SHOP_PANEL_MESSAGE_KEY,
+        [buildShopPanel(ctx)], shopPanelRows());
+      await i.editReply({
+        embeds: [embed(COLORS.good, 'Shop panel is live',
+          `It is in <#${channel.id}>.\n\nThe buttons keep working after a restart, ` +
+          'so it can stay pinned.')],
+      });
+    } catch (err) {
+      await i.editReply({
+        embeds: [embed(COLORS.bad, 'Could not post there',
+          `${describeError(err)}\n\nCheck the bot can **View Channel**, ` +
+          '**Send Messages** and **Embed Links** there.')],
+      });
+    }
     return;
   }
 

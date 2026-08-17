@@ -406,6 +406,16 @@ tier or per species, with mutations adding 200 each. They start high
 deliberately: cutting a price later reads as a gift, raising one reads as a
 nerf.
 
+`/admin shop panel #x` puts the shop in its own channel as buttons — Browse,
+Buy, My points — for people who will never type a command. The buy flow is a
+species picker, then a live basket that redraws as choices change, then confirm.
+
+**Mutations there are split across two select menus.** Discord allows 25 options
+in a select and this build has around forty mutations, so one menu cannot hold
+them. Each half remembers its own picks, which is why re-choosing in one does
+not wipe the other, and the total is capped at four across both so a full
+second menu cannot smuggle in a fifth.
+
 Purchases eat one of the three storage vaults, are recorded permanently in the
 `purchases` table, and can be mirrored to a channel with `/admin shop log`.
 There are no refunds — buy-store-refund loops are where economies get

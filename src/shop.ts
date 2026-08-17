@@ -59,6 +59,20 @@ export interface Pending {
   mutations: string[];
   price: number;
   at: number;
+  /**
+   * Mutations chosen from each half of the picker, kept apart so re-picking in
+   * one menu replaces only that half. Discord caps a select at 25 options and
+   * there are more mutations than that, so the list is split in two.
+   */
+  mutA?: string[];
+  mutB?: string[];
+}
+
+/** The two halves of the mutation list, split so each fits a select menu. */
+export function splitMutations(all: string[]): { first: string[]; second: string[] } {
+  const sorted = [...all].sort((a, b) => a.localeCompare(b));
+  const half = Math.ceil(sorted.length / 2);
+  return { first: sorted.slice(0, half), second: sorted.slice(half) };
 }
 
 const PENDING_TTL_MS = 120_000;
@@ -71,6 +85,13 @@ const pending = new Map<string, Pending>();
 
 export function setPending(discordId: string, purchase: Pending): void {
   pending.set(discordId, purchase);
+}
+
+/** Reads without consuming, for redrawing the panel as choices change. */
+export function peekPending(discordId: string): Pending | null {
+  const found = pending.get(discordId);
+  if (!found) return null;
+  return Date.now() - found.at > PENDING_TTL_MS ? null : found;
 }
 
 export function takePending(discordId: string): Pending | null {

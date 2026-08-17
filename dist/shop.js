@@ -40,6 +40,12 @@ export function setSpeciesPrice(ctx, species, price) {
 export function setTierPrice(ctx, tier, price) {
     ctx.db.setSetting(`shop_price_tier:${tier}`, String(price));
 }
+/** The two halves of the mutation list, split so each fits a select menu. */
+export function splitMutations(all) {
+    const sorted = [...all].sort((a, b) => a.localeCompare(b));
+    const half = Math.ceil(sorted.length / 2);
+    return { first: sorted.slice(0, half), second: sorted.slice(half) };
+}
 const PENDING_TTL_MS = 120_000;
 /**
  * One in flight per person. This is also the double-click guard: a second press
@@ -48,6 +54,13 @@ const PENDING_TTL_MS = 120_000;
 const pending = new Map();
 export function setPending(discordId, purchase) {
     pending.set(discordId, purchase);
+}
+/** Reads without consuming, for redrawing the panel as choices change. */
+export function peekPending(discordId) {
+    const found = pending.get(discordId);
+    if (!found)
+        return null;
+    return Date.now() - found.at > PENDING_TTL_MS ? null : found;
 }
 export function takePending(discordId) {
     const found = pending.get(discordId);
