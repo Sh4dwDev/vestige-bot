@@ -67,8 +67,18 @@ export declare class Database {
     setPattern(steamId: string, species: string, pattern: number | null): void;
     patternFor(steamId: string, species: string): number | null;
     skinSpecies(steamId: string): string[];
-    savePreset(name: string, colours: Record<string, string>, madeBy: string): void;
-    preset(name: string): Record<string, string> | null;
+    savePreset(name: string, look: {
+        colours: Record<string, string>;
+        pattern?: number;
+    }, madeBy: string): void;
+    /**
+     * Tolerates the original shape, which was a bare map of field to hex with no
+     * pattern — presets saved before patterns existed still load.
+     */
+    preset(name: string): {
+        colours: Record<string, string>;
+        pattern?: number;
+    } | null;
     presetNames(): string[];
     removePreset(name: string): boolean;
     speciesCaps(): Array<{

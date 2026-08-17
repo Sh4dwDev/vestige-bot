@@ -331,14 +331,18 @@ export class Database {
         return rows.map((row) => String(row['species']));
     }
     // ---- skin presets ------------------------------------------------------
-    savePreset(name, colours, madeBy) {
+    savePreset(name, look, madeBy) {
         this.#db
             .prepare(`INSERT INTO skin_presets (name, colours, made_by, made_at) VALUES (?, ?, ?, ?)
          ON CONFLICT (name) DO UPDATE SET colours = excluded.colours,
                                           made_by = excluded.made_by,
                                           made_at = excluded.made_at`)
-            .run(name, JSON.stringify(colours), madeBy, new Date().toISOString());
+            .run(name, JSON.stringify(look), madeBy, new Date().toISOString());
     }
+    /**
+     * Tolerates the original shape, which was a bare map of field to hex with no
+     * pattern — presets saved before patterns existed still load.
+     */
     preset(name) {
         const row = this.#db
             .prepare('SELECT colours FROM skin_presets WHERE name = ?')
@@ -346,7 +350,15 @@ export class Database {
         if (!row)
             return null;
         try {
-            return JSON.parse(String(row['colours']));
+            const parsed = JSON.parse(String(row['colours']));
+            if (parsed['colours'] && typeof parsed['colours'] === 'object') {
+                const pattern = parsed['pattern'];
+                return {
+                    colours: parsed['colours'],
+                    ...(typeof pattern === 'number' ? { pattern } : {}),
+                };
+            }
+            return { colours: parsed };
         }
         catch {
             return null;

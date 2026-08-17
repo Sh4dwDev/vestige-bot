@@ -1202,8 +1202,10 @@ export async function startTeleport(
   });
 
   // Ask in game first: that reaches them whether or not their DMs are open.
+  // Short on purpose: the game renders these over an ANNOUNCEMENT label and a
+  // long line runs straight through it.
   await ctx.rcon
-    .directMessage(theirs.steamId, `${i.user.tag} wants to teleport to you — type !accept`)
+    .directMessage(theirs.steamId, `${i.user.tag}: !accept to allow teleport`)
     .catch(() => undefined);
 
   const friend = await i.client.users.fetch(friendId).catch(() => null);
@@ -1435,7 +1437,9 @@ async function handleSkin(
         // Sorted: two dozen is enough that insertion order stops being findable.
         Object.entries(BUILT_IN)
           .sort(([a], [b]) => a.localeCompare(b))
-          .map(([name, colours]) => `${swatch(colours)}**${name}**`)
+          .map(([name, look]) =>
+            `${swatch(look.colours)}**${name}**` +
+            (look.pattern === undefined ? '' : ` · pattern ${patternLetter(look.pattern)}`))
           .join('\n') +
         '\n\n**Saved here**\n' +
         (saved.length
@@ -1558,10 +1562,16 @@ async function handleSkin(
         }
       }
 
-      ctx.db.savePreset(name, colours, i.user.tag);
+      // The pattern travels with the colours: it decides which parts each one
+      // lands on, so a preset without it only half-describes the look.
+      const livePattern = (live as unknown as Record<string, unknown>)['PatternIndex'];
+      const pattern = typeof livePattern === 'number' ? livePattern : undefined;
+
+      ctx.db.savePreset(name, pattern === undefined ? { colours } : { colours, pattern }, i.user.tag);
       await i.editReply({
         embeds: [embed(COLORS.good, 'Preset saved',
-          `**${name}** captured from ${user}, ${Object.keys(colours).length} colours.\n\n` +
+          `**${name}** captured from ${user}, ${Object.keys(colours).length} colours` +
+          (pattern === undefined ? '' : ` on pattern **${patternLetter(pattern)}**`) + '.\n\n' +
           Object.entries(colours).map(([f, hex]) =>
             `\`${hex}\`  ${PARTS.find((p) => p.field === f)?.label ?? f}`).join('\n'))],
       });
@@ -1570,6 +1580,7 @@ async function handleSkin(
 
     // Both apply and set end up here: a map of field to hex, written in one go.
     let colours: Record<string, string> = {};
+    let pattern: number | undefined;
     let title = '🎨  Colours applied';
 
     if (action === 'apply') {
@@ -1584,7 +1595,8 @@ async function handleSkin(
         });
         return;
       }
-      colours = stored;
+      colours = stored.colours;
+      pattern = stored.pattern;
       title = `🎨  ${name} applied`;
     } else {
       for (const n of ['', '2', '3', '4']) {
@@ -1604,6 +1616,13 @@ async function handleSkin(
         }
         colours[field] = hex;
       }
+    }
+
+    // Pattern first and on its own: out of range it makes the client abort the
+    // rebuild, which would take the colours with it if they shared a write.
+    if (pattern !== undefined) {
+      await ctx.mod.run('pattern', link.steamId, { index: pattern }).catch(() => undefined);
+      ctx.db.setPattern(link.steamId, species, pattern);
     }
 
     const result = await ctx.mod.run('skinmany', link.steamId, {
@@ -1626,7 +1645,8 @@ async function handleSkin(
         .setColor(hexToInt(first) ?? COLORS.good)
         .setTitle(title)
         .setDescription(
-          `On ${user}:\n` +
+          `On ${user}'s **${species}**` +
+          (pattern === undefined ? ':\n' : `, pattern **${patternLetter(pattern)}**:\n`) +
           Object.entries(colours).map(([f, hex]) =>
             `\`${hex.toUpperCase()}\`  ${PARTS.find((p) => p.field === f)?.label ?? f}`).join('\n') +
           `\n\nRemembered for their **${species}** specifically — other species keep ` +

@@ -1,6 +1,6 @@
 import { EmbedBuilder, type Client } from 'discord.js';
 
-import { SERVER, SIGNATURE } from './brand.js';
+import { SIGNATURE } from './brand.js';
 import type { Ctx } from './commands.js';
 import type { PlayerRow } from './population.js';
 import { tally } from './population.js';
@@ -105,9 +105,10 @@ export async function checkSpeciesLocks(
     // In game as well: the people who need to know are the ones about to spawn
     // it, and they are not reading Discord at that moment.
     await ctx.rcon
+      // Short: these draw over the game's own ANNOUNCEMENT label.
       .announce(change.locked
-        ? `${change.species} is now LOCKED on ${SERVER} (${change.count}/${change.cap}).`
-        : `${change.species} is open again on ${SERVER}.`)
+        ? `${change.species} LOCKED (${change.count}/${change.cap})`
+        : `${change.species} open again`)
       .catch(() => undefined);
   }
 }

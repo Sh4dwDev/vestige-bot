@@ -27,7 +27,20 @@ export declare const PRESETS: Array<{
  * those are barely visible and recolouring them tends to look wrong rather than
  * striking. A saved preset of the same name wins, so these can be overridden.
  */
-export declare const BUILT_IN: Record<string, Record<string, string>>;
+export interface Look {
+    colours: Record<string, string>;
+    /**
+     * Pattern index, where the species has one. The pattern changes which parts
+     * of the body each colour lands on, so a look is only half-defined without
+     * it — the same palette on pattern A and pattern C are different animals.
+     *
+     * How many a species has is not discoverable. Naming one it does not have
+     * simply leaves the pattern alone; the colours still land, because the two
+     * are always written separately.
+     */
+    pattern?: number;
+}
+export declare const BUILT_IN: Record<string, Look>;
 /**
  * Patterns are numbered on the wire and lettered in the game, so the picker
  * speaks letters and the mod speaks numbers.

@@ -56,7 +56,21 @@ export const PRESETS: Array<{ name: string; hex: string }> = [
  * those are barely visible and recolouring them tends to look wrong rather than
  * striking. A saved preset of the same name wins, so these can be overridden.
  */
-export const BUILT_IN: Record<string, Record<string, string>> = {
+export interface Look {
+  colours: Record<string, string>;
+  /**
+   * Pattern index, where the species has one. The pattern changes which parts
+   * of the body each colour lands on, so a look is only half-defined without
+   * it — the same palette on pattern A and pattern C are different animals.
+   *
+   * How many a species has is not discoverable. Naming one it does not have
+   * simply leaves the pattern alone; the colours still land, because the two
+   * are always written separately.
+   */
+  pattern?: number;
+}
+
+const LOOKS: Record<string, Record<string, string>> = {
   'Ash Wraith': {
     BodyColor: '#8A8F96', FlankColor: '#6E737A', UnderbellyColor: '#C9CDD2',
     MarkingsColor: '#4A4F55', Detail1Color: '#EDE6D6', EyesColor: '#BFD8E6',
@@ -158,6 +172,28 @@ export const BUILT_IN: Record<string, Record<string, string>> = {
     MarkingsColor: '#1E2228', Detail1Color: '#C3CED6', EyesColor: '#7FC8E6',
   },
 };
+
+/**
+ * The pattern each look is built around. Spread across the low indices, which
+ * every species is most likely to have — a look is not lost if the pattern is
+ * missing, it just wears the species' current one.
+ */
+const LOOK_PATTERNS: Record<string, number> = {
+  'Ash Wraith': 1, Ember: 2, 'Jungle Stalker': 1, Bonewalker: 0, Abyss: 3,
+  Venom: 2, Sandstorm: 0, 'Blood Moon': 3, Frostbite: 1, Regal: 2,
+  Tiger: 3, Albino: 0, Melanistic: 1, Swamp: 2, Savanna: 0, Autumn: 1,
+  Coral: 3, Nightstalker: 2, Volcanic: 3, Toxic: 1, Obsidian: 2,
+  Arctic: 0, Copper: 1, Stormfront: 3,
+};
+
+export const BUILT_IN: Record<string, Look> = Object.fromEntries(
+  Object.entries(LOOKS).map(([name, colours]) => [
+    name,
+    LOOK_PATTERNS[name] === undefined
+      ? { colours }
+      : { colours, pattern: LOOK_PATTERNS[name] },
+  ]),
+);
 
 /**
  * Patterns are numbered on the wire and lettered in the game, so the picker

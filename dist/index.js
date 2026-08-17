@@ -327,9 +327,9 @@ async function sendInvite(ctx, steamId) {
     if (!ctx.config.discordInvite)
         return;
     try {
-        // Short on purpose: this renders as a notification that vanishes in about
-        // a second, so it has to be readable at a glance.
-        await ctx.rcon.directMessage(steamId, `${SERVER} Discord: ${ctx.config.discordInvite}`);
+        // Short on purpose: this draws over the game's own ANNOUNCEMENT label and
+        // vanishes quickly, so it has to be readable at a glance.
+        await ctx.rcon.directMessage(steamId, ctx.config.discordInvite);
         log(`discord: sent invite to ${steamId}`);
     }
     catch (err) {

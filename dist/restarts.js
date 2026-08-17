@@ -59,10 +59,14 @@ export function setRestartAnnounce(ctx, channelId, roleId) {
     ctx.db.setSetting(ROLE_KEY, roleId ?? '');
 }
 // ------------------------------------------------------------------ notice --
+/**
+ * Short by necessity: the game draws these across its own ANNOUNCEMENT label,
+ * so a long line runs straight through it and becomes unreadable.
+ */
 function inGameWarning(minutes) {
     return minutes === 1
-        ? `${SERVER} restarts in 1 minute. Get somewhere safe and log out.`
-        : `${SERVER} restarts in ${minutes} minutes. Find somewhere safe.`;
+        ? 'Restart in 1 min — log out safe'
+        : `Restart in ${minutes} min`;
 }
 export function buildRestartEmbed(minutes, restart) {
     const stamp = `<t:${Math.floor(restart.getTime() / 1000)}:t>`;
@@ -168,14 +172,13 @@ export async function restartNow(ctx, minutes, log) {
     log(`restart: manual restart requested in ${minutes} minute(s)`);
     if (minutes > 0) {
         await ctx.rcon
-            .announce(`${SERVER} restarts in ${minutes} minute${minutes === 1 ? '' : 's'}. ` +
-            'Find somewhere safe.')
+            .announce(inGameWarning(minutes))
             .catch(() => undefined);
         // A one minute warning as well, unless the whole wait is a minute.
         if (minutes > 1) {
             setTimeout(() => {
                 void ctx.rcon
-                    .announce(`${SERVER} restarts in 1 minute. Get somewhere safe and log out.`)
+                    .announce(inGameWarning(1))
                     .catch(() => undefined);
             }, (minutes - 1) * 60_000);
         }

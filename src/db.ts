@@ -413,7 +413,11 @@ export class Database {
 
   // ---- skin presets ------------------------------------------------------
 
-  savePreset(name: string, colours: Record<string, string>, madeBy: string): void {
+  savePreset(
+    name: string,
+    look: { colours: Record<string, string>; pattern?: number },
+    madeBy: string,
+  ): void {
     this.#db
       .prepare(
         `INSERT INTO skin_presets (name, colours, made_by, made_at) VALUES (?, ?, ?, ?)
@@ -421,16 +425,29 @@ export class Database {
                                           made_by = excluded.made_by,
                                           made_at = excluded.made_at`,
       )
-      .run(name, JSON.stringify(colours), madeBy, new Date().toISOString());
+      .run(name, JSON.stringify(look), madeBy, new Date().toISOString());
   }
 
-  preset(name: string): Record<string, string> | null {
+  /**
+   * Tolerates the original shape, which was a bare map of field to hex with no
+   * pattern — presets saved before patterns existed still load.
+   */
+  preset(name: string): { colours: Record<string, string>; pattern?: number } | null {
     const row = this.#db
       .prepare('SELECT colours FROM skin_presets WHERE name = ?')
       .get(name) as Record<string, unknown> | undefined;
     if (!row) return null;
+
     try {
-      return JSON.parse(String(row['colours'])) as Record<string, string>;
+      const parsed = JSON.parse(String(row['colours'])) as Record<string, unknown>;
+      if (parsed['colours'] && typeof parsed['colours'] === 'object') {
+        const pattern = parsed['pattern'];
+        return {
+          colours: parsed['colours'] as Record<string, string>,
+          ...(typeof pattern === 'number' ? { pattern } : {}),
+        };
+      }
+      return { colours: parsed as Record<string, string> };
     } catch {
       return null;
     }

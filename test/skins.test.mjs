@@ -121,31 +121,52 @@ check('an out-of-range channel clamps rather than producing nonsense hex',
   check('there are ready-made looks to pick from', looks.length >= 8, String(looks.length));
 
   check('every colour in every look is valid hex',
-    looks.every(([, c]) => Object.values(c).every((hex) => parseHex(hex) !== null)),
-    looks.map(([n, c]) => `${n}:${Object.values(c).filter((h) => !parseHex(h)).join(',')}`)
+    looks.every(([, l]) => Object.values(l.colours).every((hex) => parseHex(hex) !== null)),
+    looks.map(([n, l]) => `${n}:${Object.values(l.colours).filter((h) => !parseHex(h)).join(',')}`)
       .filter((s) => !s.endsWith(':')).join(' | '));
 
   const fields = new Set(PARTS.map((p) => p.field));
   check('every look only names real parts',
-    looks.every(([, c]) => Object.keys(c).every((f) => fields.has(f))),
-    looks.flatMap(([, c]) => Object.keys(c)).filter((f) => !fields.has(f)).join(','));
+    looks.every(([, l]) => Object.keys(l.colours).every((f) => fields.has(f))),
+    looks.flatMap(([, l]) => Object.keys(l.colours)).filter((f) => !fields.has(f)).join(','));
 
   check('each look sets a body colour, which is what reads at distance',
-    looks.every(([, c]) => Boolean(c.BodyColor)));
+    looks.every(([, l]) => Boolean(l.colours.BodyColor)));
 
   check('each look sets enough parts to look deliberate',
-    looks.every(([, c]) => Object.keys(c).length >= 4),
-    looks.map(([n, c]) => `${n}:${Object.keys(c).length}`).join(' '));
+    looks.every(([, l]) => Object.keys(l.colours).length >= 4),
+    looks.map(([n, l]) => `${n}:${Object.keys(l.colours).length}`).join(' '));
 
   // Teeth, mouth and claws are barely visible; recolouring them reads as a
   // mistake rather than a style.
   check('looks leave the fiddly parts alone',
-    looks.every(([, c]) => !c.TeethColor && !c.MouthColor && !c.ClawsColor));
+    looks.every(([, l]) => !l.colours.TeethColor && !l.colours.MouthColor && !l.colours.ClawsColor));
 
   check('every look encodes to the wire format',
-    looks.every(([, c]) => encodeColours(c).split('|').length === Object.keys(c).length));
+    looks.every(([, l]) =>
+      encodeColours(l.colours).split('|').length === Object.keys(l.colours).length));
 
   check('look names are unique', new Set(looks.map(([n]) => n)).size === looks.length);
+
+  // The pattern decides which parts each colour lands on, so a look without one
+  // is only half a look.
+  check('every look names a pattern',
+    looks.every(([, l]) => typeof l.pattern === 'number'),
+    looks.filter(([, l]) => typeof l.pattern !== 'number').map(([n]) => n).join(','));
+
+  // Kept low: how many patterns a species has is not discoverable, and the low
+  // indices are the ones every species is most likely to have.
+  check('patterns stay in the range every species is likely to have',
+    looks.every(([, l]) => l.pattern >= 0 && l.pattern <= 3),
+    looks.map(([n, l]) => `${n}:${l.pattern}`).join(' '));
+
+  check('the looks are not all on one pattern',
+    new Set(looks.map(([, l]) => l.pattern)).size > 1);
+
+  // The pattern must never be encoded with the colours: out of range it makes
+  // the client drop the whole apply.
+  check('a look’s pattern never reaches the colour wire format',
+    looks.every(([, l]) => !encodeColours(l.colours).includes('attern')));
 
   // They share the preset picker with anything saved, and Discord caps that at
   // 25 — so shipping more built-ins than that would crowd saved ones out.

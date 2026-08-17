@@ -113,11 +113,13 @@ export async function runAccepted(
     // No anchor means no movement check; the travel still goes ahead.
   }
 
+  // Kept short: these render over the game's ANNOUNCEMENT label, and anything
+  // long overlaps it.
   await ctx.rcon
-    .directMessage(request.fromSteam, `Accepted. You travel in ${wait}s — do not move.`)
+    .directMessage(request.fromSteam, `Accepted — ${wait}s, hold still`)
     .catch(() => undefined);
   await ctx.rcon
-    .directMessage(request.toSteam, 'You accepted. They arrive shortly.')
+    .directMessage(request.toSteam, 'Accepted — they are on the way')
     .catch(() => undefined);
 
   await new Promise((resolve) => setTimeout(resolve, wait * 1000));
