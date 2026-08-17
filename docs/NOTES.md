@@ -130,9 +130,29 @@ the player types it in game. The reverse — RCON `directmessage` — renders as
 notification that vanishes in about a second, which is unusable for something
 that has to be read and retyped.
 
-The mod can **read** chat but not **write** it — `UpdateChat` is unreachable from
-Lua. So `!discord` is answered by the bot over RCON, not by the mod. Any future
-chat command works the same way: the mod raises an event, the bot replies.
+The mod can **read** chat but not **write** it — `UpdateChat` takes the server
+down from Lua on FText marshalling and is C++ only. So `!discord` is answered by
+the bot over RCON. Any future chat command works the same way: the mod raises an
+event, the bot replies.
+
+## On-screen notifications
+
+`ClientShowNotification` is the persistent on-screen notice, the same style the
+game uses for prime conditions — and unlike `UpdateChat` it **is** callable from
+Lua. Upstream calls it "the workhorse notify path across every mod", with two
+conditions:
+
+- call it **from a tick** — the inbox poll already is one;
+- on a **freshly-resolved controller**, never a held one.
+
+This is what the `notify` verb uses. Two things to know: there is no read-back,
+because it is a client RPC, so success means the call was made rather than that
+anything appeared. And `GetControllerBySteamId` can return a **stale controller
+for a disconnected player** — the RPC then fails, which `pcall` catches, so the
+guard matters.
+
+Worth contrasting with RCON `directmessage`, which renders as a banner that
+vanishes in about a second. This is the one that stays.
 
 ## Config files are rewritten on shutdown
 

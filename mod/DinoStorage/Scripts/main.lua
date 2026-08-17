@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.8.0"
+local MOD_VERSION = "3.9.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1585,6 +1585,53 @@ local function handlePattern(cmd)
             type(before) == "number" and math.floor(before) or 0, wanted))
 end
 
+-- ---------------------------------------------------------------------------
+-- Notify
+--
+-- `ClientShowNotification` is the on-screen notice the game uses for things
+-- like prime conditions. Per upstream EVRIMA_Chat_System it is reliably
+-- callable from Lua **from a tick, on a freshly-resolved controller** — which
+-- is what dispatch already is, since the inbox poll runs in the game thread.
+--
+-- Do not confuse it with `UpdateChat`, the chat-box RPC: that one takes the
+-- server down from Lua on FText marshalling and is C++ only.
+--
+-- There is no read-back — it is a client RPC — so a result here means the call
+-- was made, not that anything appeared.
+-- ---------------------------------------------------------------------------
+
+local function handleNotify(cmd)
+    local message = cmd.args and cmd.args.message
+    if type(message) ~= "string" or message == "" then
+        writeResult(cmd.id, "notify", cmd.steam, false, "nothing to say")
+        return
+    end
+
+    local gm = findGameMode()
+    if gm == nil then
+        writeResult(cmd.id, "notify", cmd.steam, false, "server is still starting up")
+        return
+    end
+
+    -- Resolved here and dropped immediately: a held controller is a stale
+    -- pointer waiting to happen.
+    local ctrl
+    pcall(function() ctrl = gm:GetControllerBySteamId(cmd.steam) end)
+    if ctrl == nil then
+        writeResult(cmd.id, "notify", cmd.steam, false, "they are not on the server")
+        return
+    end
+
+    local sent = pcall(function() ctrl:ClientShowNotification(message) end)
+    if not sent then
+        writeResult(cmd.id, "notify", cmd.steam, false, "the server refused that notification")
+        return
+    end
+
+    log(string.format("notify: %s <- %s", cmd.steam, message))
+    writeResult(cmd.id, "notify", cmd.steam, true, "sent")
+end
+
 local function dispatch(cmd)
     if type(cmd) ~= "table" then return end
 
@@ -1615,6 +1662,7 @@ local function dispatch(cmd)
     elseif verb == "skinget" then handleSkinGet(cmd)
     elseif verb == "skinmany" then handleSkinMany(cmd)
     elseif verb == "pattern" then handlePattern(cmd)
+    elseif verb == "notify" then handleNotify(cmd)
     else writeResult(cmd.id, verb, cmd.steam, false, "unknown command: " .. verb) end
 end
 
