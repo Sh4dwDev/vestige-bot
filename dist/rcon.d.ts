@@ -13,6 +13,7 @@
 declare const OPCODES: {
     readonly announce: 16;
     readonly directmessage: 17;
+    readonly wipecorpses: 19;
     readonly getplayables: 20;
     readonly playerlist: 64;
     readonly save: 80;
@@ -43,6 +44,11 @@ export declare class EvrimaRcon {
     announce(message: string): Promise<void>;
     /** Writes the world to disk. Always do this before a restart. */
     save(): Promise<void>;
+    /**
+     * Clears dead bodies from the world. The server does the removing, which is
+     * why this is safe where destroying actors from Lua is not.
+     */
+    wipeCorpses(): Promise<void>;
     /** Raw playable list, exactly as the server names them. */
     playables(): Promise<string>;
     close(): void;

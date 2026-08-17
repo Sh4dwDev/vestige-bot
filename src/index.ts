@@ -29,6 +29,7 @@ import { clearRequest, requestFor, runAccepted } from './teleport.js';
 import { killReward, tierOf } from './tiers.js';
 import { Panel } from './pterodactyl.js';
 import { startRestartScheduler } from './restarts.js';
+import { startCleanupScheduler } from './cleanup.js';
 import { refreshStatusPanel } from './status.js';
 import { handlePanelInteraction } from './panel.js';
 import { EvrimaRcon } from './rcon.js';
@@ -103,6 +104,7 @@ async function main(): Promise<void> {
       startServerPoll(ctx, ready);
       startPopulationPanel(ctx, ready, log);
       startRestartScheduler(ctx, ready, log);
+    startCleanupScheduler(ctx, log);
     });
 
     c.on(Events.InteractionCreate, (interaction: Interaction) => {

@@ -16,6 +16,7 @@ import net from 'node:net';
 const OPCODES = {
   announce: 0x10,
   directmessage: 0x11,
+  wipecorpses: 0x13,
   getplayables: 0x14,
   playerlist: 0x40,
   save: 0x50,
@@ -215,6 +216,14 @@ export class EvrimaRcon {
   /** Writes the world to disk. Always do this before a restart. */
   async save(): Promise<void> {
     await this.send('save', []);
+  }
+
+  /**
+   * Clears dead bodies from the world. The server does the removing, which is
+   * why this is safe where destroying actors from Lua is not.
+   */
+  async wipeCorpses(): Promise<void> {
+    await this.send('wipecorpses', []);
   }
 
   /** Raw playable list, exactly as the server names them. */

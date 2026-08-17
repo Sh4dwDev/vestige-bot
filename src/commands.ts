@@ -84,6 +84,13 @@ import {
   setRestartsEnabled,
   WARNINGS,
 } from './restarts.js';
+import {
+  cleanupSettings,
+  nextCleanup,
+  setCleanupEnabled,
+  setCleanupHours,
+  wipeNow,
+} from './cleanup.js';
 import { setSpeciesChannel } from './species.js';
 import { refreshStatusPanel, setStatusChannel } from './status.js';
 import { buildPopulationEmbed } from './population.js';
@@ -417,6 +424,13 @@ export const commandData = [
             .addNumberOption((o) =>
               o.setName('multiplier').setDescription('1 is default, 2 is twice as fast')
                 .setMinValue(0.1).setMaxValue(20).setRequired(true)))
+        .addSubcommand((s) =>
+          s.setName('every').setDescription('Clear corpses automatically on a schedule')
+            .addIntegerOption((o) =>
+              o.setName('hours').setDescription('e.g. 3 — corpses are cleared this often')
+                .setMinValue(1).setMaxValue(24).setRequired(true)))
+        .addSubcommand((s) => s.setName('now').setDescription('Clear corpses right now'))
+        .addSubcommand((s) => s.setName('off').setDescription('Stop cleaning up automatically'))
         .addSubcommand((s) => s.setName('status').setDescription('What cleanup is configured')),
     )
     .addSubcommandGroup((g) =>
@@ -1741,8 +1755,9 @@ async function handleTiers(
 
 /**
  * There is no safe way to sweep the world from Lua — destroying actors crashes
- * the server when gameplay already removed one. So cleanup means two things the
- * game does for itself: rotting corpses faster, and restarting.
+ * the server when gameplay already removed one. So cleanup is what the server
+ * can do for itself: rot corpses faster, clear them wholesale over RCON, and
+ * restart.
  */
 async function handleCleanup(
   ctx: Ctx,
@@ -1763,17 +1778,68 @@ async function handleCleanup(
 
     const wanted = ctx.db.managedGameSettings()
       .find((s) => s.key === 'CorpseDecayMultiplier')?.value;
+    const cleanup = cleanupSettings(ctx);
+    const next = nextCleanup(new Date(), cleanup.hours);
 
     await i.editReply({
       embeds: [embed(COLORS.info, 'Cleanup',
-        `**Corpse decay** — currently \`${live ?? 'unknown'}\`` +
+        '**Corpse clearing** — ' +
+        (cleanup.enabled
+          ? `every ${cleanup.hours}h, next <t:${Math.floor(next.getTime() / 1000)}:R>`
+          : 'off. `/admin cleanup every 3` turns it on.') +
+        `\n\n**Corpse decay** — currently \`${live ?? 'unknown'}\`` +
         (wanted && wanted !== live ? `, set to \`${wanted}\` at the next restart` : '') +
         '\n\n**Restarts** — ' +
         (restarts.enabled
-          ? `every ${restarts.intervalHours}h. This is the real cleanup: it is the only ` +
-            'supported way to clear stuck AI and accumulated actors.'
-          : '**off**. Turn them on with `/admin restarts on` — a periodic restart is the ' +
-            'only supported way to clear stuck AI and accumulated actors.'))],
+          ? `every ${restarts.intervalHours}h. Still the only way to clear stuck AI, ` +
+            'which corpse clearing does not touch.'
+          : '**off**. `/admin restarts on` — a restart is the only way to clear stuck ' +
+            'AI, which corpse clearing does not touch.'))],
+    });
+    return;
+  }
+
+  if (action === 'off') {
+    setCleanupEnabled(ctx, false);
+    await i.reply({
+      embeds: [embed(COLORS.good, 'Automatic cleanup off',
+        'Corpses will no longer be cleared on a schedule. Decay rate and restarts ' +
+        'are unaffected.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (action === 'now') {
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    const ok = await wipeNow(ctx, () => {});
+    await i.editReply({
+      embeds: [ok
+        ? embed(COLORS.good, 'Corpses cleared', 'Dead bodies have been removed from the world.')
+        : embed(COLORS.bad, 'Could not clear them', 'The server did not answer.')],
+    });
+    return;
+  }
+
+  if (action === 'every') {
+    const hours = i.options.getInteger('hours', true);
+    setCleanupHours(ctx, hours);
+    setCleanupEnabled(ctx, true);
+
+    const next = nextCleanup(new Date(), hours);
+    const uneven = 24 % hours !== 0
+      ? `\n\n⚠️ ${hours}h does not divide into 24, so the last gap before midnight is ` +
+        'shorter. Use 1, 2, 3, 4, 6, 8, 12 or 24 for an even spread.'
+      : '';
+
+    await i.reply({
+      embeds: [embed(COLORS.good, 'Automatic cleanup on',
+        `Corpses will be cleared **every ${hours} hours**, on the clock — so the times ` +
+        'are the same every day, between restarts.\n\n' +
+        `Next: <t:${Math.floor(next.getTime() / 1000)}:F> (<t:${Math.floor(next.getTime() / 1000)}:R>)\n\n` +
+        'Players get a one minute warning in game first, since a body someone is ' +
+        'eating is about to disappear.' + uneven)],
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
