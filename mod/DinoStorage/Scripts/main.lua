@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.7.0"
+local MOD_VERSION = "3.8.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -515,6 +515,16 @@ local NUTRIENTS = {
     "CannibalValue", "MagyValue", "RottenFleshValue", "MushroomsValue",
 }
 
+-- The ten colour fields on FCustomizerDataBase. Declared here rather than with
+-- the skin verbs because capture() needs them too — a stored dinosaur carries
+-- its own colours.
+local COLOR_FIELDS = {
+    BodyColor = true, MarkingsColor = true, FlankColor = true,
+    UnderbellyColor = true, Detail1Color = true, EyesColor = true,
+    MaleDisplayColor = true, TeethColor = true, MouthColor = true,
+    ClawsColor = true,
+}
+
 local MUTATION_SLOTS = {
     "MutationSlot1", "MutationSlot2", "MutationSlot3", "MutationSlot4",
     "ParentMutationSlot1", "ParentMutationSlot2", "ParentMutationSlot3", "ParentMutationSlot4",
@@ -537,6 +547,22 @@ local function capture(pawn, steam)
     state.isFemale = callBool(pawn, "IsFemale")
     -- why: no SetIsFemale exists, so gender is recorded for display only.
     state.elderStacks = callNumber(pawn, "GetElderReplicationStacks")
+
+    -- why: colours live on CustomizerData, which the engine does not carry
+    -- through a respawn — so a stored dinosaur keeps its own look rather than
+    -- borrowing whatever the player happens to be wearing when it comes back.
+    state.colors = {}
+    for field in pairs(COLOR_FIELDS) do
+        local r, g, b
+        local ok = pcall(function()
+            local c = pawn.CustomizerData[field]
+            r, g, b = c.R, c.G, c.B
+        end)
+        if ok and type(r) == "number" then
+            state.colors[field] = string.format("%.5f,%.5f,%.5f", r, g, b)
+        end
+    end
+    pcall(function() state.pattern = math.floor(pawn.CustomizerData.PatternIndex) end)
 
     for _, v in ipairs(VITALS) do state.vitals[v[1]] = callNumber(pawn, v[2]) end
     for _, m in ipairs(MAXES) do state.maxVitals[m[1]] = callNumber(pawn, m[2]) end
@@ -737,9 +763,41 @@ local function runStage(job)
     elseif job.stage == 5 then
         -- why: mutation staging disturbs GAS attributes, so vitals go on again.
         applyVitals(pawn, state, "vitals-2")
+
+        -- Pattern alone, in its own update: out of range it makes the client
+        -- abort the whole rebuild, which would take the colours in stage 6
+        -- with it if they shared a write.
+        if state.pattern ~= nil then
+            local ok = pcall(function()
+                pawn.CustomizerData.PatternIndex = state.pattern
+                pawn:ForceNetUpdate()
+            end)
+            log(string.format("  restore[pattern]: %d%s", state.pattern, ok and "" or " FAILED"))
+        end
+
         stage(job.steam, state, job.slot, 6, 1, job.resultId)
 
     elseif job.stage == 6 then
+        if type(state.colors) == "table" then
+            local applied = 0
+            for field, values in pairs(state.colors) do
+                if COLOR_FIELDS[field] then
+                    local r, g, b = tostring(values):match("^([%d%.%-]+),([%d%.%-]+),([%d%.%-]+)$")
+                    if r ~= nil then
+                        local ok = pcall(function()
+                            local c = pawn.CustomizerData[field]
+                            c.R, c.G, c.B, c.A = tonumber(r), tonumber(g), tonumber(b), 1.0
+                        end)
+                        if ok then applied = applied + 1 end
+                    end
+                end
+            end
+            if applied > 0 then
+                pcall(function() pawn:ForceNetUpdate() end)
+                log(string.format("  restore[colors]: %d applied", applied))
+            end
+        end
+
         -- why: this counter ALONE decides mutation tier. Slot type does not.
         -- Skip it and a restored Life 3 dino silently behaves as Life 1.
         if state.elderStacks ~= nil and state.elderStacks > 0 then
@@ -1374,13 +1432,6 @@ end
 --
 -- Colours are FLinearColor in 0..1 linear space. The bot converts from sRGB.
 -- ---------------------------------------------------------------------------
-
-local COLOR_FIELDS = {
-    BodyColor = true, MarkingsColor = true, FlankColor = true,
-    UnderbellyColor = true, Detail1Color = true, EyesColor = true,
-    MaleDisplayColor = true, TeethColor = true, MouthColor = true,
-    ClawsColor = true,
-}
 
 -- Reads every colour back, so a look someone built by hand can be saved as a
 -- preset rather than written down by eye. Read-only.

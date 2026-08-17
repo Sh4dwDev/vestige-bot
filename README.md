@@ -338,6 +338,19 @@ That is survivable only because the pattern is written **alone**, never
 alongside colours. Bundled, a wrong pattern would silently take the whole skin
 with it.
 
+### Stored dinosaurs keep their own look
+
+`capture()` records the ten colours and the pattern alongside growth, vitals and
+mutations, so a stored dinosaur comes back wearing what it went in with rather
+than borrowing whatever the player is currently painted.
+
+They are applied in **separate restore stages** — pattern in one, colours in the
+next — for the same reason they are separate commands: bundled, an out-of-range
+pattern would drop the colours with it.
+
+The fields are optional, so snapshots taken before this still restore; they
+simply have no colours to apply.
+
 ### Making colours stick
 
 The engine does **not** persist them — upstream is explicit that direct-write
