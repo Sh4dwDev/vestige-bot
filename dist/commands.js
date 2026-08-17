@@ -19,6 +19,7 @@ import { postOrEdit } from './pinned.js';
 import { buildBalanceEmbed, buildLeaderboardEmbed, display, ratePerHour, setRatePerHour, } from './points.js';
 import { nextRestart, restartNow, restartSettings, setRestartAnnounce, setRestartInterval, setRestartsEnabled, WARNINGS, } from './restarts.js';
 import { cleanupSettings, nextCleanup, setCleanupEnabled, setCleanupHours, wipeNow, } from './cleanup.js';
+import { applyCaps, planCaps } from './capplan.js';
 import { setSpeciesChannel } from './species.js';
 import { refreshStatusPanel, setStatusChannel } from './status.js';
 import { buildPopulationEmbed } from './population.js';
@@ -238,6 +239,8 @@ export const commandData = [
         .addSubcommand((s) => s.setName('clear').setDescription('Remove a species cap')
         .addStringOption((o) => o.setName('species').setDescription('Exact species name').setRequired(true)))
         .addSubcommand((s) => s.setName('list').setDescription('Show every cap and its state'))
+        .addSubcommand((s) => s.setName('preset')
+        .setDescription('Apply a balanced cap for every species, scaled to your slots'))
         .addSubcommand((s) => s.setName('channel').setDescription('Where locks and unlocks are announced')
         .addChannelOption((o) => o.setName('channel').setDescription('Channel for lock notices')
         .addChannelTypes(ChannelType.GuildText).setRequired(true))))
@@ -1352,9 +1355,38 @@ async function handleSpecies(ctx, i, action) {
         const caps = ctx.db.speciesCaps();
         await i.reply({
             embeds: [embed(COLORS.info, 'Species caps', caps.length === 0
-                    ? 'No caps set. Use `/admin species cap` to add one.'
+                    ? 'No caps set. Use `/admin species cap` to add one, or ' +
+                        '`/admin species preset` for a whole balanced table at once.'
                     : caps.map((c) => `${c.locked ? '🔒' : '🔓'} **${c.species}** — max ${c.cap}`).join('\n'))],
             flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'preset') {
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        const slots = ctx.admins.maxPlayers ?? 100;
+        const planned = planCaps(ctx, slots, await speciesList(ctx));
+        applyCaps(ctx, planned);
+        // Grouped by tier, because the shape of the table is the point: apexes
+        // scarce, the bottom tier generous enough that there is always a spawn.
+        const byTier = new Map();
+        for (const entry of planned) {
+            const bucket = byTier.get(entry.tier) ?? [];
+            bucket.push(entry);
+            byTier.set(entry.tier, bucket);
+        }
+        const lines = [...byTier.entries()]
+            .sort((a, b) => b[0] - a[0])
+            .map(([tier, entries]) => `**${TIER_LABEL[tier] ?? `Tier ${tier}`}**\n` +
+            entries.map((e) => `${e.species} — **${e.cap}**`).join(' · '));
+        const total = planned.reduce((sum, e) => sum + e.cap, 0);
+        await i.editReply({
+            embeds: [embed(COLORS.good, `Caps set for ${slots} slots`, `${lines.join('\n\n')}\n\n` +
+                    `The caps add up to **${total}** across **${slots}** slots, so they are not ` +
+                    'a queue — only the popular picks ever fill. Move any of them with ' +
+                    '`/admin species cap`.\n\n' +
+                    '⚠️ These still **announce** rather than block. Enforcement needs the ' +
+                    'spawn menu wired up.')],
         });
         return;
     }
