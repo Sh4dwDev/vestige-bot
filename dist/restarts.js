@@ -39,6 +39,24 @@ export function nextRestart(now, intervalHours) {
 export function minutesUntil(now, restart) {
     return Math.ceil((restart.getTime() - now.getTime()) / 60_000);
 }
+/** How often both schedulers wake up. */
+export const TICK_MS = 20_000;
+/**
+ * Whether a scheduled slot should fire on this tick.
+ *
+ * The subtle part, and a bug that sat here unnoticed: `nextRestart` returns the
+ * next slot **strictly after** `now`, so waiting for "minutes <= 0" waits
+ * forever — the moment the clock reaches the slot, the answer jumps a whole
+ * interval ahead. Firing needs a window instead, one tick wide plus a little
+ * slack for a late timer.
+ *
+ * A slot missed entirely — the bot was down across it — is not fired late. A
+ * surprise restart on startup is worse than a skipped one.
+ */
+export function isDue(now, slot) {
+    const remaining = slot.getTime() - now.getTime();
+    return remaining <= TICK_MS + 5_000;
+}
 export function restartSettings(ctx) {
     const hours = Number.parseInt(ctx.db.getSetting(HOURS_KEY) ?? '', 10);
     return {
@@ -122,13 +140,13 @@ export function startRestartScheduler(ctx, client, log) {
                 pinged = true;
             await announce(ctx, client, settings, warning, restart, log, shouldPing);
         }
-        // Within the last 20 seconds: save, then hand over to the panel.
-        if (minutes <= 0 && !restarting) {
+        // Within one tick of the slot: save, then hand over to the panel.
+        if (isDue(now, restart) && !restarting) {
             restarting = true;
             await performRestart(ctx, log);
         }
     };
-    setInterval(() => void tick(), 20_000).unref();
+    setInterval(() => void tick(), TICK_MS).unref();
     void tick();
 }
 async function announce(ctx, client, settings, minutes, restart, log, ping) {

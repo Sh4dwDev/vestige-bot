@@ -1,5 +1,5 @@
 import { EmbedBuilder, type Client } from 'discord.js';
-import type { Ctx } from './commands.js';
+import { type Ctx } from './commands.js';
 import type { PlayerRow } from './population.js';
 export declare function setSpeciesChannel(ctx: Ctx, channelId: string | null): void;
 export declare function speciesChannel(ctx: Ctx): string | null;
@@ -20,7 +20,7 @@ export declare function lockChanges(caps: Array<{
     cap: number;
     locked: boolean;
 }>, counts: Map<string, number>): LockChange[];
-export declare function buildLockEmbed(change: LockChange): EmbedBuilder;
+export declare function buildLockEmbed(change: LockChange, enforced?: boolean): EmbedBuilder;
 /**
  * Called from the population poll, which already has the player list — so this
  * costs no extra round trip.

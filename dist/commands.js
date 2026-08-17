@@ -18,8 +18,9 @@ import { buildKillsEmbed, setKillfeedChannel } from './kills.js';
 import { postOrEdit } from './pinned.js';
 import { buildBalanceEmbed, buildLeaderboardEmbed, display, ratePerHour, setRatePerHour, } from './points.js';
 import { nextRestart, restartNow, restartSettings, setRestartAnnounce, setRestartInterval, setRestartsEnabled, WARNINGS, } from './restarts.js';
-import { cleanupSettings, nextCleanup, setCleanupEnabled, setCleanupHours, wipeNow, } from './cleanup.js';
+import { cleanupSettings, clearAI, nextCleanup, setCleanupAI, setCleanupEnabled, setCleanupHours, wipeNow, } from './cleanup.js';
 import { applyCaps, planCaps } from './capplan.js';
+import { enforcementEnabled, enforcementFault, restoreAllPlayables, setEnforcement, syncPlayables, } from './enforce.js';
 import { setSpeciesChannel } from './species.js';
 import { refreshStatusPanel, setStatusChannel } from './status.js';
 import { buildPopulationEmbed } from './population.js';
@@ -227,7 +228,10 @@ export const commandData = [
         .addSubcommand((s) => s.setName('every').setDescription('Clear corpses automatically on a schedule')
         .addIntegerOption((o) => o.setName('hours').setDescription('e.g. 3 — corpses are cleared this often')
         .setMinValue(1).setMaxValue(24).setRequired(true)))
-        .addSubcommand((s) => s.setName('now').setDescription('Clear corpses right now'))
+        .addSubcommand((s) => s.setName('now').setDescription('Clean up right now'))
+        .addSubcommand((s) => s.setName('ai').setDescription('Whether cleanup also clears AI')
+        .addBooleanOption((o) => o.setName('on').setDescription('Toggle AI off and back on each cycle')
+        .setRequired(true)))
         .addSubcommand((s) => s.setName('off').setDescription('Stop cleaning up automatically'))
         .addSubcommand((s) => s.setName('status').setDescription('What cleanup is configured')))
         .addSubcommandGroup((g) => g.setName('species').setDescription('Per-species population caps')
@@ -241,6 +245,10 @@ export const commandData = [
         .addSubcommand((s) => s.setName('list').setDescription('Show every cap and its state'))
         .addSubcommand((s) => s.setName('preset')
         .setDescription('Apply a balanced cap for every species, scaled to your slots'))
+        .addSubcommand((s) => s.setName('enforce')
+        .setDescription('Actually block spawning a full species, not just announce it')
+        .addBooleanOption((o) => o.setName('on').setDescription('Remove full species from the spawn menu')
+        .setRequired(true)))
         .addSubcommand((s) => s.setName('channel').setDescription('Where locks and unlocks are announced')
         .addChannelOption((o) => o.setName('channel').setDescription('Channel for lock notices')
         .addChannelTypes(ChannelType.GuildText).setRequired(true))))
@@ -1274,9 +1282,11 @@ async function handleCleanup(ctx, i, action) {
         const cleanup = cleanupSettings(ctx);
         const next = nextCleanup(new Date(), cleanup.hours);
         await i.editReply({
-            embeds: [embed(COLORS.info, 'Cleanup', '**Corpse clearing** — ' +
+            embeds: [embed(COLORS.info, 'Cleanup', '**Scheduled cleanup** — ' +
                     (cleanup.enabled
-                        ? `every ${cleanup.hours}h, next <t:${Math.floor(next.getTime() / 1000)}:R>`
+                        ? `every ${cleanup.hours}h, next <t:${Math.floor(next.getTime() / 1000)}:R>` +
+                            `\nClears corpses${cleanup.clearAI ? ' and AI' : ' only — AI clearing is off'}. ` +
+                            'A cycle landing on a restart is skipped.'
                         : 'off. `/admin cleanup every 3` turns it on.') +
                     `\n\n**Corpse decay** — currently \`${live ?? 'unknown'}\`` +
                     (wanted && wanted !== live ? `, set to \`${wanted}\` at the next restart` : '') +
@@ -1298,13 +1308,35 @@ async function handleCleanup(ctx, i, action) {
         });
         return;
     }
+    if (action === 'ai') {
+        const on = i.options.getBoolean('on', true);
+        setCleanupAI(ctx, on);
+        await i.reply({
+            embeds: [embed(COLORS.good, on ? 'AI clearing on' : 'AI clearing off', on
+                    ? 'Each cleanup switches AI off and straight back on, which clears out ' +
+                        'anything stuck. Corpses are wiped either way.'
+                    : 'Cleanup will only wipe corpses. Stuck AI then needs a restart.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
     if (action === 'now') {
         await i.deferReply({ flags: MessageFlags.Ephemeral });
-        const ok = await wipeNow(ctx, () => { });
+        const settings = cleanupSettings(ctx);
+        const wiped = await wipeNow(ctx, () => { });
+        const ai = settings.clearAI ? await clearAI(ctx, () => { }) : null;
+        const AI_LINE = {
+            cleared: '✅ AI cleared',
+            disabled: '➖ AI spawns are off on this server, so there was nothing to clear',
+            failed: '❌ AI — the server did not answer',
+            inverted: '⚠️ AI — the toggle went one way and not back. Run this again.',
+        };
+        const lines = [
+            wiped ? '✅ Corpses cleared' : '❌ Corpses — the server did not answer',
+            ai === null ? '➖ AI clearing is switched off' : AI_LINE[ai] ?? '',
+        ];
         await i.editReply({
-            embeds: [ok
-                    ? embed(COLORS.good, 'Corpses cleared', 'Dead bodies have been removed from the world.')
-                    : embed(COLORS.bad, 'Could not clear them', 'The server did not answer.')],
+            embeds: [embed(wiped ? COLORS.good : COLORS.bad, 'Cleanup run', lines.join('\n'))],
         });
         return;
     }
@@ -1390,6 +1422,54 @@ async function handleSpecies(ctx, i, action) {
         });
         return;
     }
+    if (action === 'enforce') {
+        const on = i.options.getBoolean('on', true);
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        setEnforcement(ctx, on);
+        if (!on) {
+            // Leaving a species removed with nothing left to restore it would be a
+            // silent permanent ban, so switching off always puts everything back.
+            try {
+                const restored = await restoreAllPlayables(ctx, await speciesList(ctx), () => { });
+                await i.editReply({
+                    embeds: [embed(COLORS.good, 'Enforcement off', 'Caps announce again rather than blocking.' +
+                            (restored.length > 0
+                                ? `\n\nPut back in the spawn menu: **${restored.join('**, **')}**.`
+                                : ''))],
+                });
+            }
+            catch (err) {
+                await i.editReply({
+                    embeds: [embed(COLORS.bad, 'Enforcement off, but the menu is unchanged', `${describeError(err)}\n\n⚠️ Any species locked right now is still ` +
+                            'missing from the spawn menu. Run this again once the server answers.')],
+                });
+            }
+            return;
+        }
+        try {
+            const result = await syncPlayables(ctx, await speciesList(ctx), () => { });
+            await i.editReply({
+                embeds: [result.verified
+                        ? embed(COLORS.good, 'Enforcement on', 'A species at its cap is now removed from the spawn menu, and comes ' +
+                            'back when someone stops playing it.\n\n' +
+                            (result.remove.length > 0
+                                ? `Removed now: **${result.remove.join('**, **')}**.\n\n`
+                                : '') +
+                            'It is reconciled on every population poll, so a bot or server restart ' +
+                            'cannot leave a species stuck.')
+                        : embed(COLORS.bad, 'This server did not accept it', `${enforcementFault(ctx) ?? 'the write did not take'}.\n\n` +
+                            'Enforcement has switched itself back off — the caps still announce. ' +
+                            'Nothing is stuck: the spawn menu is unchanged.')],
+            });
+        }
+        catch (err) {
+            setEnforcement(ctx, false);
+            await i.editReply({
+                embeds: [embed(COLORS.bad, 'Could not reach the server', `${describeError(err)}\n\nEnforcement is off. Try again when it is up.`)],
+            });
+        }
+        return;
+    }
     const species = i.options.getString('species', true).trim();
     if (action === 'clear') {
         const removed = ctx.db.removeSpeciesCap(species);
@@ -1406,11 +1486,11 @@ async function handleSpecies(ctx, i, action) {
     ctx.db.setSpeciesCap(species, max);
     await i.reply({
         embeds: [embed(COLORS.good, 'Cap set', `**${species}** is capped at **${max}** online.\n\n` +
-                '⚠️ This **announces**, it does not enforce. Nothing in Evrima lets the ' +
-                'server refuse a spawn, so a locked species is a rule staff and players ' +
-                'act on — the bot tells everyone, in Discord and in game, the moment it ' +
-                'fills up or frees up.\n\n' +
-                'The name must match exactly as the game reports it — `/population` ' +
+                (enforcementEnabled(ctx)
+                    ? 'Enforcement is on, so hitting the cap takes it out of the spawn menu.'
+                    : 'This **announces** rather than blocking — staff and players act on it. ' +
+                        '`/admin species enforce on` makes it a real wall.') +
+                '\n\nThe name must match exactly as the game reports it — `/population` ' +
                 'shows the spellings in use.')],
         flags: MessageFlags.Ephemeral,
     });

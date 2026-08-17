@@ -6,7 +6,8 @@ import { pathToFileURL } from 'node:url';
 const root = path.resolve(import.meta.dirname, '..');
 const load = (f) => import(pathToFileURL(path.join(root, 'dist', f)).href);
 
-const { nextRestart, minutesUntil, buildRestartEmbed, WARNINGS } = await load('restarts.js');
+const { nextRestart, minutesUntil, buildRestartEmbed, WARNINGS, isDue, TICK_MS } =
+  await load('restarts.js');
 const { buildStatusEmbed } = await load('status.js');
 
 const results = [];
@@ -73,6 +74,28 @@ check('a full hour out reads as 60',
 
 check('past the restart is zero or negative',
   minutesUntil(at('2026-08-16T06:00:01Z'), at('2026-08-16T06:00:00Z')) <= 0);
+
+// Regression: the scheduler used to wait for minutesUntil <= 0 before
+// restarting. Because nextRestart only ever returns a slot strictly in the
+// future, that condition could not be reached from inside the tick — the
+// restart never fired at all. It takes a window one tick wide instead.
+{
+  let fired = 0;
+  let sawZero = false;
+  for (let t = 0; t < 6 * 60 * 60_000; t += TICK_MS) {
+    const now = new Date(Date.parse('2026-08-16T00:00:01Z') + t);
+    const restart = nextRestart(now, 6);
+    if (minutesUntil(now, restart) <= 0) sawZero = true;
+    if (isDue(now, restart)) fired += 1;
+  }
+  check('the old condition never once came true, which was the bug', sawZero === false);
+  check('the restart now fires exactly once a cycle', fired === 1, `${fired} time(s)`);
+}
+
+check('a restart is not due an hour out',
+  isDue(at('2026-08-16T05:00:00Z'), at('2026-08-16T06:00:00Z')) === false);
+check('a restart is due within one tick of the slot',
+  isDue(at('2026-08-16T05:59:45Z'), at('2026-08-16T06:00:00Z')) === true);
 
 check('warnings are ordered longest-first and all positive',
   WARNINGS.every((w, n) => w > 0 && (n === 0 || w < WARNINGS[n - 1])),

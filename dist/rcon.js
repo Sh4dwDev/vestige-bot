@@ -16,8 +16,12 @@ const OPCODES = {
     directmessage: 0x11,
     wipecorpses: 0x13,
     getplayables: 0x14,
+    updateplayables: 0x15,
+    addplayable: 0x1a,
+    removeplayable: 0x1b,
     playerlist: 0x40,
     save: 0x50,
+    toggleai: 0x90,
 };
 export class EvrimaRcon {
     opts;
@@ -203,6 +207,39 @@ export class EvrimaRcon {
     /** Raw playable list, exactly as the server names them. */
     async playables() {
         return this.send('getplayables', []);
+    }
+    /**
+     * Takes a species out of the spawn menu, server-side.
+     *
+     * The name format is whatever `getplayables` prints — bare, like
+     * `Tyrannosaurus`. Callers must not trust this blindly: read the list back
+     * and confirm, because a name the server does not recognise is accepted in
+     * silence and simply does nothing.
+     */
+    async removePlayable(species) {
+        await this.send('removeplayable', [species]);
+    }
+    /** Puts a species back in the spawn menu. */
+    async addPlayable(species) {
+        await this.send('addplayable', [species]);
+    }
+    /**
+     * There is deliberately no `updatePlayables()` method.
+     *
+     * `0x15` reads as "push the list to clients". It does not: it rebuilds the
+     * list from the base catalogue and leaves it **empty**, so every species
+     * becomes unspawnable at once. Verified live on 2026-08-17 — the list went
+     * from 22 to 0 and had to be rebuilt one `AddPlayable` at a time.
+     *
+     * `AddPlayable` and `RemovePlayable` take effect on their own; the opcode
+     * stays in the table above only so nobody rediscovers it the same way.
+     */
+    /**
+     * Flips AI on or off. It is a **toggle**, not a setter — the reply says which
+     * way it went, so callers that need a known state must read it.
+     */
+    async toggleAI() {
+        return this.send('toggleai', []);
     }
     close() {
         const socket = this.#socket;

@@ -1,13 +1,17 @@
 import { EmbedBuilder } from 'discord.js';
 import { SIGNATURE } from './brand.js';
+import { speciesList } from './catalog.js';
+import { describeError } from './commands.js';
+import { enforcementEnabled, syncPlayables } from './enforce.js';
 import { tally } from './population.js';
 /**
  * Per-species population caps.
  *
- * **This announces, it does not enforce.** Nothing in Evrima lets a server
- * refuse a spawn from Lua — the documented hooks for it do not fire — so a
- * "locked" species is a rule players and staff act on, not a wall. Saying so
- * plainly beats implying an enforcement that is not there.
+ * Announcing is the half that always works. Actually *blocking* the spawn is
+ * opt-in and lives in [enforce.ts](./enforce.ts) — it removes the species from
+ * the spawn menu over RCON, and disables itself if the server does not take the
+ * write. With enforcement off, a locked species is a rule players and staff act
+ * on rather than a wall.
  *
  * State is stored rather than held in memory, so a bot restart does not
  * re-announce a lock that was already reported.
@@ -36,13 +40,16 @@ export function lockChanges(caps, counts) {
     }
     return changes;
 }
-export function buildLockEmbed(change) {
+export function buildLockEmbed(change, enforced = false) {
     return new EmbedBuilder()
         .setColor(change.locked ? 0xed4245 : 0x57f287)
         .setTitle(change.locked ? `🔒  ${change.species} is locked` : `🔓  ${change.species} is open`)
         .setDescription(change.locked
         ? `**${change.count}** playing, and the cap is **${change.cap}**.\n\n` +
-            'Please pick something else until it opens up again.'
+            (enforced
+                ? 'It has been taken out of the spawn menu, and comes back the ' +
+                    'moment someone stops playing it.'
+                : 'Please pick something else until it opens up again.')
         : `Down to **${change.count}** of **${change.cap}**. You can play it again.`)
         .setFooter({ text: SIGNATURE })
         .setTimestamp();
@@ -61,14 +68,25 @@ export async function checkSpeciesLocks(ctx, client, players, log) {
     const changes = lockChanges(caps, counts);
     if (changes.length === 0)
         return;
+    // Write the new state before announcing it, so the menu and the notice agree.
+    for (const change of changes)
+        ctx.db.setSpeciesLocked(change.species, change.locked);
+    let enforced = false;
+    if (enforcementEnabled(ctx)) {
+        try {
+            enforced = (await syncPlayables(ctx, await speciesList(ctx), log)).verified;
+        }
+        catch (err) {
+            log(`species: could not update the spawn menu: ${describeError(err)}`);
+        }
+    }
     const channelId = speciesChannel(ctx);
     const channel = channelId ? await client.channels.fetch(channelId).catch(() => null) : null;
     for (const change of changes) {
-        ctx.db.setSpeciesLocked(change.species, change.locked);
         log(`species: ${change.species} ${change.locked ? 'locked' : 'unlocked'} ` +
             `(${change.count}/${change.cap})`);
         if (channel?.isTextBased() && 'send' in channel) {
-            await channel.send({ embeds: [buildLockEmbed(change)] }).catch(() => undefined);
+            await channel.send({ embeds: [buildLockEmbed(change, enforced)] }).catch(() => undefined);
         }
         // In game as well: the people who need to know are the ones about to spawn
         // it, and they are not reading Discord at that moment.

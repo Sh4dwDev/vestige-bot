@@ -12,6 +12,21 @@ export declare const WARNINGS: readonly [60, 30, 15, 5, 1];
 export declare function nextRestart(now: Date, intervalHours: number): Date;
 /** Whole minutes until the restart, rounded up so "1 minute" never reads as 0. */
 export declare function minutesUntil(now: Date, restart: Date): number;
+/** How often both schedulers wake up. */
+export declare const TICK_MS = 20000;
+/**
+ * Whether a scheduled slot should fire on this tick.
+ *
+ * The subtle part, and a bug that sat here unnoticed: `nextRestart` returns the
+ * next slot **strictly after** `now`, so waiting for "minutes <= 0" waits
+ * forever — the moment the clock reaches the slot, the answer jumps a whole
+ * interval ahead. Firing needs a window instead, one tick wide plus a little
+ * slack for a late timer.
+ *
+ * A slot missed entirely — the bot was down across it — is not fired late. A
+ * surprise restart on startup is worse than a skipped one.
+ */
+export declare function isDue(now: Date, slot: Date): boolean;
 export interface RestartSettings {
     enabled: boolean;
     intervalHours: number;

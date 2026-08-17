@@ -30,6 +30,8 @@ import { killReward, tierOf } from './tiers.js';
 import { Panel } from './pterodactyl.js';
 import { startRestartScheduler } from './restarts.js';
 import { startCleanupScheduler } from './cleanup.js';
+import { speciesList } from './catalog.js';
+import { enforcementEnabled, restoreAllPlayables } from './enforce.js';
 import { refreshStatusPanel } from './status.js';
 import { handlePanelInteraction } from './panel.js';
 import { EvrimaRcon } from './rcon.js';
@@ -105,6 +107,14 @@ async function main(): Promise<void> {
       startPopulationPanel(ctx, ready, log);
       startRestartScheduler(ctx, ready, log);
     startCleanupScheduler(ctx, log);
+
+    // If enforcement is off, nothing else will ever put back a species that was
+    // locked when the bot last stopped — it would sit unspawnable forever.
+    if (!enforcementEnabled(ctx)) {
+      void speciesList(ctx)
+        .then((known) => restoreAllPlayables(ctx, known, log))
+        .catch(() => undefined);
+    }
     });
 
     c.on(Events.InteractionCreate, (interaction: Interaction) => {

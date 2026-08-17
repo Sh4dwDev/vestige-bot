@@ -227,8 +227,70 @@ gameplay already removed, and calling into it is a delayed native access
 violation — uncatchable, and it takes the game server down mid-session rather
 than just the mod.
 
-RCON has no AI opcode either. The only supported cleanup is a **server
-restart**, which is what `/admin restarts now` is for.
+**From RCON it is fine.** An earlier version of this note said there was no AI
+opcode and that only a restart could clear them; that was wrong. `0x90 ToggleAI`
+exists, and the *server* does the work — the same reason `WipeCorpses` is safe.
+`clearAI()` in [../src/cleanup.ts](../src/cleanup.ts) flips it off and back on.
+
+It is a **toggle, not a setter**, and the reply is the only readout:
+
+```
+> ToggleAI    reply: "AI spawns are now On"
+> ToggleAI    reply: "AI spawns are now Off"
+```
+
+Whether that names the state it *entered* or the one it *left* could not be
+settled over RCON — both readings fit. So the rule is: **always flip an even
+number of times.** Then the server ends where it started regardless, and the
+worst case is one brief cycle instead of a lasting change. `clearAI()` flips
+once, reads the reply, and only completes the cycle when there was something to
+clear. If the balancing flip fails the state is left inverted, which is why
+that failure is logged loudly rather than swallowed.
+
+## Species caps can be enforced, from RCON only
+
+`0x1B RemovePlayable` / `0x1A AddPlayable` take a species out of and back into
+the spawn menu; `0x15 UpdatePlayables` makes an open spawn menu re-read it.
+
+Do **not** try this from Lua. Per upstream `EVRIMA_Cut_Dino_Enablement.md`, Lua
+can grow the `AvailableClasses` array but assigning the entry's
+`TSoftClassPtr Class` field is a native crash `pcall` cannot catch.
+
+**`0x15 UpdatePlayables` DO NOT CALL.** The name reads as "push the list to
+connected clients". It is not. It rebuilds the list from the base catalogue and
+leaves it **empty** — every species unspawnable at once. Verified live on
+2026-08-17 while probing the format: 22 playables went to 0, and the list had to
+be rebuilt one `AddPlayable` at a time.
+
+```
+> UpdatePlayables
+  reply: "Playables updated:"
+  after: 0 playables
+```
+
+`AddPlayable` and `RemovePlayable` take effect on their own — no push is
+needed. The server confirms each write by echoing the new list.
+
+Two more rules, both encoded in [../src/enforce.ts](../src/enforce.ts):
+
+- **Read the list back.** A name the server does not recognise is accepted in
+  silence and does nothing, so a write is only believed once `getplayables`
+  confirms it. The name format is whatever `getplayables` prints — bare, like
+  `Tyrannosaurus`, not `BP_Tyrannosaurus_C`.
+- **Reconcile, never remember.** Desired state is computed from the caps and
+  diffed against the live list on every pass. If the bot is the only thing that
+  knows a species was removed, a crash leaves it unspawnable forever.
+
+## Schedulers fire on a window, not on zero
+
+`nextRestart()` returns the next slot **strictly after** `now`, so a tick that
+waits for `minutesUntil(...) <= 0` waits forever: the instant the clock reaches
+the slot, the answer jumps a whole interval ahead. The restart scheduler had
+this bug from the start and never once fired.
+
+Use `isDue()`, which is true inside a window one tick wide. A slot missed
+entirely — bot down across it — is deliberately **not** fired late; a surprise
+restart on startup is worse than a skipped one.
 
 ## Environment limits
 
