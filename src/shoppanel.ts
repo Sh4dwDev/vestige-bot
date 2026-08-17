@@ -84,6 +84,9 @@ export function shopPanelRows(): ActionRowBuilder<ButtonBuilder>[] {
         .setEmoji('🛒').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId('shop:points').setLabel('My points')
         .setEmoji('🪙').setStyle(ButtonStyle.Secondary),
+      // On the panel itself, so an unlinked visitor is never sent elsewhere.
+      new ButtonBuilder().setCustomId('hub:verify').setLabel('Verify')
+        .setEmoji('✅').setStyle(ButtonStyle.Success),
     ),
   ];
 }
@@ -92,8 +95,22 @@ const notLinked = (): EmbedBuilder =>
   new EmbedBuilder()
     .setColor(COLORS.warn)
     .setTitle('Link your account first')
-    .setDescription('Points and storage are held against your Steam account. Run `/link`.')
+    .setDescription(
+      'Points and storage are held against your Steam account, so nothing can ' +
+      'be bought until it is linked.\n\nPress **Verify** below — you will need ' +
+      `to be in game on ${SERVER} to finish it.`,
+    )
     .setFooter({ text: SIGNATURE });
+
+/**
+ * Offered wherever someone is turned away for not being linked. Being told to
+ * go and run a command elsewhere is a dead end; the button starts it here.
+ */
+const verifyRow = (): ActionRowBuilder<ButtonBuilder> =>
+  new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId('hub:verify').setLabel('Verify')
+      .setEmoji('✅').setStyle(ButtonStyle.Success),
+  );
 
 /** The live basket: species, mutations chosen so far, and the running total. */
 function basket(ctx: Ctx, discordId: string, balance: number): {
@@ -204,7 +221,7 @@ export async function handleShopPanel(
 
   if (id === 'shop:points') {
     if (!link) {
-      await interaction.reply({ embeds: [notLinked()], flags: MessageFlags.Ephemeral });
+      await interaction.reply({ embeds: [notLinked()], components: [verifyRow()], flags: MessageFlags.Ephemeral });
       return true;
     }
     const { balance, minutes } = ctx.db.pointsFor(link.steamId);
@@ -221,7 +238,7 @@ export async function handleShopPanel(
 
   if (id === 'shop:start') {
     if (!link) {
-      await interaction.reply({ embeds: [notLinked()], flags: MessageFlags.Ephemeral });
+      await interaction.reply({ embeds: [notLinked()], components: [verifyRow()], flags: MessageFlags.Ephemeral });
       return true;
     }
 
@@ -246,7 +263,7 @@ export async function handleShopPanel(
 
   if (!interaction.isStringSelectMenu()) return false;
   if (!link) {
-    await interaction.update({ embeds: [notLinked()], components: [] });
+    await interaction.update({ embeds: [notLinked()], components: [verifyRow()] });
     return true;
   }
 
