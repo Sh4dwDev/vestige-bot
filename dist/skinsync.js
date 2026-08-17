@@ -35,6 +35,17 @@ export function skinNeedsReapply(steamId) {
 export function forgetPainted(steamId) {
     skinNeedsReapply(steamId);
 }
+/**
+ * Forget everything, so the next pass repaints regardless.
+ *
+ * Called when the server has been unreachable: a restart gives everyone a new
+ * pawn, but the bot never sees them leave — the poll simply fails — so without
+ * this it concludes they are still painted and leaves them plain. That is
+ * exactly the "skins do not survive a restart" case.
+ */
+export function forgetAllPainted() {
+    painted.clear();
+}
 export async function reapplySkins(ctx, players, log) {
     const live = new Set(players
         .filter((p) => p.steam)

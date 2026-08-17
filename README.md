@@ -335,6 +335,15 @@ being away, switching species, dying, and the bot starting up. Deliberately
 **not** every poll — that would be a write per player per minute forever to fix
 something that only breaks on those.
 
+Two of those events are invisible to a poll, and both were bugs:
+
+- **A server restart.** The poll fails while the server is down, so the bot
+  never observes anyone leaving; by the time it recovers they are already back,
+  and it concludes they are still painted. It now forgets everything after any
+  unreachable period.
+- **A relog inside one poll window.** Never seen absent either. A sweep every
+  five minutes forgets everything as cheap insurance.
+
 Setting a colour therefore needs the player **spawned**, since otherwise there
 is no species to attach it to.
 

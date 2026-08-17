@@ -3,7 +3,7 @@ import type { Client } from 'discord.js';
 import type { Ctx } from './commands.js';
 import { postOrEdit } from './pinned.js';
 import { buildPopulationEmbed } from './population.js';
-import { reapplySkins } from './skinsync.js';
+import { forgetAllPainted, reapplySkins } from './skinsync.js';
 import { checkSpeciesLocks } from './species.js';
 import { tierOf } from './tiers.js';
 
@@ -60,6 +60,12 @@ export async function refreshPopulationPanel(ctx: Ctx, client: Client): Promise<
 
 export function startPopulationPanel(ctx: Ctx, client: Client, log: (m: string) => void): void {
   let lastFailure = '';
+  let serverWasDown = false;
+
+  // Five minutes. Cheap insurance against any case where a pawn was replaced
+  // without the bot observing it.
+  const SWEEP_EVERY = 5;
+  let sinceSweep = 0;
 
   const tick = async (): Promise<void> => {
     // Lock checking is independent of the panel: caps still matter when nobody
@@ -67,12 +73,31 @@ export function startPopulationPanel(ctx: Ctx, client: Client, log: (m: string) 
     await ctx.mod
       .players()
       .then(async (players) => {
+        // Coming back from an unreachable server means everyone has a new
+        // pawn, but the bot never saw them leave — so forget what was painted
+        // rather than assuming it survived.
+        if (serverWasDown) {
+          serverWasDown = false;
+          forgetAllPainted();
+          log('skins: server was unreachable, repainting everyone');
+        }
+
+        // A periodic sweep catches the rest: a player who relogs entirely
+        // between two polls is never observed absent either.
+        sinceSweep += 1;
+        if (sinceSweep >= SWEEP_EVERY) {
+          sinceSweep = 0;
+          forgetAllPainted();
+        }
+
         await checkSpeciesLocks(ctx, client, players, log);
-        // Colours do not survive a relog or respawn, so they are reapplied
-        // from the record rather than expected to stick on their own.
+        // Colours do not survive a relog, respawn or restart, so they are
+        // reapplied from the record rather than expected to stick.
         await reapplySkins(ctx, players, log);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        serverWasDown = true;
+      });
 
     if (!populationChannel(ctx)) return;
     try {
