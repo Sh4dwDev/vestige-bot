@@ -166,6 +166,12 @@ What does work is attribution, not detection:
 | That someone died | Poll pawn health for a `>0 → 0` transition |
 | Joining the two | Credit the cached attacker if the death lands within ~20 s |
 
+**Storing and slaying are not deaths either.** Both work by setting health to
+zero, which is indistinguishable from being eaten to a health poll — so putting
+a dinosaur away posted "died" to the kill feed and counted against the player.
+The mod skips the death check while it is mid-operation on that player, which
+`busyUntil` already tracked.
+
 **A vanishing pawn is not a death.** Spectator camera unpossesses the pawn
 exactly as dying does, so "pawn gone while last seen alive" reports healthy
 players as dead — observed live on 2026-08-16, a player entering spec cam

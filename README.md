@@ -290,6 +290,11 @@ natural death, so detection and attribution have to be split:
 drowning, falls and AI produce a real death with **no attacker**, so kills and
 deaths will never reconcile.
 
+Storing and slaying are **not** counted. Both set health to zero, which a health
+poll cannot tell from being eaten, so the mod skips the check while it is
+mid-operation on that player — otherwise putting a dinosaur away showed up as a
+death.
+
 That gap is surfaced rather than hidden: unattributed deaths appear in the feed
 as deaths, and the leaderboard footer says how many of the total had an
 attacker. Someone will add the columns up, and it should agree with them.

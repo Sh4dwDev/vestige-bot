@@ -1816,28 +1816,38 @@ end
 -- before, which is the case a fast death would otherwise slip through.
 local function watchDeaths()
     for _, player in ipairs(onlinePlayers()) do
-        local health
-        if player.pawn ~= nil then
-            pcall(function() health = player.pawn:GetHealth() end)
-        end
-
-        local previous = lastHealth[player.steam]
-
-        if type(health) == "number" then
-            if previous ~= nil and previous > 0 and health <= 0 then
-                emitDeath(player.steam, player.pawn, "health")
-                lastHealth[player.steam] = nil
-            else
-                lastHealth[player.steam] = health
-            end
-        elseif previous ~= nil and previous > 0 then
-            local hit = lastHit[player.steam]
-            if hit ~= nil and (os.time() - hit.at) <= HIT_WINDOW_SEC then
-                emitDeath(player.steam, nil, "killed")
-            end
-            -- Otherwise: spectating, disconnecting or on spawn-select. Forget
-            -- the health so returning does not look like a resurrection.
+        -- why: storing and slaying both work by setting health to zero, so the
+        -- poll cannot tell either from being eaten. Without this, putting a
+        -- dinosaur away posted "died" to the kill feed and counted against the
+        -- player's deaths. Anything the mod is in the middle of doing is ours,
+        -- not a death. Their health is forgotten too, so the respawn afterwards
+        -- is not mistaken for one either.
+        if busy(player.steam) then
             lastHealth[player.steam] = nil
+        else
+            local health
+            if player.pawn ~= nil then
+                pcall(function() health = player.pawn:GetHealth() end)
+            end
+
+            local previous = lastHealth[player.steam]
+
+            if type(health) == "number" then
+                if previous ~= nil and previous > 0 and health <= 0 then
+                    emitDeath(player.steam, player.pawn, "health")
+                    lastHealth[player.steam] = nil
+                else
+                    lastHealth[player.steam] = health
+                end
+            elseif previous ~= nil and previous > 0 then
+                local hit = lastHit[player.steam]
+                if hit ~= nil and (os.time() - hit.at) <= HIT_WINDOW_SEC then
+                    emitDeath(player.steam, nil, "killed")
+                end
+                -- Otherwise: spectating, disconnecting or on spawn-select.
+                -- Forget the health so returning is not a resurrection.
+                lastHealth[player.steam] = nil
+            end
         end
     end
 end
