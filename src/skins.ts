@@ -172,6 +172,60 @@ const LOOKS: Record<string, Record<string, string>> = {
     MarkingsColor: '#1E2228', Detail1Color: '#C3CED6', EyesColor: '#7FC8E6',
   },
 
+  // --- animal ---------------------------------------------------------------
+  Bumblebee: {
+    BodyColor: '#E8B21A', FlankColor: '#C8930E', UnderbellyColor: '#F4D77A',
+    MarkingsColor: '#141414', Detail1Color: '#1F1F1F', EyesColor: '#2A2A2A',
+  },
+  Zebra: {
+    BodyColor: '#F2F0EA', FlankColor: '#DAD7CE', UnderbellyColor: '#FFFFFF',
+    MarkingsColor: '#141414', Detail1Color: '#2A2A2A', EyesColor: '#4A3A2A',
+  },
+  Cheetah: {
+    BodyColor: '#D4A64E', FlankColor: '#BC8C38', UnderbellyColor: '#F0E0BE',
+    MarkingsColor: '#241A10', Detail1Color: '#6E4A20', EyesColor: '#C8871B',
+  },
+  Camouflage: {
+    BodyColor: '#4E5A32', FlankColor: '#3C4626', UnderbellyColor: '#7E8A5A',
+    MarkingsColor: '#2A2E1C', Detail1Color: '#6E6242', EyesColor: '#8A9A4A',
+  },
+
+  // --- jewel ----------------------------------------------------------------
+  Sapphire: {
+    BodyColor: '#12346E', FlankColor: '#0C2450', UnderbellyColor: '#4A7ABE',
+    MarkingsColor: '#08182E', Detail1Color: '#5AA0FF', EyesColor: '#9EC8FF',
+  },
+  Emerald: {
+    BodyColor: '#0E4A32', FlankColor: '#0A3826', UnderbellyColor: '#4A9A72',
+    MarkingsColor: '#062418', Detail1Color: '#2ECC8A', EyesColor: '#7FE6B4',
+  },
+  Amethyst: {
+    BodyColor: '#4A2A6E', FlankColor: '#381E54', UnderbellyColor: '#8A6ABE',
+    MarkingsColor: '#241038', Detail1Color: '#A87ADA', EyesColor: '#D2B4FF',
+  },
+  Peacock: {
+    BodyColor: '#124A52', FlankColor: '#0E3A46', UnderbellyColor: '#3A8A8A',
+    MarkingsColor: '#1A2E6E', Detail1Color: '#2ECCB4', EyesColor: '#7FE6DA',
+  },
+
+  // --- soft -----------------------------------------------------------------
+  Marigold: {
+    BodyColor: '#D8901A', FlankColor: '#BE7A10', UnderbellyColor: '#F4D08A',
+    MarkingsColor: '#8C4A10', Detail1Color: '#F0B23A', EyesColor: '#5A3A10',
+  },
+  Seafoam: {
+    BodyColor: '#8ABEA8', FlankColor: '#6EA290', UnderbellyColor: '#D2EEE2',
+    MarkingsColor: '#3E6E5E', Detail1Color: '#B4DCCA', EyesColor: '#2E5A4E',
+  },
+  Ghost: {
+    BodyColor: '#DCE0E4', FlankColor: '#C2C8CE', UnderbellyColor: '#F6F8FA',
+    MarkingsColor: '#A2AAB2', Detail1Color: '#EEF2F6', EyesColor: '#8A9AA8',
+  },
+  Neon: {
+    BodyColor: '#1A0A2E', FlankColor: '#2A1046', UnderbellyColor: '#3A1A5E',
+    MarkingsColor: '#FF2ECC', Detail1Color: '#2EE6FF', EyesColor: '#FF2ECC',
+  },
+
   // --- silly, and none the worse for it -------------------------------------
   Rainbow: {
     BodyColor: '#E02020', FlankColor: '#FF7A00', UnderbellyColor: '#FFD400',
@@ -194,6 +248,9 @@ const LOOK_PATTERNS: Record<string, number> = {
   Tiger: 3, Albino: 0, Melanistic: 1, Swamp: 2, Savanna: 0, Autumn: 1,
   Coral: 3, Nightstalker: 2, Volcanic: 3, Toxic: 1, Obsidian: 2,
   Arctic: 0, Copper: 1, Stormfront: 3,
+  Bumblebee: 3, Zebra: 3, Cheetah: 2, Camouflage: 1,
+  Sapphire: 0, Emerald: 1, Amethyst: 2, Peacock: 3,
+  Marigold: 0, Seafoam: 1, Ghost: 0, Neon: 2,
   // The busiest patterns, so the colours land on as many separate parts as
   // possible — the whole point of both of these.
   Rainbow: 3, Lollipop: 2,
