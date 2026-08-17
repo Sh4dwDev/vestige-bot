@@ -235,6 +235,12 @@ const LOOKS: Record<string, Record<string, string>> = {
     BodyColor: '#FF4FA3', FlankColor: '#FFFFFF', UnderbellyColor: '#FFD9EC',
     MarkingsColor: '#E01B4C', Detail1Color: '#FFFFFF', EyesColor: '#FF87C6',
   },
+  // Dark biscuit outside, cream in the middle — so the pale colour goes on the
+  // underbelly and nowhere else.
+  Oreo: {
+    BodyColor: '#1A1416', FlankColor: '#241C1E', UnderbellyColor: '#F4EFE2',
+    MarkingsColor: '#0E0A0C', Detail1Color: '#FBF7EE', EyesColor: '#F4EFE2',
+  },
 };
 
 /**
@@ -253,7 +259,7 @@ const LOOK_PATTERNS: Record<string, number> = {
   Marigold: 0, Seafoam: 1, Ghost: 0, Neon: 2,
   // The busiest patterns, so the colours land on as many separate parts as
   // possible — the whole point of both of these.
-  Rainbow: 3, Lollipop: 2,
+  Rainbow: 3, Lollipop: 2, Oreo: 1,
 };
 
 export const BUILT_IN: Record<string, Look> = Object.fromEntries(
