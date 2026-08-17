@@ -1,5 +1,6 @@
 import { EmbedBuilder } from 'discord.js';
 import { SERVER, SIGNATURE } from './brand.js';
+import { rankIcon } from './ranks.js';
 /**
  * The kill feed and leaderboard.
  *
@@ -47,9 +48,8 @@ export function buildKillsEmbed(rows, totals, nameFor) {
             .setDescription('No kills recorded yet.')
             .setFooter({ text: SIGNATURE });
     }
-    const medal = ['🥇', '🥈', '🥉'];
     embed.setDescription(rows
-        .map((row, n) => `${medal[n] ?? `\`${String(n + 1).padStart(2)}\``} **${row.kills}** · ${nameFor(row.steamId)}`)
+        .map((row, n) => `${rankIcon(n)}  **${row.kills}** · ${nameFor(row.steamId)}`)
         .join('\n'));
     // Stated plainly, because someone will add the columns up and find a gap.
     const unattributed = totals.total - totals.attributed;

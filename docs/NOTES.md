@@ -135,24 +135,31 @@ down from Lua on FText marshalling and is C++ only. So `!discord` is answered by
 the bot over RCON. Any future chat command works the same way: the mod raises an
 event, the bot replies.
 
-## On-screen notifications
+## On-screen notifications — DO NOT ATTEMPT FROM LUA
 
-`ClientShowNotification` is the persistent on-screen notice, the same style the
-game uses for prime conditions — and unlike `UpdateChat` it **is** callable from
-Lua. Upstream calls it "the workhorse notify path across every mod", with two
-conditions:
+`ClientShowNotification` is the persistent on-screen notice the game uses for
+prime conditions. Upstream describes it as "reliably callable from Lua ... the
+workhorse notify path across every mod".
 
-- call it **from a tick** — the inbox poll already is one;
-- on a **freshly-resolved controller**, never a held one.
+**On this build it crashes the server.** Tried 2026-08-17 on 0.21.720, called
+from the inbox tick on a freshly-resolved controller — exactly the documented
+conditions, with a plain Lua string as the message:
 
-This is what the `notify` verb uses. Two things to know: there is no read-back,
-because it is a client RPC, so success means the call was made rather than that
-anything appeared. And `GetControllerBySteamId` can return a **stale controller
-for a disconnected player** — the RPC then fails, which `pcall` catches, so the
-guard matters.
+```
+Unhandled Exception: EXCEPTION_ACCESS_VIOLATION reading address 0x70
+[Callstack] UE4SS.dll  (deeply recursive)
+```
 
-Worth contrasting with RCON `directmessage`, which renders as a banner that
-vanishes in about a second. This is the one that stays.
+The server died within seconds. The recursion through UE4SS suggests the FText
+parameter, the same marshalling that makes `UpdateChat` C++ only — a raw string
+is evidently not an acceptable FText here.
+
+`pcall` does not save you: the crash is native. **Do not re-add a notify verb
+without a way to construct a real FText**, which Lua has no obvious route to.
+
+Until then, RCON `directmessage` is the only way to reach a player in game. It
+renders as a banner that vanishes in about a second, which is a real limitation
+and the reason linking works the way it does.
 
 ## Config files are rewritten on shutdown
 

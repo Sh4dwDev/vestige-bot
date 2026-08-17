@@ -3,6 +3,7 @@ import { EmbedBuilder } from 'discord.js';
 import { SERVER, SIGNATURE } from './brand.js';
 import type { Ctx } from './commands.js';
 import type { PlayerRow } from './population.js';
+import { rankIcon } from './ranks.js';
 import { multiplierFor, tierOf } from './tiers.js';
 
 /**
@@ -109,11 +110,10 @@ export function buildLeaderboardEmbed(
     return embed.setDescription('Nobody has earned anything yet.');
   }
 
-  const medal = ['🥇', '🥈', '🥉'];
   embed.setDescription(
     rows
       .map((row, n) =>
-        `${medal[n] ?? `\`${String(n + 1).padStart(2)}\``} **${display(row.balance).toLocaleString()}** ` +
+        `${rankIcon(n)}  **${display(row.balance).toLocaleString()}** ` +
         `· ${nameFor(row.steamId)} · ${hours(row.minutes)} played`)
       .join('\n'),
   );

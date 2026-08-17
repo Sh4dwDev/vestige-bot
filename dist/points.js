@@ -1,5 +1,6 @@
 import { EmbedBuilder } from 'discord.js';
 import { SERVER, SIGNATURE } from './brand.js';
+import { rankIcon } from './ranks.js';
 import { multiplierFor, tierOf } from './tiers.js';
 /**
  * Points, earned by playing.
@@ -80,9 +81,8 @@ export function buildLeaderboardEmbed(rows, nameFor) {
     if (rows.length === 0) {
         return embed.setDescription('Nobody has earned anything yet.');
     }
-    const medal = ['🥇', '🥈', '🥉'];
     embed.setDescription(rows
-        .map((row, n) => `${medal[n] ?? `\`${String(n + 1).padStart(2)}\``} **${display(row.balance).toLocaleString()}** ` +
+        .map((row, n) => `${rankIcon(n)}  **${display(row.balance).toLocaleString()}** ` +
         `· ${nameFor(row.steamId)} · ${hours(row.minutes)} played`)
         .join('\n'));
     return embed;

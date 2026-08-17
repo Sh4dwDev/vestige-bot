@@ -91,6 +91,18 @@ fs.rmSync(path.dirname(file), { recursive: true, force: true });
     `${JSON.stringify(full).length}`);
   check('the top three get medals', /🥇/.test(full.description ?? ''));
 
+  // Rank four used to fall through to a bare number, which reads as a missing
+  // icon rather than fourth place.
+  check('fourth place has an icon too', /4️⃣/.test(full.description ?? ''),
+    (full.description ?? '').split('\n')[3]);
+  // Compared against rankIcon itself rather than a regex: the numeral emoji
+  // genuinely begin with a digit, which fooled the first version of this check.
+  const { rankIcon } = await import(pathToFileURL(path.join(root, 'dist/ranks.js')).href);
+  const lines = (full.description ?? '').split('\n');
+  check('every row carries its own rank marker',
+    lines.every((line, n) => line.startsWith(rankIcon(n))),
+    lines.find((line, n) => !line.startsWith(rankIcon(n))));
+
   const balance = buildBalanceEmbed(1234.9, 125, 60).toJSON();
   check('a balance is shown floored and grouped', /1,234/.test(balance.description ?? ''),
     balance.description);
