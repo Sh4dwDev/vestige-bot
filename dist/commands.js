@@ -17,7 +17,7 @@ import { buildHubEmbed, hubRows, HUB_MESSAGE_KEY, setHubChannel } from './hub.js
 import { buildKillsEmbed, setKillfeedChannel } from './kills.js';
 import { postOrEdit } from './pinned.js';
 import { buildBalanceEmbed, buildLeaderboardEmbed, display, ratePerHour, setRatePerHour, } from './points.js';
-import { nextRestart, restartSettings, setRestartAnnounce, setRestartInterval, setRestartsEnabled, WARNINGS, } from './restarts.js';
+import { nextRestart, restartNow, restartSettings, setRestartAnnounce, setRestartInterval, setRestartsEnabled, WARNINGS, } from './restarts.js';
 import { setSpeciesChannel } from './species.js';
 import { refreshStatusPanel, setStatusChannel } from './status.js';
 import { buildPopulationEmbed } from './population.js';
@@ -260,7 +260,10 @@ export const commandData = [
         .addChannelOption((o) => o.setName('channel').setDescription('Channel for warnings')
         .addChannelTypes(ChannelType.GuildText).setRequired(true))
         .addRoleOption((o) => o.setName('role').setDescription('Role to ping (optional)')))
-        .addSubcommand((s) => s.setName('status').setDescription('Show the restart schedule')))
+        .addSubcommand((s) => s.setName('status').setDescription('Show the restart schedule'))
+        .addSubcommand((s) => s.setName('now').setDescription('Restart the server now — the fix for stuck AI')
+        .addIntegerOption((o) => o.setName('minutes').setDescription('Warning first. 0 restarts immediately')
+        .setMinValue(0).setMaxValue(30))))
         .addSubcommandGroup((g) => g.setName('killfeed').setDescription('Where kills are posted')
         .addSubcommand((s) => s.setName('channel').setDescription('Post each kill in a channel')
         .addChannelOption((o) => o.setName('channel').setDescription('Where kills go')
@@ -1458,6 +1461,28 @@ async function handleRestarts(ctx, i, action) {
                     'first one. The later notices post without buzzing anybody again.')],
             flags: MessageFlags.Ephemeral,
         });
+        return;
+    }
+    if (action === 'now') {
+        const minutes = i.options.getInteger('minutes') ?? 2;
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        if (!ctx.panel) {
+            await i.editReply({
+                embeds: [embed(COLORS.warn, 'No control panel', 'The bot cannot restart the server without one. Set `PANEL_URL`, ' +
+                        '`PANEL_API_KEY` and `PANEL_SERVER_ID`.')],
+            });
+            return;
+        }
+        await i.editReply({
+            embeds: [embed(COLORS.good, minutes > 0 ? 'Restart scheduled' : 'Restarting now', minutes > 0
+                    ? `${SERVER} restarts in **${minutes} minute${minutes === 1 ? '' : 's'}**. ` +
+                        'Players have been told in game, and again at one minute.\n\n' +
+                        'The world is saved first.'
+                    : `${SERVER} is being saved and restarted right now.`)],
+        });
+        // Not awaited: the countdown outlives the interaction token.
+        void restartNow(ctx, minutes, (m) => console.log(`${new Date().toISOString()} ${m}`))
+            .catch(() => undefined);
         return;
     }
     if (action === 'every') {

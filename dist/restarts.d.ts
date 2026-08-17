@@ -31,3 +31,12 @@ export declare function buildRestartEmbed(minutes: number, restart: Date): Embed
  * that already went out.
  */
 export declare function startRestartScheduler(ctx: Ctx, client: Client, log: (m: string) => void): void;
+/**
+ * Restart on demand, with a short countdown.
+ *
+ * This is the documented fix for stuck AI, wedged herds and similar: upstream
+ * is explicit that clearing AI from Lua crashes the server, and that a restart
+ * is the only supported cleanup. So the tool for "something is broken, fix it
+ * now" is this, not a destroy path.
+ */
+export declare function restartNow(ctx: Ctx, minutes: number, log: (m: string) => void): Promise<string>;

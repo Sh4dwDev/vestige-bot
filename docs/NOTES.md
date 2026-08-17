@@ -188,6 +188,21 @@ Catching every damage type needs the C++ path: hooking
 `PostGameplayEffectExecute` on `UAttributeSet` at the vtable level, with the
 instigator from `data.EffectSpec.GetContext()`.
 
+## AI cannot be cleared from Lua
+
+Per upstream `EVRIMA_AI_Spawn_Pairs.md`:
+
+> DON'T try to clean up AI from Lua via `K2_DestroyActor`. If gameplay already
+> destroyed the pawn, your destroy call crashes the server.
+
+Track AI **read-only, never for destroy paths**. A wrapper can reference a pawn
+gameplay already removed, and calling into it is a delayed native access
+violation — uncatchable, and it takes the game server down mid-session rather
+than just the mod.
+
+RCON has no AI opcode either. The only supported cleanup is a **server
+restart**, which is what `/admin restarts now` is for.
+
 ## Environment limits
 
 Lua here has **no mkdir and no directory listing**. So:

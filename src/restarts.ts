@@ -199,6 +199,48 @@ async function announce(
   log(`restart: warned ${minutes} minute(s) out`);
 }
 
+/**
+ * Restart on demand, with a short countdown.
+ *
+ * This is the documented fix for stuck AI, wedged herds and similar: upstream
+ * is explicit that clearing AI from Lua crashes the server, and that a restart
+ * is the only supported cleanup. So the tool for "something is broken, fix it
+ * now" is this, not a destroy path.
+ */
+export async function restartNow(
+  ctx: Ctx,
+  minutes: number,
+  log: (m: string) => void,
+): Promise<string> {
+  if (!ctx.panel) {
+    return 'No control panel is configured, so the bot cannot restart the server. ' +
+      'It can still warn players — set PANEL_URL, PANEL_API_KEY and PANEL_SERVER_ID.';
+  }
+
+  log(`restart: manual restart requested in ${minutes} minute(s)`);
+
+  if (minutes > 0) {
+    await ctx.rcon
+      .announce(`${SERVER} restarts in ${minutes} minute${minutes === 1 ? '' : 's'}. ` +
+        'Find somewhere safe.')
+      .catch(() => undefined);
+
+    // A one minute warning as well, unless the whole wait is a minute.
+    if (minutes > 1) {
+      setTimeout(() => {
+        void ctx.rcon
+          .announce(`${SERVER} restarts in 1 minute. Get somewhere safe and log out.`)
+          .catch(() => undefined);
+      }, (minutes - 1) * 60_000);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, minutes * 60_000));
+  }
+
+  await performRestart(ctx, log);
+  return 'done';
+}
+
 async function performRestart(ctx: Ctx, log: (m: string) => void): Promise<void> {
   // Save first, always. A restart that loses the world is far worse than a
   // late one, so this is not skipped even if the panel call later fails.
