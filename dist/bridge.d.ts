@@ -8,7 +8,7 @@ import type { Config } from './config.js';
  *   inbox.ndjson     commands in
  *   results.ndjson   results out, append-only
  */
-export type Verb = 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players' | 'give' | 'teleport' | 'where' | 'skinget' | 'skinmany' | 'pattern' | 'notify' | 'ai';
+export type Verb = 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players' | 'give' | 'teleport' | 'where' | 'skinget' | 'skinmany' | 'pattern' | 'notify' | 'ai' | 'ambient';
 export interface StoredSlot {
     slot: string;
     species: string;
@@ -81,6 +81,20 @@ export declare class ModBridge {
     notify(steamId: string, message: string): Promise<boolean>;
     /** Spawns AI wildlife near a player. Returns what the mod actually managed. */
     spawnAI(steamId: string, species: string, count: number): Promise<string>;
+    /**
+     * Turns ambient wildlife on or off, and sets how much of it there is.
+     *
+     * The mod owns the loop — it is the only side that knows where players are
+     * standing — so this just pushes settings and reads back what is live.
+     */
+    ambient(settings: {
+        enabled?: boolean;
+        perPlayer?: number;
+        cap?: number;
+    }): Promise<{
+        msg: string;
+        live: number;
+    }>;
     /** Who is playing what, right now. */
     players(): Promise<PlayerRow[]>;
     close(): Promise<void>;

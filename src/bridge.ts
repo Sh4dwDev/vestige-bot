@@ -19,7 +19,7 @@ import type { Config } from './config.js';
 export type Verb =
   | 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players'
   | 'give' | 'teleport' | 'where' | 'skinget' | 'skinmany' | 'pattern'
-  | 'notify' | 'ai';
+  | 'notify' | 'ai' | 'ambient';
 
 export interface StoredSlot {
   slot: string;
@@ -267,6 +267,21 @@ export class ModBridge {
     const result = await this.run('ai', steamId, { species, count });
     if (!result.ok) throw new Error(result.msg);
     return result.msg;
+  }
+
+  /**
+   * Turns ambient wildlife on or off, and sets how much of it there is.
+   *
+   * The mod owns the loop — it is the only side that knows where players are
+   * standing — so this just pushes settings and reads back what is live.
+   */
+  async ambient(
+    settings: { enabled?: boolean; perPlayer?: number; cap?: number },
+  ): Promise<{ msg: string; live: number }> {
+    const result = await this.run('ambient', '0', settings);
+    if (!result.ok) throw new Error(result.msg);
+    const data = (result.data ?? {}) as { live?: number };
+    return { msg: result.msg, live: data.live ?? 0 };
   }
 
   /** Who is playing what, right now. */

@@ -18,7 +18,9 @@ const lua = fs.readFileSync(
   path.join(root, 'mod/DinoStorage/Scripts/main.lua'), 'utf8');
 
 // The table entries look like:  Tyrannosaurus  = { AI_ROOT .. "..." , "..." },
-const block = lua.slice(lua.indexOf('local AI_PAIRS = {'), lua.indexOf('local MAX_AI_PER_CALL'));
+const pairsStart = lua.indexOf('local AI_PAIRS = {');
+// End at the table's own closing brace, not at whatever happens to follow it.
+const block = lua.slice(pairsStart, lua.indexOf('\n}', pairsStart) + 2);
 const inMod = [...block.matchAll(/^\s{4}(\w+)\s*=\s*\{/gm)].map((m) => m[1]).sort();
 
 check('the mod defines a pair table', inMod.length > 0, `${inMod.length} species`);
@@ -59,6 +61,43 @@ check('notifications go through FText, never a raw string',
   /ClientShowNotification\(text\)/.test(lua) && /local function makeText/.test(lua));
 check('the controller is resolved fresh for a notification',
   /resolveController\(cmd\.steam\)/.test(lua));
+
+// ---- ambient wildlife ------------------------------------------------------
+// The dangerous parts are: holding pawn pointers across ticks, destroying
+// actors, and despawning something a player is chasing. Each is asserted.
+
+check('the ambient registry keys on an address, not a pawn wrapper',
+  /ambientOwned\[addr\]\s*=\s*\{/.test(code));
+check('live pawns are re-derived each sweep rather than cached',
+  /local function ambientLive/.test(code) && /FindAllOf/.test(code));
+check('FindAllOf is nil-guarded, since it is not on every UE4SS build',
+  /if FindAllOf == nil then return/.test(code));
+
+check('despawn is a kill, never a destroy',
+  /SetHealth\(0\)/.test(code) && !/DestroyActor/.test(code));
+check('something recently hurt is never despawned',
+  /hunted/.test(code) && /HUNT_GRACE_SEC/.test(code));
+check('nothing is despawned before it has had time to matter',
+  /MIN_AGE_SEC/.test(code));
+check('only things far from every player are despawned',
+  /nearest > KEEP_RADIUS/.test(code));
+check('an empty server is left alone rather than culled',
+  /if #spots == 0 then return end/.test(code));
+
+check('the damage hook stamps ambient AI by address',
+  /aiHurt\[addr\] = os\.time\(\)/.test(code));
+check('and only for wildlife we actually own',
+  /ambientOwned\[addr\] ~= nil/.test(code));
+
+check('ambient is off until someone turns it on',
+  /enabled = false/.test(code));
+check('the ambient mix only names species with a verified brain', (() => {
+  const mix = code.slice(code.indexOf('local AMBIENT_MIX'), code.indexOf('local function ambientCount'));
+  const names = [...mix.matchAll(/"(\w+)"/g)].map((m) => m[1]);
+  return names.length > 0 && names.every((n) => ALL_AI_SPECIES.includes(n));
+})());
+check('the server-wide command does not demand a steam id',
+  /verb ~= "ambient"/.test(code));
 
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);

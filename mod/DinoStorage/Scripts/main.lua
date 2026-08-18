@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.10.0"
+local MOD_VERSION = "3.11.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1716,6 +1716,77 @@ local AI_PAIRS = {
     Seaturtle      = { AI_ROOT .. "Animals/Seaturtle/BP_Seaturtle.BP_Seaturtle_C", "/Script/TheIsle.TIAISeaturtleController" },
 }
 
+-- ---------------------------------------------------------------------------
+-- Ambient wildlife: state
+--
+-- why the registry holds NUMBERS, not pawns: caching a UObject wrapper across
+-- ticks is a stale-pointer crash about a second later. So the registry keys on
+-- the pawn address as a plain integer, and the wrapper is re-derived from
+-- FindAllOf on every sweep. An integer cannot dangle.
+--
+-- aiHurt is stamped by the damage hook. It is what stops something being
+-- despawned out from under the player hunting it.
+-- ---------------------------------------------------------------------------
+
+local AMBIENT_FILE = "ambient.json"
+
+local ambient = {
+    enabled = false,
+    perPlayer = 6,     -- how many living AI to keep near each player
+    cap = 60,          -- hard ceiling across the whole server
+}
+
+--- address -> { species = string, born = unix }
+local ambientOwned = {}
+--- address -> unix of the last damage taken
+local aiHurt = {}
+
+local AMBIENT_SWEEP_MS = 20000
+--- Spawned this far out: close enough to find, far enough not to pop in.
+local SPAWN_NEAR_MIN = 6000
+local SPAWN_NEAR_MAX = 14000
+--- Beyond this from every player, it is a candidate to go.
+local KEEP_RADIUS = 30000
+--- Hurt within this many seconds is never despawned, however far away.
+local HUNT_GRACE_SEC = 180
+--- Nothing is removed before this age, so nothing vanishes right after it lands.
+local MIN_AGE_SEC = 120
+
+local function ambientLoad()
+    local raw = readAll(AMBIENT_FILE)
+    if raw == nil then return end
+    local parsed = jsonParse(raw)
+    if type(parsed) ~= "table" then return end
+    if type(parsed.enabled) == "boolean" then ambient.enabled = parsed.enabled end
+    if type(parsed.perPlayer) == "number" then ambient.perPlayer = parsed.perPlayer end
+    if type(parsed.cap) == "number" then ambient.cap = parsed.cap end
+end
+
+local function ambientSave()
+    writeAtomic(AMBIENT_FILE, encodeTable(ambient, ""))
+end
+
+local function handleAmbient(cmd)
+    local args = cmd.args or {}
+    if type(args.enabled) == "boolean" then ambient.enabled = args.enabled end
+    if type(args.perPlayer) == "number" then
+        ambient.perPlayer = math.max(0, math.min(20, math.floor(args.perPlayer)))
+    end
+    if type(args.cap) == "number" then
+        ambient.cap = math.max(0, math.min(200, math.floor(args.cap)))
+    end
+    ambientSave()
+
+    writeResult(cmd.id, "ambient", cmd.steam, true,
+        ambient.enabled
+            and string.format("ambient on, %d per player, cap %d",
+                ambient.perPlayer, ambient.cap)
+            or "ambient off",
+        string.format('{"enabled":%s,"perPlayer":%d,"cap":%d,"live":%d}',
+            tostring(ambient.enabled), ambient.perPlayer, ambient.cap,
+            (function() local n = 0 for _ in pairs(ambientOwned) do n = n + 1 end return n end)()))
+end
+
 local MAX_AI_PER_CALL = 10
 
 local function handleAI(cmd)
@@ -1819,9 +1890,9 @@ local function dispatch(cmd)
 
     local verb = tostring(cmd.verb or ""):lower()
 
-    -- `players` is an aggregate query asked on nobody's behalf, so it does not
-    -- need a real Steam ID attached.
-    if verb ~= "players" and not isSteamId(cmd.steam) then
+    -- `players` and `ambient` are server-wide, asked on nobody's behalf, so
+    -- they do not need a real Steam ID attached.
+    if verb ~= "players" and verb ~= "ambient" and not isSteamId(cmd.steam) then
         writeResult(cmd.id, cmd.verb, cmd.steam, false, "invalid steam id")
         return
     end
@@ -1840,6 +1911,7 @@ local function dispatch(cmd)
     elseif verb == "pattern" then handlePattern(cmd)
     elseif verb == "notify" then handleNotify(cmd)
     elseif verb == "ai" then handleAI(cmd)
+    elseif verb == "ambient" then handleAmbient(cmd)
     else writeResult(cmd.id, verb, cmd.steam, false, "unknown command: " .. verb) end
 end
 
@@ -2045,6 +2117,18 @@ local function onApplyDamage(selfParam, targetParam)
     local attacker = steamIdOfPawn(attackerPawn)
     local victim = steamIdOfPawn(unwrap(targetParam))
 
+    -- Ambient wildlife has no Steam ID, so stamp it by address before the
+    -- return below drops it. This is what keeps something being hunted from
+    -- being despawned out from under the player chasing it.
+    local victimPawn = unwrap(targetParam)
+    if victim == "" and victimPawn ~= nil then
+        local addr = 0
+        pcall(function() addr = victimPawn:GetAddress() end)
+        if type(addr) == "number" and addr ~= 0 and ambientOwned[addr] ~= nil then
+            aiHurt[addr] = os.time()
+        end
+    end
+
     -- Self-damage and anything involving AI carries no Steam ID on one side.
     if attacker == "" or victim == "" or attacker == victim then return end
 
@@ -2157,6 +2241,208 @@ else
             safeCall("onApplyDamage", function() onApplyDamage(a, b) end)
         end)
     end)
+-- ---------------------------------------------------------------------------
+-- Ambient wildlife: the sweep
+--
+-- Every 20s: top up what is near each player, then quietly remove what nobody
+-- is near.
+--
+-- **Removal is a kill, not a destroy.** K2_DestroyActor on a pawn gameplay has
+-- already removed is an uncatchable native crash, and there is no way to know
+-- from Lua whether that has happened. SetHealth(0) is the same mechanism the
+-- store path already uses; the body is left far from any player and the corpse
+-- cleanup collects it. A despawn nobody can see is good enough.
+--
+-- Nothing hurt in the last few minutes is ever removed, however far away it
+-- has run. That is the difference between wildlife and something that vanishes
+-- mid-chase.
+-- ---------------------------------------------------------------------------
+
+--- What gets spawned, weighted by how often it should appear.
+local AMBIENT_MIX = {
+    "Deer", "Deer", "Deer", "Boar", "Boar", "Goat", "Rabbit", "Rabbit",
+    "Dryosaurus", "Dryosaurus", "Hypsilophodon", "Compsognathus",
+    -- One predator in the mix, so the island is not purely a salad bar.
+    "Troodon",
+}
+
+local function ambientCount()
+    local n = 0
+    for _ in pairs(ambientOwned) do n = n + 1 end
+    return n
+end
+
+local function addressOf(obj)
+    local addr = 0
+    if not pcall(function() addr = obj:GetAddress() end) then return 0 end
+    return type(addr) == "number" and addr or 0
+end
+
+--- Distance in centimetres, squared comparisons avoided for readability.
+local function distanceTo(a, b)
+    local dx, dy = a.X - b.X, a.Y - b.Y
+    return math.sqrt((dx * dx) + (dy * dy))
+end
+
+--- Live pawns we spawned, re-derived this tick. Never cached.
+local function ambientLive()
+    if FindAllOf == nil then return {} end
+
+    local seen = {}
+    local classes = {}
+    for addr, entry in pairs(ambientOwned) do
+        classes[entry.species] = true
+        if addr == nil then ambientOwned[addr] = nil end
+    end
+
+    for species in pairs(classes) do
+        local pair = AI_PAIRS[species]
+        if pair ~= nil then
+            -- Short class name, which is what FindAllOf takes.
+            local short = pair[1]:match("([^%.]+)$")
+            local found
+            pcall(function() found = FindAllOf(short) end)
+            for _, obj in ipairs(found or {}) do
+                local addr = addressOf(obj)
+                local owned = addr ~= 0 and ambientOwned[addr] or nil
+                if owned ~= nil then
+                    -- A successful location read is the liveness proof: a freed
+                    -- pointer does not answer with three sane numbers.
+                    local at = locationOf(obj)
+                    if at ~= nil then
+                        seen[#seen + 1] =
+                            { pawn = obj, addr = addr, species = owned.species, born = owned.born, at = at }
+                    end
+                end
+            end
+        end
+    end
+
+    -- Anything in the registry we could not find is gone: eaten, or cleared by
+    -- a restart. Drop it rather than counting it against the cap forever.
+    local alive = {}
+    for _, entry in ipairs(seen) do alive[entry.addr] = true end
+    for addr in pairs(ambientOwned) do
+        if not alive[addr] then
+            ambientOwned[addr] = nil
+            aiHurt[addr] = nil
+        end
+    end
+
+    return seen
+end
+
+local function ambientSpawnNear(at, species)
+    local pair = AI_PAIRS[species]
+    if pair == nil then return false end
+
+    local gm = findGameMode()
+    local world
+    pcall(function() world = gm:GetWorld() end)
+    if world == nil then return false end
+
+    local pawnCls, ctrlCls
+    pcall(function() pawnCls = StaticFindObject(pair[1]) end)
+    pcall(function() ctrlCls = StaticFindObject(pair[2]) end)
+    if pawnCls == nil or ctrlCls == nil then return false end
+
+    -- A ring around the player rather than a fixed offset, so repeated top-ups
+    -- do not stack everything in one corner.
+    local angle = math.random() * math.pi * 2
+    local reach = SPAWN_NEAR_MIN + (math.random() * (SPAWN_NEAR_MAX - SPAWN_NEAR_MIN))
+    local loc = {
+        X = at.X + (math.cos(angle) * reach),
+        Y = at.Y + (math.sin(angle) * reach),
+        Z = at.Z + 500,
+    }
+
+    local pawn
+    pcall(function() pawn = world:SpawnActor(pawnCls, loc, { Pitch = 0, Yaw = 0, Roll = 0 }) end)
+    if pawn == nil then return false end
+
+    local addr = addressOf(pawn)
+    if addr == 0 then return false end
+
+    local brain
+    pcall(function()
+        brain = world:SpawnActor(ctrlCls, loc, { Pitch = 0, Yaw = 0, Roll = 0 })
+    end)
+    if brain == nil then return false end
+
+    pcall(function() brain:Possess(pawn) end)
+    pcall(function() pawn:SetGrowth(1.0) end)
+    pcall(function() pawn:SetHealth(pawn:GetMaxHealth()) end)
+    pcall(function() pawn:SetFood(pawn:GetMaxFoodValue()) end)
+    pcall(function() pawn:SetThirst(pawn:GetMaxThirst()) end)
+    pcall(function() pawn:SetReplicates(true) end)
+    pcall(function() pawn:ForceNetUpdate() end)
+
+    ambientOwned[addr] = { species = species, born = os.time() }
+    return true
+end
+
+local function ambientSweep()
+    if not ambient.enabled then return end
+
+    local players = onlinePlayers()
+    local spots = {}
+    for _, p in ipairs(players) do
+        if p.pawn ~= nil then
+            local at = locationOf(p.pawn)
+            if at ~= nil then spots[#spots + 1] = at end
+        end
+    end
+
+    -- Nobody on means nothing to populate. The existing wildlife is left to
+    -- decay on its own rather than being culled on an empty server.
+    if #spots == 0 then return end
+
+    local live = ambientLive()
+    local now = os.time()
+
+    -- ---- top up -----------------------------------------------------------
+    if ambientCount() < ambient.cap then
+        for _, at in ipairs(spots) do
+            local near = 0
+            for _, entry in ipairs(live) do
+                if distanceTo(at, entry.at) <= KEEP_RADIUS then near = near + 1 end
+            end
+
+            -- One per player per sweep. Spawning the whole shortfall at once
+            -- makes a herd appear out of nothing; a trickle reads as wildlife
+            -- wandering in.
+            if near < ambient.perPlayer and ambientCount() < ambient.cap then
+                local species = AMBIENT_MIX[math.random(#AMBIENT_MIX)]
+                if ambientSpawnNear(at, species) then
+                    log(string.format("ambient: spawned %s (%d live)", species, ambientCount()))
+                end
+            end
+        end
+    end
+
+    -- ---- and clear what nobody is near -------------------------------------
+    for _, entry in ipairs(live) do
+        local hurt = aiHurt[entry.addr]
+        local hunted = hurt ~= nil and (now - hurt) < HUNT_GRACE_SEC
+        if (now - entry.born) >= MIN_AGE_SEC and not hunted then
+            local nearest = nil
+            for _, at in ipairs(spots) do
+                local d = distanceTo(at, entry.at)
+                if nearest == nil or d < nearest then nearest = d end
+            end
+
+            if nearest ~= nil and nearest > KEEP_RADIUS then
+                -- A kill, not a destroy. See the note at the top.
+                local ok = pcall(function() entry.pawn:SetHealth(0) end)
+                if ok then
+                    ambientOwned[entry.addr] = nil
+                    aiHurt[entry.addr] = nil
+                end
+            end
+        end
+    end
+end
+
     log(damageHooked and "damage hook registered (kill attribution)"
         or "WARNING: damage hook failed — deaths will all be unattributed")
 
@@ -2171,6 +2457,16 @@ else
             local gm = findGameMode()
             if gm ~= nil then seedPresence(gm) end
         end)
+    end)
+
+    safeCall("ambientLoad", ambientLoad)
+    log(ambient.enabled
+        and string.format("ambient wildlife on — %d per player, cap %d",
+            ambient.perPlayer, ambient.cap)
+        or "ambient wildlife off")
+
+    LoopInGameThreadWithDelay(AMBIENT_SWEEP_MS, function()
+        safeCall("ambientSweep", ambientSweep)
     end)
 
     LoopInGameThreadWithDelay(FAST_TICK_MS, function()

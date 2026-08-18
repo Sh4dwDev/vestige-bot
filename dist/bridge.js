@@ -202,6 +202,19 @@ export class ModBridge {
             throw new Error(result.msg);
         return result.msg;
     }
+    /**
+     * Turns ambient wildlife on or off, and sets how much of it there is.
+     *
+     * The mod owns the loop — it is the only side that knows where players are
+     * standing — so this just pushes settings and reads back what is live.
+     */
+    async ambient(settings) {
+        const result = await this.run('ambient', '0', settings);
+        if (!result.ok)
+            throw new Error(result.msg);
+        const data = (result.data ?? {});
+        return { msg: result.msg, live: data.live ?? 0 };
+    }
     /** Who is playing what, right now. */
     async players() {
         const result = await this.run('players', '0');

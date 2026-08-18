@@ -241,6 +241,13 @@ export const commandData = [
         .setAutocomplete(true).setRequired(true))
         .addIntegerOption((o) => o.setName('count').setDescription('How many, 1 to 10')
         .setMinValue(1).setMaxValue(10)))
+        .addSubcommand((s) => s.setName('auto').setDescription('Wildlife that spawns near players on its own')
+        .addBooleanOption((o) => o.setName('on').setDescription('Keep the island populated')
+        .setRequired(true))
+        .addIntegerOption((o) => o.setName('per_player').setDescription('How many to keep near each player (default 6)')
+        .setMinValue(0).setMaxValue(20))
+        .addIntegerOption((o) => o.setName('cap').setDescription('Server-wide ceiling (default 60)')
+        .setMinValue(0).setMaxValue(200)))
         .addSubcommand((s) => s.setName('list').setDescription('Which species can be spawned as AI')))
         .addSubcommandGroup((g) => g.setName('species').setDescription('Per-species population caps')
         .addSubcommand((s) => s.setName('cap').setDescription('Cap how many of a species may be online')
@@ -1414,6 +1421,35 @@ ${AI_SPECIES.animals.join(' · ')}
                     'AI brain that drives it correctly.')],
             flags: MessageFlags.Ephemeral,
         });
+        return;
+    }
+    if (action === 'auto') {
+        const on = i.options.getBoolean('on', true);
+        const perPlayer = i.options.getInteger('per_player');
+        const cap = i.options.getInteger('cap');
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            const result = await ctx.mod.ambient({
+                enabled: on,
+                ...(perPlayer === null ? {} : { perPlayer }),
+                ...(cap === null ? {} : { cap }),
+            });
+            await i.editReply({
+                embeds: [on
+                        ? embed(COLORS.good, 'Ambient wildlife on', `${result.msg}.\n\n` +
+                            'Animals wander in around players, and quietly disappear once ' +
+                            'nobody is near them — **never while something is hunting them**, ' +
+                            'so a chase cannot end with the prey blinking out.\n\n' +
+                            `Currently live: **${result.live}**.`)
+                        : embed(COLORS.good, 'Ambient wildlife off', 'Nothing new will spawn. What is already out there stays until it ' +
+                            'is eaten, or until a restart.')],
+            });
+        }
+        catch (err) {
+            await i.editReply({
+                embeds: [embed(COLORS.bad, 'Could not reach the mod', describeError(err))],
+            });
+        }
         return;
     }
     const species = i.options.getString('species', true).trim();
