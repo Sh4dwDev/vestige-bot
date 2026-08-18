@@ -19,7 +19,7 @@ import type { Config } from './config.js';
 export type Verb =
   | 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players'
   | 'give' | 'teleport' | 'where' | 'skinget' | 'skinmany' | 'pattern'
-  | 'notify' | 'ai' | 'ambient' | 'aiprobe';
+  | 'notify' | 'ai' | 'ambient' | 'aiprobe' | 'brain';
 
 export interface StoredSlot {
   slot: string;
@@ -307,6 +307,20 @@ export class ModBridge {
     if (!result.ok) throw new Error(result.msg);
     const data = (result.data ?? {}) as { live?: number };
     return { msg: result.msg, live: data.live ?? 0 };
+  }
+
+  /**
+   * Picks which brain a species runs.
+   *
+   * A straight trade, observed live: the C++ base controller evades well and
+   * shakes off a pounce but never attacks; the Blueprint one attacks and does
+   * not shake off. Which half matters is a call about how the server should
+   * play, so it is per species.
+   */
+  async setBrain(species: string, brain: 'attack' | 'evade'): Promise<string> {
+    const result = await this.run('brain', '0', { species, brain });
+    if (!result.ok) throw new Error(result.msg);
+    return result.msg;
   }
 
   /** Who is playing what, right now. */

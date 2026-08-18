@@ -471,6 +471,17 @@ export const commandData = [
               o.setName('cap').setDescription('Server-wide ceiling (default 60)')
                 .setMinValue(0).setMaxValue(200)))
         .addSubcommand((s) =>
+          s.setName('brain').setDescription('Attacking brain, or the one that escapes a pounce')
+            .addStringOption((o) =>
+              o.setName('species').setDescription('Which animal')
+                .setAutocomplete(true).setRequired(true))
+            .addStringOption((o) =>
+              o.setName('brain').setDescription('attack fights back, evade shakes off a pounce')
+                .addChoices(
+                  { name: 'attack — fights back, but cannot shake off a pounce', value: 'attack' },
+                  { name: 'evade — escapes a pounce, but will not attack', value: 'evade' })
+                .setRequired(true)))
+        .addSubcommand((s) =>
           s.setName('list').setDescription('Which species can be spawned as AI')),
     )
     .addSubcommandGroup((g) =>
@@ -2013,6 +2024,28 @@ ${AI_SPECIES.animals.join(' · ')}
     } catch (err) {
       await i.editReply({
         embeds: [embed(COLORS.bad, 'Could not reach the mod', describeError(err))],
+      });
+    }
+    return;
+  }
+
+  if (action === 'brain') {
+    const species = i.options.getString('species', true).trim();
+    const brain = i.options.getString('brain', true) as 'attack' | 'evade';
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+
+    try {
+      const msg = await ctx.mod.setBrain(species, brain);
+      await i.editReply({
+        embeds: [embed(COLORS.good, 'Brain set', `${msg}.\n\n` +
+          (brain === 'attack'
+            ? 'It will fight back, but it cannot shake a raptor off once pounced.'
+            : 'It will shake off a pounce and evade properly, but it will not attack.') +
+          '\n\nOnly affects animals spawned from now on.')],
+      });
+    } catch (err) {
+      await i.editReply({
+        embeds: [embed(COLORS.bad, 'Could not set it', describeError(err))],
       });
     }
     return;

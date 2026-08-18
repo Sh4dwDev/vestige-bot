@@ -176,11 +176,40 @@ check('but something being hunted is never culled as stuck',
   check('every bare C++ controller is marked borrowed, since it cannot fight',
     scripted.every((r) => r.borrowed), scripted.filter((r) => !r.borrowed).map((r) => r.name).join(','));
 
+  // Prey now run the C++ base ON PURPOSE — it is the only brain that shakes a
+  // raptor off. What matters is that each ambient species has whichever brain
+  // its role actually needs.
+  const evade = new Set(
+    [...code.matchAll(/^ {4}(\w+)\s*=\s*"\/Script\/TheIsle\.\w+",$/gm)].map((m) => m[1]));
+  const predators = new Set(
+    [...code.slice(code.indexOf('local AI_PREDATORS'), code.indexOf('local function brainChoice'))
+      .matchAll(/(\w+) = true/g)].map((m) => m[1]));
+
   const mix = code.slice(code.indexOf('local AMBIENT_MIX'), code.indexOf('local AMBIENT_GROWTH'));
   const used = [...new Set([...mix.matchAll(/"(\w+)"/g)].map((m) => m[1]))];
-  check('no ambient species runs on a bare C++ controller',
-    used.every((n) => !scripted.some((r) => r.name === n)),
-    used.filter((n) => scripted.some((r) => r.name === n)).join(','));
+
+  check('the escaping brains are catalogued', evade.size > 15, String(evade.size));
+  // Deer is Blueprint-only on this build: upstream documents no C++ base for
+  // it, so it cannot be given the escaping brain. Pinned rather than waved
+  // away, so the list failing to shrink or quietly growing both show up.
+  const stuck = used.filter((n) => !predators.has(n) && !evade.has(n)).sort();
+  check('the only ambient prey that cannot escape a pounce is Deer',
+    stuck.join(',') === 'Deer', stuck.join(',') || 'none');
+  check('ambient predators keep a brain that can attack',
+    used.filter((n) => predators.has(n)).every((n) => !scripted.some((r) => r.name === n)),
+    used.filter((n) => predators.has(n)).join(','));
+}
+
+// The trade between the two brains, and that the default follows the role.
+{
+  const picks = (code.match(/StaticFindObject\(controllerFor\(species\)\)/g) ?? []).length;
+  check('both spawn paths choose a brain rather than hardcoding one', picks === 2, String(picks));
+  check('predators default to attacking, everything else to escaping',
+    /AI_PREDATORS\[species\] and "attack" or "evade"/.test(code));
+  check('an override is per species and survives a reload',
+    /ambient\.brains\[species\] = want/.test(code) && /parsed\.brains/.test(code));
+  check('a species with no escaping brain cannot be set to evade',
+    /AI_EVADE_CTRL\[species\] == nil/.test(code));
 }
 
 const failed = results.filter((r) => !r).length;

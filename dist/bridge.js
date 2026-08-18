@@ -238,6 +238,20 @@ export class ModBridge {
         const data = (result.data ?? {});
         return { msg: result.msg, live: data.live ?? 0 };
     }
+    /**
+     * Picks which brain a species runs.
+     *
+     * A straight trade, observed live: the C++ base controller evades well and
+     * shakes off a pounce but never attacks; the Blueprint one attacks and does
+     * not shake off. Which half matters is a call about how the server should
+     * play, so it is per species.
+     */
+    async setBrain(species, brain) {
+        const result = await this.run('brain', '0', { species, brain });
+        if (!result.ok)
+            throw new Error(result.msg);
+        return result.msg;
+    }
     /** Who is playing what, right now. */
     async players() {
         const result = await this.run('players', '0');

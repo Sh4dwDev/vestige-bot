@@ -8,7 +8,7 @@ import type { Config } from './config.js';
  *   inbox.ndjson     commands in
  *   results.ndjson   results out, append-only
  */
-export type Verb = 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players' | 'give' | 'teleport' | 'where' | 'skinget' | 'skinmany' | 'pattern' | 'notify' | 'ai' | 'ambient' | 'aiprobe';
+export type Verb = 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players' | 'give' | 'teleport' | 'where' | 'skinget' | 'skinmany' | 'pattern' | 'notify' | 'ai' | 'ambient' | 'aiprobe' | 'brain';
 export interface StoredSlot {
     slot: string;
     species: string;
@@ -107,6 +107,15 @@ export declare class ModBridge {
         msg: string;
         live: number;
     }>;
+    /**
+     * Picks which brain a species runs.
+     *
+     * A straight trade, observed live: the C++ base controller evades well and
+     * shakes off a pounce but never attacks; the Blueprint one attacks and does
+     * not shake off. Which half matters is a call about how the server should
+     * play, so it is per species.
+     */
+    setBrain(species: string, brain: 'attack' | 'evade'): Promise<string>;
     /** Who is playing what, right now. */
     players(): Promise<PlayerRow[]>;
     close(): Promise<void>;

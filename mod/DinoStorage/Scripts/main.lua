@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.17.0"
+local MOD_VERSION = "3.18.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1776,6 +1776,7 @@ local function ambientLoad()
     if type(parsed.enabled) == "boolean" then ambient.enabled = parsed.enabled end
     if type(parsed.perPlayer) == "number" then ambient.perPlayer = parsed.perPlayer end
     if type(parsed.cap) == "number" then ambient.cap = parsed.cap end
+    if type(parsed.brains) == "table" then ambient.brains = parsed.brains end
 end
 
 -- Settings survive a mod reload, but never at the cost of the reply: a save
@@ -1806,6 +1807,102 @@ local function handleAmbient(cmd)
         string.format('{"enabled":%s,"perPlayer":%d,"cap":%d,"live":%d}',
             tostring(ambient.enabled), ambient.perPlayer, ambient.cap,
             (function() local n = 0 for _ in pairs(ambientOwned) do n = n + 1 end return n end)()))
+end
+
+-- ---------------------------------------------------------------------------
+-- Two brains per species
+--
+-- Observed live 2026-08-18, and it is a straight trade:
+--
+--   /Script/TheIsle.TIAI*   C++ base       evades well, bucks a pounce, never attacks
+--   BP_AI_*                 Blueprint      attacks, but does not buck a pounce
+--
+-- Neither is right for everything. A predator that cannot attack is scenery; a
+-- prey animal that cannot shake a raptor off is a free meal. So the choice is
+-- per species, defaulting by role: predators get the attacking brain, prey get
+-- the one that can escape.
+--
+-- An admin can flip any species with /admin ai brain, because which half of the
+-- trade matters is a judgement about how the server should play, not a fact.
+-- ---------------------------------------------------------------------------
+
+--- The C++ base controller, where one exists. These evade and buck.
+local AI_EVADE_CTRL = {
+    Tyrannosaurus  = "/Script/TheIsle.TIAIRexController",
+    Allosaurus     = "/Script/TheIsle.TIAIRexController",
+    Carnotaurus    = "/Script/TheIsle.TIAICarnotaurus",
+    Ceratosaurus   = "/Script/TheIsle.TIAICeratosaurusController",
+    Dilophosaurus  = "/Script/TheIsle.TIAIDilophosaurusController",
+    Omniraptor     = "/Script/TheIsle.TIAIOmniraptor",
+    Herrerasaurus  = "/Script/TheIsle.TIAIOmniraptor",
+    Deinosuchus    = "/Script/TheIsle.TIAIDeinosuchus",
+    Pteranodon     = "/Script/TheIsle.TIAIPteranodon",
+    Dryosaurus     = "/Script/TheIsle.TIAIDryosaurusController",
+    Hypsilophodon  = "/Script/TheIsle.TIAIHypsilophodon",
+    Gallimimus     = "/Script/TheIsle.TIAIGallimimusController",
+    Tenontosaurus  = "/Script/TheIsle.TIAITenontosaurusController",
+    Maiasaura      = "/Script/TheIsle.TIAITenontosaurusController",
+    Diabloceratops = "/Script/TheIsle.TIAIDiabloceratopsController",
+    Boar           = "/Script/TheIsle.TIAIBoarController",
+    Chicken        = "/Script/TheIsle.TIAIChickenController",
+    Crab           = "/Script/TheIsle.TIAICrabController",
+    Goat           = "/Script/TheIsle.TIAIGoatController",
+    Rabbit         = "/Script/TheIsle.TIAIRabbitController",
+    Seaturtle      = "/Script/TheIsle.TIAISeaturtleController",
+    Bullfrog       = "/Script/TheIsle.TIAIFrogController",
+}
+
+--- Anything that hunts. Everything else defaults to the escaping brain.
+local AI_PREDATORS = {
+    Tyrannosaurus = true, Allosaurus = true, Carnotaurus = true,
+    Ceratosaurus = true, Dilophosaurus = true, Omniraptor = true,
+    Herrerasaurus = true, Troodon = true, Deinosuchus = true,
+    Pteranodon = true, Compsognathus = true,
+}
+
+--- "attack" | "evade", stored per species so it survives a reload.
+local function brainChoice(species)
+    local stored = ambient.brains and ambient.brains[species]
+    if stored == "attack" or stored == "evade" then return stored end
+    return AI_PREDATORS[species] and "attack" or "evade"
+end
+
+--- The controller class to actually possess with.
+local function controllerFor(species)
+    local pair = AI_PAIRS[species]
+    if pair == nil then return nil end
+    if brainChoice(species) == "evade" then
+        return AI_EVADE_CTRL[species] or pair[2]
+    end
+    return pair[2]
+end
+
+local function handleBrain(cmd)
+    local species = safeString(cmd.args and cmd.args.species)
+    local want = safeString(cmd.args and cmd.args.brain)
+
+    if species == nil or AI_PAIRS[species] == nil then
+        writeResult(cmd.id, "brain", cmd.steam, false,
+            "no AI is known for " .. tostring(species))
+        return
+    end
+    if want ~= "attack" and want ~= "evade" then
+        writeResult(cmd.id, "brain", cmd.steam, false, "brain must be attack or evade")
+        return
+    end
+    if want == "evade" and AI_EVADE_CTRL[species] == nil then
+        writeResult(cmd.id, "brain", cmd.steam, false,
+            species .. " has no escaping brain on this build, only the attacking one")
+        return
+    end
+
+    ambient.brains = ambient.brains or {}
+    ambient.brains[species] = want
+    ambientSave()
+
+    writeResult(cmd.id, "brain", cmd.steam, true,
+        string.format("%s now uses the %s brain", species, want),
+        string.format('{"species":"%s","brain":"%s"}', species, want))
 end
 
 local MAX_AI_PER_CALL = 10
@@ -1855,7 +1952,7 @@ local function handleAI(cmd)
 
     local pawnCls, ctrlCls
     pcall(function() pawnCls = StaticFindObject(pair[1]) end)
-    pcall(function() ctrlCls = StaticFindObject(pair[2]) end)
+    pcall(function() ctrlCls = StaticFindObject(controllerFor(species)) end)
     if pawnCls == nil or ctrlCls == nil then
         writeResult(cmd.id, "ai", cmd.steam, false,
             "this build does not have the classes for " .. species)
@@ -2022,7 +2119,8 @@ local function dispatch(cmd)
 
     -- `players` and `ambient` are server-wide, asked on nobody's behalf, so
     -- they do not need a real Steam ID attached.
-    if verb ~= "players" and verb ~= "ambient" and verb ~= "aiprobe" and not isSteamId(cmd.steam) then
+    if verb ~= "players" and verb ~= "ambient" and verb ~= "aiprobe"
+        and verb ~= "brain" and not isSteamId(cmd.steam) then
         writeResult(cmd.id, cmd.verb, cmd.steam, false, "invalid steam id")
         return
     end
@@ -2043,6 +2141,7 @@ local function dispatch(cmd)
     elseif verb == "ai" then handleAI(cmd)
     elseif verb == "ambient" then handleAmbient(cmd)
     elseif verb == "aiprobe" then handleAIProbe(cmd)
+    elseif verb == "brain" then handleBrain(cmd)
     else writeResult(cmd.id, verb, cmd.steam, false, "unknown command: " .. verb) end
 end
 
@@ -2510,7 +2609,7 @@ local function ambientSpawnNear(at, species)
 
     local pawnCls, ctrlCls
     pcall(function() pawnCls = StaticFindObject(pair[1]) end)
-    pcall(function() ctrlCls = StaticFindObject(pair[2]) end)
+    pcall(function() ctrlCls = StaticFindObject(controllerFor(species)) end)
     if pawnCls == nil or ctrlCls == nil then return false end
 
     -- A ring around the player rather than a fixed offset, so repeated top-ups
