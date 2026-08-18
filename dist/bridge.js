@@ -218,40 +218,6 @@ export class ModBridge {
             return false;
         }
     }
-    /** Spawns AI wildlife near a player. Returns what the mod actually managed. */
-    async spawnAI(steamId, species, count) {
-        const result = await this.run('ai', steamId, { species, count });
-        if (!result.ok)
-            throw new Error(result.msg);
-        return result.msg;
-    }
-    /**
-     * Turns ambient wildlife on or off, and sets how much of it there is.
-     *
-     * The mod owns the loop — it is the only side that knows where players are
-     * standing — so this just pushes settings and reads back what is live.
-     */
-    async ambient(settings) {
-        const result = await this.run('ambient', '0', settings);
-        if (!result.ok)
-            throw new Error(result.msg);
-        const data = (result.data ?? {});
-        return { msg: result.msg, live: data.live ?? 0 };
-    }
-    /**
-     * Picks which brain a species runs.
-     *
-     * A straight trade, observed live: the C++ base controller evades well and
-     * shakes off a pounce but never attacks; the Blueprint one attacks and does
-     * not shake off. Which half matters is a call about how the server should
-     * play, so it is per species.
-     */
-    async setBrain(species, brain) {
-        const result = await this.run('brain', '0', { species, brain });
-        if (!result.ok)
-            throw new Error(result.msg);
-        return result.msg;
-    }
     /** Who is playing what, right now. */
     async players() {
         const result = await this.run('players', '0');

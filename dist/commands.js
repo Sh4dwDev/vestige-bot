@@ -21,7 +21,6 @@ import { nextRestart, restartNow, restartSettings, setRestartAnnounce, setRestar
 import { cleanupSettings, clearAI, nextCleanup, setCleanupAI, setCleanupEnabled, setCleanupHours, wipeNow, } from './cleanup.js';
 import { applyCaps, planCaps } from './capplan.js';
 import { enforcementEnabled, enforcementFault, restoreAllPlayables, setEnforcement, syncPlayables, } from './enforce.js';
-import { AI_SPECIES, ALL_AI_SPECIES } from './wildlife.js';
 import { setSpeciesChannel } from './species.js';
 import { refreshStatusPanel, setStatusChannel } from './status.js';
 import { buildPopulationEmbed } from './population.js';
@@ -235,26 +234,6 @@ export const commandData = [
         .setRequired(true)))
         .addSubcommand((s) => s.setName('off').setDescription('Stop cleaning up automatically'))
         .addSubcommand((s) => s.setName('status').setDescription('What cleanup is configured')))
-        .addSubcommandGroup((g) => g.setName('ai').setDescription('Wildlife')
-        .addSubcommand((s) => s.setName('spawn').setDescription('Spawn AI wildlife around you, in game')
-        .addStringOption((o) => o.setName('species').setDescription('Which animal')
-        .setAutocomplete(true).setRequired(true))
-        .addIntegerOption((o) => o.setName('count').setDescription('How many, 1 to 10')
-        .setMinValue(1).setMaxValue(10)))
-        .addSubcommand((s) => s.setName('auto').setDescription('Wildlife that spawns near players on its own')
-        .addBooleanOption((o) => o.setName('on').setDescription('Keep the island populated')
-        .setRequired(true))
-        .addIntegerOption((o) => o.setName('per_player').setDescription('How many to keep near each player (default 6)')
-        .setMinValue(0).setMaxValue(20))
-        .addIntegerOption((o) => o.setName('cap').setDescription('Server-wide ceiling (default 60)')
-        .setMinValue(0).setMaxValue(200)))
-        .addSubcommand((s) => s.setName('brain').setDescription('Attacking brain, or the one that escapes a pounce')
-        .addStringOption((o) => o.setName('species').setDescription('Which animal')
-        .setAutocomplete(true).setRequired(true))
-        .addStringOption((o) => o.setName('brain').setDescription('attack fights back, evade shakes off a pounce')
-        .addChoices({ name: 'attack — fights back, but cannot shake off a pounce', value: 'attack' }, { name: 'evade — escapes a pounce, but will not attack', value: 'evade' })
-        .setRequired(true)))
-        .addSubcommand((s) => s.setName('list').setDescription('Which species can be spawned as AI')))
         .addSubcommandGroup((g) => g.setName('species').setDescription('Per-species population caps')
         .addSubcommand((s) => s.setName('cap').setDescription('Cap how many of a species may be online')
         .addStringOption((o) => o.setName('species').setDescription('Exact species name, e.g. Tyrannosaurus')
@@ -1401,112 +1380,6 @@ async function handleCleanup(ctx, i, action) {
     });
 }
 // ---------------------------------------------------------------- species --
-/**
- * AI wildlife.
- *
- * Spawned around whoever runs the command, because the mod has no way to pick a
- * sensible world position blind — AI dropped at a guessed coordinate ends up in
- * the sea or inside a cliff.
- */
-async function handleAdminAI(ctx, i, action) {
-    if (action === 'list') {
-        await i.reply({
-            embeds: [embed(COLORS.info, 'Spawnable wildlife', `**Predators**
-${AI_SPECIES.predators.join(' · ')}
-
-` +
-                    `**Prey**
-${AI_SPECIES.prey.join(' · ')}
-
-` +
-                    `**Animals**
-${AI_SPECIES.animals.join(' · ')}
-
-` +
-                    'These are the pairings verified to work. A species not listed has no ' +
-                    'AI brain that drives it correctly.')],
-            flags: MessageFlags.Ephemeral,
-        });
-        return;
-    }
-    if (action === 'auto') {
-        const on = i.options.getBoolean('on', true);
-        const perPlayer = i.options.getInteger('per_player');
-        const cap = i.options.getInteger('cap');
-        await i.deferReply({ flags: MessageFlags.Ephemeral });
-        try {
-            const result = await ctx.mod.ambient({
-                enabled: on,
-                ...(perPlayer === null ? {} : { perPlayer }),
-                ...(cap === null ? {} : { cap }),
-            });
-            await i.editReply({
-                embeds: [on
-                        ? embed(COLORS.good, 'Ambient wildlife on', `${result.msg}.\n\n` +
-                            'Animals wander in around players, and quietly disappear once ' +
-                            'nobody is near them — **never while something is hunting them**, ' +
-                            'so a chase cannot end with the prey blinking out.\n\n' +
-                            `Currently live: **${result.live}**.`)
-                        : embed(COLORS.good, 'Ambient wildlife off', 'Nothing new will spawn. What is already out there stays until it ' +
-                            'is eaten, or until a restart.')],
-            });
-        }
-        catch (err) {
-            await i.editReply({
-                embeds: [embed(COLORS.bad, 'Could not reach the mod', describeError(err))],
-            });
-        }
-        return;
-    }
-    if (action === 'brain') {
-        const species = i.options.getString('species', true).trim();
-        const brain = i.options.getString('brain', true);
-        await i.deferReply({ flags: MessageFlags.Ephemeral });
-        try {
-            const msg = await ctx.mod.setBrain(species, brain);
-            await i.editReply({
-                embeds: [embed(COLORS.good, 'Brain set', `${msg}.\n\n` +
-                        (brain === 'attack'
-                            ? 'It will fight back, but it cannot shake a raptor off once pounced.'
-                            : 'It will shake off a pounce and evade properly, but it will not attack.') +
-                        '\n\nOnly affects animals spawned from now on.')],
-            });
-        }
-        catch (err) {
-            await i.editReply({
-                embeds: [embed(COLORS.bad, 'Could not set it', describeError(err))],
-            });
-        }
-        return;
-    }
-    const species = i.options.getString('species', true).trim();
-    const count = i.options.getInteger('count') ?? 1;
-    const link = ctx.db.linkFor(i.user.id);
-    if (!link) {
-        await i.reply({
-            embeds: [embed(COLORS.warn, 'Link first', 'The AI spawns around you in game, so the bot needs to know which ' +
-                    'character is yours. Run `/link`.')],
-            flags: MessageFlags.Ephemeral,
-        });
-        return;
-    }
-    await i.deferReply({ flags: MessageFlags.Ephemeral });
-    try {
-        const message = await ctx.mod.spawnAI(link.steamId, species, count);
-        await i.editReply({
-            embeds: [embed(COLORS.good, 'Spawned', `${message}, around you.
-
-` +
-                    'They cannot be removed individually — clearing AI is `/admin cleanup now` ' +
-                    'or a restart.')],
-        });
-    }
-    catch (err) {
-        await i.editReply({
-            embeds: [embed(COLORS.bad, 'Could not spawn it', describeError(err))],
-        });
-    }
-}
 async function handleSpecies(ctx, i, action) {
     if (action === 'channel') {
         const channel = i.options.getChannel('channel', true);
@@ -1702,8 +1575,6 @@ async function handleAdmin(ctx, i) {
         return handleCleanup(ctx, i, action);
     if (group === 'species')
         return handleSpecies(ctx, i, action);
-    if (group === 'ai')
-        return handleAdminAI(ctx, i, action);
     if (group === 'teleport') {
         if (action === 'delay') {
             const seconds = i.options.getInteger('seconds', true);
@@ -2052,13 +1923,7 @@ async function handleGameAdmin(ctx, i, action) {
 export async function handleAutocomplete(ctx, i) {
     const focused = i.options.getFocused(true);
     let choices;
-    if (focused.name === 'species' && i.options.getSubcommandGroup(false) === 'ai') {
-        // Not the playable list: only species with a verified AI brain can be
-        // spawned, and offering the rest invites a command that cannot succeed.
-        choices = suggest(ALL_AI_SPECIES, focused.value)
-            .map((name) => ({ name, value: name }));
-    }
-    else if (focused.name === 'species') {
+    if (focused.name === 'species') {
         choices = suggest(await speciesList(ctx), focused.value)
             .map((name) => ({ name, value: name }));
     }
