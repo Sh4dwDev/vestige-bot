@@ -1182,8 +1182,24 @@ async function handleSkin(ctx, i, action) {
         }
         // Pattern first and on its own: out of range it makes the client abort the
         // rebuild, which would take the colours with it if they shared a write.
+        //
+        // And the result has to be READ. Patterns are validated per species, so the
+        // server refuses an index that species does not have — and because the
+        // refusal aborts the rebuild, the colours silently do not land either. This
+        // used to be fire-and-forget, which reported a confident success for a
+        // dinosaur that had not changed at all.
         if (pattern !== undefined) {
-            await ctx.mod.run('pattern', link.steamId, { index: pattern }).catch(() => undefined);
+            const applied = await ctx.mod
+                .run('pattern', link.steamId, { index: pattern })
+                .catch((err) => ({ ok: false, msg: describeError(err) }));
+            if (!applied.ok) {
+                await i.editReply({
+                    embeds: [embed(COLORS.warn, 'That pattern does not exist for this species', `${applied.msg}\n\n**Nothing was changed.** Patterns are per species — ` +
+                            `**${species}** does not have **${patternLetter(pattern)}**. Try an ` +
+                            'earlier letter, or leave the pattern off to only set colours.')],
+                });
+                return;
+            }
             ctx.db.setPattern(link.steamId, species, pattern);
         }
         const result = await ctx.mod.run('skinmany', link.steamId, {

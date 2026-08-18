@@ -1,6 +1,7 @@
 // Skin colour handling. The sRGB to linear conversion is the whole game here:
 // the engine stores FLinearColor, every colour picker gives sRGB, and writing
 // one as the other produces washed-out dinosaurs that look like a bug.
+import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -180,6 +181,23 @@ check('an out-of-range channel clamps rather than producing nonsense hex',
 check('every preset is a valid colour', PRESETS.every((p) => parseHex(p.hex) !== null));
 check('presets fit in one autocomplete page', PRESETS.length <= 25, String(PRESETS.length));
 check('preset names are unique', new Set(PRESETS.map((p) => p.name)).size === PRESETS.length);
+
+// Patterns are validated per species. The server refuses an index a species
+// does not have, and that refusal aborts the whole skin rebuild - so a pattern
+// that is silently ignored means the colours did not land either. Reported
+// live 2026-08-18: /admin skin apply said "Volcanic applied" and nothing on the
+// Allosaurus changed, because pattern D was refused and never checked.
+{
+  const source = fs.readFileSync(path.join(root, 'src/commands.ts'), 'utf8');
+  const apply = source.slice(source.indexOf("if (pattern !== undefined) {"));
+
+  check('the pattern write is not fire and forget',
+    !/run\('pattern'[^;]*\)\.catch\(\(\) => undefined\);/.test(apply));
+  check('a refused pattern is reported rather than reported as success',
+    /if \(!applied\.ok\)/.test(apply.slice(0, 1200)));
+  check('and a refused pattern is not saved as though it worked',
+    apply.indexOf('setPattern') > apply.indexOf('if (!applied.ok)'));
+}
 
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
