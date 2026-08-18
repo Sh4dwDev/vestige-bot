@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.18.0"
+local MOD_VERSION = "3.19.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -2514,8 +2514,10 @@ local AMBIENT_MIX = {
 -- spawned; juveniles and subadults read as a population that lives here.
 -- Growth is applied BEFORE vitals, because it recomputes and refills them.
 local AMBIENT_GROWTH = {
-    0.35, 0.4, 0.45, 0.5,          -- juveniles, the most common
-    0.6, 0.65, 0.7, 0.75,          -- subadults
+    -- Floor raised from 0.35: a 35% juvenile has single-digit health and
+    -- cannot buck, flee or fight, which reads as broken rather than young.
+    0.5, 0.5, 0.55, 0.55,          -- juveniles, the most common
+    0.7, 0.75, 0.8,                -- subadults
     0.9, 1.0,                      -- fully grown, the minority
 }
 
@@ -2690,6 +2692,37 @@ local function ambientSweep()
                 end
             end
         end
+    end
+
+    -- ---- keep them fed ------------------------------------------------------
+    -- Vitals were filled once at spawn and never again, so ambient wildlife
+    -- starved into husks: a Hypsilophodon was found live on 2026-08-18 at 2 of
+    -- ~1000 hunger and 4 health, while the game's own AI sits at 1000 across
+    -- the board. A starving animal has no stamina, and bucking a pounce costs
+    -- stamina — which is why they stopped shaking raptors off.
+    --
+    -- Hunger, thirst and stamina only. Health is deliberately left alone: this
+    -- is wildlife that has to be killable, not a set of invulnerable props.
+    for _, entry in ipairs(live) do
+        safeCall("ambientFeed", function()
+            local hunger = callNumber(entry.pawn, "GetHunger")
+            local maxHunger = callNumber(entry.pawn, "GetMaxHunger")
+            if hunger ~= nil and maxHunger ~= nil and maxHunger > 0
+                and hunger < (maxHunger * 0.5)
+            then
+                pcall(function() entry.pawn:SetHunger(maxHunger) end)
+                pcall(function() entry.pawn:SetThirst(entry.pawn:GetMaxThirst()) end)
+            end
+
+            local stamina = callNumber(entry.pawn, "GetStamina")
+            local maxStamina = callNumber(entry.pawn, "GetMaxStamina")
+            -- Only when badly depleted, so a chase still costs something.
+            if stamina ~= nil and maxStamina ~= nil and maxStamina > 0
+                and stamina < (maxStamina * 0.25)
+            then
+                pcall(function() entry.pawn:SetStamina(maxStamina) end)
+            end
+        end)
     end
 
     -- ---- clear the ones that never got going -------------------------------
