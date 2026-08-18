@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.12.0"
+local MOD_VERSION = "3.14.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1751,6 +1751,8 @@ local KEEP_RADIUS = 30000
 local HUNT_GRACE_SEC = 180
 --- Nothing is removed before this age, so nothing vanishes right after it lands.
 local MIN_AGE_SEC = 120
+--- Not moved in this long means it never will: stuck, or under the map.
+local STUCK_GRACE_SEC = 90
 
 local function ambientLoad()
     if savedDir == nil then return end
@@ -1865,9 +1867,14 @@ local function handleAI(cmd)
             pcall(function() brain:Possess(ai) end)
 
             -- Growth resets vitals, so it goes first and they are refilled after.
+            -- Stamina matters more than it looks: a predator spawned empty
+            -- cannot sustain a chase, so it sprints, stalls, and gives up.
+            -- SetFood does not exist on this build (see VITALS) — hunger is
+            -- SetHunger, and getting it wrong spawns a starving animal.
             pcall(function() ai:SetGrowth(1.0) end)
             pcall(function() ai:SetHealth(ai:GetMaxHealth()) end)
-            pcall(function() ai:SetFood(ai:GetMaxFoodValue()) end)
+            pcall(function() ai:SetStamina(ai:GetMaxStamina()) end)
+            pcall(function() ai:SetHunger(ai:GetMaxHunger()) end)
             pcall(function() ai:SetThirst(ai:GetMaxThirst()) end)
 
             -- Distance-based relevance only: bAlwaysRelevant crashes clients
@@ -2266,22 +2273,36 @@ else
 
 --- What gets spawned, weighted by how often it should appear.
 local AMBIENT_MIX = {
-    -- Weighted toward actual dinosaurs: the small animals already exist on the
-    -- island, so a mix of rabbits and compys adds nothing anyone notices.
-    -- Herbivores dominate, because a predator you meet every few minutes stops
-    -- being a threat and starts being scenery.
+    -- Only species with their OWN AI controller. A borrowed brain drives
+    -- another body "reasonably" by upstream's own wording, and reasonably is
+    -- what looks like a dinosaur that will not fight back. Troodon, Trike,
+    -- Stego, Pachy, Allo, Herrera, Maia and Beipiao all borrow, so none of them
+    -- belong in a population nobody is supervising. They are still available
+    -- from /admin ai spawn.
+    --
+    -- No apex here at all: ambient wildlife is meant to be food and scenery,
+    -- not the thing that ends someone's session while they are looking away.
     "Dryosaurus", "Dryosaurus", "Dryosaurus", "Dryosaurus",
     "Hypsilophodon", "Hypsilophodon", "Hypsilophodon",
     "Gallimimus", "Gallimimus",
     "Tenontosaurus", "Tenontosaurus",
-    "Diabloceratops", "Pachycephalosaurus", "Beipiaosaurus",
-    "Maiasaura", "Stegosaurus",
+    "Diabloceratops",
+    "Compsognathus",
 
-    -- Small predators, uncommon.
-    "Troodon", "Omniraptor", "Dilophosaurus",
+    -- The usual wildlife, so the small carnivores have something to hunt.
+    "Deer", "Deer", "Boar", "Boar", "Goat",
 
-    -- A little of the usual wildlife, for the smaller carnivores to eat.
-    "Deer", "Boar", "Goat",
+    -- Small predators only, and uncommon.
+    "Dilophosaurus", "Omniraptor",
+}
+
+-- Growth bands, weighted young. A population that is all adults reads as
+-- spawned; juveniles and subadults read as a population that lives here.
+-- Growth is applied BEFORE vitals, because it recomputes and refills them.
+local AMBIENT_GROWTH = {
+    0.35, 0.4, 0.45, 0.5,          -- juveniles, the most common
+    0.6, 0.65, 0.7, 0.75,          -- subadults
+    0.9, 1.0,                      -- fully grown, the minority
 }
 
 local function ambientCount()
@@ -2328,8 +2349,21 @@ local function ambientLive()
                     -- pointer does not answer with three sane numbers.
                     local at = locationOf(obj)
                     if at ~= nil then
-                        seen[#seen + 1] =
-                            { pawn = obj, addr = addr, species = owned.species, born = owned.born, at = at }
+                        -- Upstream's own test for a working AI is that it moves.
+                        -- Anything that has not is stuck in terrain or spawned
+                        -- in the void below the landscape, which SpawnActor is
+                        -- perfectly happy to do.
+                        local dx = at.X - (owned.lastX or at.X)
+                        local dy = at.Y - (owned.lastY or at.Y)
+                        if math.sqrt((dx * dx) + (dy * dy)) > 300 then
+                            owned.movedAt = os.time()
+                        end
+                        owned.lastX, owned.lastY = at.X, at.Y
+
+                        seen[#seen + 1] = {
+                            pawn = obj, addr = addr, species = owned.species,
+                            born = owned.born, at = at, movedAt = owned.movedAt or owned.born,
+                        }
                     end
                 end
             end
@@ -2388,14 +2422,16 @@ local function ambientSpawnNear(at, species)
     if brain == nil then return false end
 
     pcall(function() brain:Possess(pawn) end)
-    pcall(function() pawn:SetGrowth(1.0) end)
+    pcall(function() pawn:SetGrowth(AMBIENT_GROWTH[math.random(#AMBIENT_GROWTH)]) end)
     pcall(function() pawn:SetHealth(pawn:GetMaxHealth()) end)
-    pcall(function() pawn:SetFood(pawn:GetMaxFoodValue()) end)
+    pcall(function() pawn:SetStamina(pawn:GetMaxStamina()) end)
+    pcall(function() pawn:SetHunger(pawn:GetMaxHunger()) end)
     pcall(function() pawn:SetThirst(pawn:GetMaxThirst()) end)
     pcall(function() pawn:SetReplicates(true) end)
     pcall(function() pawn:ForceNetUpdate() end)
 
-    ambientOwned[addr] = { species = species, born = os.time() }
+    ambientOwned[addr] = { species = species, born = os.time(),
+        lastX = loc.X, lastY = loc.Y, movedAt = os.time() }
     return true
 end
 
@@ -2434,6 +2470,24 @@ local function ambientSweep()
                 if ambientSpawnNear(at, species) then
                     log(string.format("ambient: spawned %s (%d live)", species, ambientCount()))
                 end
+            end
+        end
+    end
+
+    -- ---- clear the ones that never got going -------------------------------
+    -- A spawn can land inside a hill or under the landscape, where the brain
+    -- runs but the body cannot go anywhere. Rather than trying to trace to
+    -- true ground before spawning — which needs an FHitResult out-param and is
+    -- exactly the marshalling that crashes — let it fail and retry: cull
+    -- anything that has not moved, and the next sweep picks a new spot.
+    for _, entry in ipairs(live) do
+        if (now - entry.born) >= STUCK_GRACE_SEC
+            and (now - entry.movedAt) >= STUCK_GRACE_SEC
+            and aiHurt[entry.addr] == nil
+        then
+            if pcall(function() entry.pawn:SetHealth(0) end) then
+                ambientOwned[entry.addr] = nil
+                log(string.format("ambient: cleared a stuck %s", entry.species))
             end
         end
     end

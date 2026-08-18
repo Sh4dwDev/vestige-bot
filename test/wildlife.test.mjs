@@ -99,6 +99,47 @@ check('the ambient mix only names species with a verified brain', (() => {
 check('the server-wide command does not demand a steam id',
   /verb ~= "ambient"/.test(code));
 
+check('spawned AI gets stamina, or it cannot sustain a chase',
+  /SetStamina\(ai:GetMaxStamina\(\)\)/.test(code)
+  && /SetStamina\(pawn:GetMaxStamina\(\)\)/.test(code));
+check('hunger uses the setter this build actually has',
+  /SetHunger/.test(code) && !/:SetFood\(/.test(code));
+check('AI that never moves is culled and retried elsewhere',
+  /STUCK_GRACE_SEC/.test(code) && /movedAt/.test(code));
+check('but something being hunted is never culled as stuck',
+  /aiHurt\[entry\.addr\] == nil/.test(code));
+
+// The ambient population runs unsupervised, so it may only contain species
+// that drive their own body. A borrowed brain is fine for a deliberate admin
+// spawn and wrong for wildlife nobody is watching.
+{
+  const pairs = block;
+  const borrowed = new Set();
+  for (const m of pairs.matchAll(/^    (\w+)\s*=\s*\{[^}]*?,\s*(.+?)\s*\},/gm)) {
+    const name = m[1];
+    const ctrl = m[2].toLowerCase().replace('rex', 'tyrannosaurus');
+    if (!ctrl.includes(name.toLowerCase())) borrowed.add(name);
+  }
+  const mix = code.slice(code.indexOf('local AMBIENT_MIX'), code.indexOf('local AMBIENT_GROWTH'));
+  const used = [...new Set([...mix.matchAll(/"(\w+)"/g)].map((m) => m[1]))];
+
+  check('some species do borrow another brain', borrowed.size > 0, [...borrowed].join(','));
+  check('none of them are in the unsupervised population',
+    used.every((n) => !borrowed.has(n)), used.filter((n) => borrowed.has(n)).join(','));
+  check('no apex is spawned as ambient wildlife',
+    !used.some((n) => ['Tyrannosaurus', 'Deinosuchus', 'Triceratops'].includes(n)),
+    used.join(','));
+
+  const growth = code.slice(code.indexOf('local AMBIENT_GROWTH'), code.indexOf('local function ambientCount'));
+  const bands = [...growth.matchAll(/([01]\.\d+)/g)].map((m) => Number(m[1]));
+  check('growth is varied, not all adults', new Set(bands).size > 3, bands.join(','));
+  check('juveniles outnumber adults', bands.filter((g) => g < 0.6).length > bands.filter((g) => g >= 0.9).length,
+    `${bands.filter((g) => g < 0.6).length} juvenile vs ${bands.filter((g) => g >= 0.9).length} adult`);
+  check('every band is a legal growth value', bands.every((g) => g > 0 && g <= 1));
+  check('ambient spawns use the bands rather than a fixed 1.0',
+    /SetGrowth\(AMBIENT_GROWTH\[/.test(code));
+}
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
 process.exit(failed === 0 ? 0 : 1);
