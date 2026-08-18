@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.11.0"
+local MOD_VERSION = "3.12.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1753,7 +1753,8 @@ local HUNT_GRACE_SEC = 180
 local MIN_AGE_SEC = 120
 
 local function ambientLoad()
-    local raw = readAll(AMBIENT_FILE)
+    if savedDir == nil then return end
+    local raw = readAll(savedDir .. AMBIENT_FILE)
     if raw == nil then return end
     local parsed = jsonParse(raw)
     if type(parsed) ~= "table" then return end
@@ -1762,8 +1763,13 @@ local function ambientLoad()
     if type(parsed.cap) == "number" then ambient.cap = parsed.cap end
 end
 
+-- Settings survive a mod reload, but never at the cost of the reply: a save
+-- that fails must not swallow the answer the admin is waiting on.
 local function ambientSave()
-    writeAtomic(AMBIENT_FILE, encodeTable(ambient, ""))
+    if savedDir == nil then return end
+    safeCall("ambientSave", function()
+        writeAtomic(savedDir .. AMBIENT_FILE, encodeTable(ambient, 0))
+    end)
 end
 
 local function handleAmbient(cmd)
@@ -2260,10 +2266,22 @@ else
 
 --- What gets spawned, weighted by how often it should appear.
 local AMBIENT_MIX = {
-    "Deer", "Deer", "Deer", "Boar", "Boar", "Goat", "Rabbit", "Rabbit",
-    "Dryosaurus", "Dryosaurus", "Hypsilophodon", "Compsognathus",
-    -- One predator in the mix, so the island is not purely a salad bar.
-    "Troodon",
+    -- Weighted toward actual dinosaurs: the small animals already exist on the
+    -- island, so a mix of rabbits and compys adds nothing anyone notices.
+    -- Herbivores dominate, because a predator you meet every few minutes stops
+    -- being a threat and starts being scenery.
+    "Dryosaurus", "Dryosaurus", "Dryosaurus", "Dryosaurus",
+    "Hypsilophodon", "Hypsilophodon", "Hypsilophodon",
+    "Gallimimus", "Gallimimus",
+    "Tenontosaurus", "Tenontosaurus",
+    "Diabloceratops", "Pachycephalosaurus", "Beipiaosaurus",
+    "Maiasaura", "Stegosaurus",
+
+    -- Small predators, uncommon.
+    "Troodon", "Omniraptor", "Dilophosaurus",
+
+    -- A little of the usual wildlife, for the smaller carnivores to eat.
+    "Deer", "Boar", "Goat",
 }
 
 local function ambientCount()

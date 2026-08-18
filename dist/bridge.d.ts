@@ -39,6 +39,18 @@ export interface Result {
     /** Shape depends on the verb: slots for `list`, players for `players`. */
     data?: StoredSlot[] | PlayerRow[];
 }
+/**
+ * Notifications must be plain ASCII.
+ *
+ * Verified live on 2026-08-17: "Travelling in 45s - hold still" arrives, and the
+ * same line with an em dash is swallowed — no error, no reply, nothing on
+ * screen. Somewhere between the NDJSON bridge and the FText it does not
+ * survive, and it fails silently, which is the worst way to fail.
+ *
+ * So the punctuation is folded here rather than asking every caller to
+ * remember. Anything still non-ASCII after folding is dropped.
+ */
+export declare function toPlainAscii(message: string): string;
 export declare class ModBridge {
     #private;
     private readonly sftp;

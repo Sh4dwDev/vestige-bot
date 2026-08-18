@@ -73,6 +73,30 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 
 const timeoutFor = (verb: Verb): number => TIMEOUT_MS[verb] ?? DEFAULT_TIMEOUT_MS;
 
+/**
+ * Notifications must be plain ASCII.
+ *
+ * Verified live on 2026-08-17: "Travelling in 45s - hold still" arrives, and the
+ * same line with an em dash is swallowed — no error, no reply, nothing on
+ * screen. Somewhere between the NDJSON bridge and the FText it does not
+ * survive, and it fails silently, which is the worst way to fail.
+ *
+ * So the punctuation is folded here rather than asking every caller to
+ * remember. Anything still non-ASCII after folding is dropped.
+ */
+export function toPlainAscii(message: string): string {
+  return message
+    .replace(/[\u2014\u2013]/g, '-')   // em and en dash
+    .replace(/[\u2018\u2019]/g, "'")   // curly single quotes
+    .replace(/[\u201C\u201D]/g, '"')   // curly double quotes
+    .replace(/\u2026/g, '...')        // ellipsis
+    .replace(/\u00A0/g, ' ')          // non-breaking space
+    // Anything left outside printable ASCII goes, rather than being sent and
+    // silently swallowed at the far end.
+    .replace(/[^\x20-\x7E]/g, '')
+    .trim();
+}
+
 export class ModBridge {
   #client: SftpClient | null = null;
   #connecting: Promise<SftpClient> | null = null;
@@ -256,7 +280,8 @@ export class ModBridge {
    */
   async notify(steamId: string, message: string): Promise<boolean> {
     try {
-      return (await this.run('notify', steamId, { message }, { quiet: true })).ok;
+      return (await this.run('notify', steamId, { message: toPlainAscii(message) },
+        { quiet: true })).ok;
     } catch {
       return false;
     }

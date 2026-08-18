@@ -244,6 +244,33 @@ try {
   server.close();
 }
 
+// ---- notification text -----------------------------------------------------
+// Verified live 2026-08-17: an ASCII line arrives on screen, and the same line
+// with an em dash is swallowed with no error and no reply. So this fold is not
+// cosmetic, it is the difference between a notice and silence.
+{
+  const { toPlainAscii } = await import(
+    pathToFileURL(path.join(root, 'dist/bridge.js')).href);
+
+  check('an em dash becomes a hyphen',
+    toPlainAscii('Travelling in 45s — hold still') === 'Travelling in 45s - hold still',
+    toPlainAscii('Travelling in 45s — hold still'));
+  check('an en dash becomes a hyphen too', toPlainAscii('a – b') === 'a - b');
+  check('curly double quotes are straightened',
+    toPlainAscii('“hold”') === '"hold"');
+  check('curly single quotes are straightened',
+    toPlainAscii('‘still’') === "'still'");
+  check('an ellipsis is spelled out', toPlainAscii('wait…') === 'wait...');
+  check('a non-breaking space becomes a real one', toPlainAscii('a b') === 'a b');
+  check('an emoji is dropped rather than sent and swallowed',
+    toPlainAscii('go \u{1F996} now') === 'go  now',
+    JSON.stringify(toPlainAscii('go \u{1F996} now')));
+  check('plain ASCII is left exactly alone',
+    toPlainAscii('Travelling in 45s - hold still') === 'Travelling in 45s - hold still');
+  check('the result is always printable ASCII',
+    /^[\x20-\x7E]*$/.test(toPlainAscii('mixed — … \u{1F996} café')));
+}
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
 process.exit(failed === 0 ? 0 : 1);
