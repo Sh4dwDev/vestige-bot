@@ -33,8 +33,20 @@ const extra = ALL_AI_SPECIES.filter((s) => !inMod.includes(s));
 check('nothing the mod supports is hidden from admins', missing.length === 0, missing.join(','));
 check('nothing is offered that the mod would refuse', extra.length === 0, extra.join(','));
 
-check('every species has a class path and a controller path',
-  (block.match(/=\s*\{[^}]*,[^}]*\}/g) ?? []).length === inMod.length);
+// Every row must carry a pawn path, a controller path, and the borrowed flag.
+{
+  const complete = block.split(/\r?\n/).filter((line) => {
+    const m = /^ {4}\w+\s*=\s*\{(.*)\},\s*$/.exec(line);
+    if (!m) return false;
+    const parts = m[1].split(',').map((s) => s.trim());
+    return parts.length >= 3
+      && parts[0].includes('BP_')
+      && (parts[1].includes('BP_AI_') || parts[1].includes('/Script/'))
+      && /^(true|false)$/.test(parts[parts.length - 1]);
+  }).length;
+  check('every species has a pawn path, a controller and a borrowed flag',
+    complete === inMod.length, `${complete} complete of ${inMod.length}`);
+}
 check('no species appears twice', new Set(inMod).size === inMod.length);
 
 // The grouping is only for display, but a species in none of them would be
@@ -113,12 +125,10 @@ check('but something being hunted is never culled as stuck',
 // that drive their own body. A borrowed brain is fine for a deliberate admin
 // spawn and wrong for wildlife nobody is watching.
 {
-  const pairs = block;
+  // The table now says so outright rather than being guessed from the name.
   const borrowed = new Set();
-  for (const m of pairs.matchAll(/^    (\w+)\s*=\s*\{[^}]*?,\s*(.+?)\s*\},/gm)) {
-    const name = m[1];
-    const ctrl = m[2].toLowerCase().replace('rex', 'tyrannosaurus');
-    if (!ctrl.includes(name.toLowerCase())) borrowed.add(name);
+  for (const m of block.matchAll(/^    (\w+)\s*=\s*\{.*?,\s*(true|false)\s*\},/gm)) {
+    if (m[2] === 'true') borrowed.add(m[1]);
   }
   const mix = code.slice(code.indexOf('local AMBIENT_MIX'), code.indexOf('local AMBIENT_GROWTH'));
   const used = [...new Set([...mix.matchAll(/"(\w+)"/g)].map((m) => m[1]))];
@@ -138,6 +148,39 @@ check('but something being hunted is never culled as stuck',
   check('every band is a legal growth value', bands.every((g) => g > 0 && g <= 1));
   check('ambient spawns use the bands rather than a fixed 1.0',
     /SetGrowth\(AMBIENT_GROWTH\[/.test(code));
+}
+
+// The find that made the AI work at all: the game runs its own AI on the
+// BP_AI_* Blueprint controllers. The /Script/TheIsle.TIAI* classes are bare
+// C++ bases - they pathfind and never attack, which is why a spawned
+// Ceratosaurus would chase a player and then stand there.
+{
+  // Classified per line: a row is a C++ base if its controller path mentions
+  // /Script at all. The Blueprint rows build their path by concatenation, so
+  // one regex over the whole entry picks the wrong quoted fragment.
+  const rows = [];
+  for (const line of block.split(/\r?\n/)) {
+    const m = /^ {4}(\w+)\s*=\s*\{(.*)\},\s*$/.exec(line);
+    if (!m) continue;
+    rows.push({
+      name: m[1],
+      scripted: m[2].includes('/Script/'),
+      borrowed: /,\s*true\s*$/.test(m[2]),
+    });
+  }
+  const scripted = rows.filter((r) => r.scripted);
+
+  check('most species now use a Blueprint controller',
+    rows.length - scripted.length > scripted.length,
+    `${rows.length - scripted.length} blueprint vs ${scripted.length} C++ base`);
+  check('every bare C++ controller is marked borrowed, since it cannot fight',
+    scripted.every((r) => r.borrowed), scripted.filter((r) => !r.borrowed).map((r) => r.name).join(','));
+
+  const mix = code.slice(code.indexOf('local AMBIENT_MIX'), code.indexOf('local AMBIENT_GROWTH'));
+  const used = [...new Set([...mix.matchAll(/"(\w+)"/g)].map((m) => m[1]))];
+  check('no ambient species runs on a bare C++ controller',
+    used.every((n) => !scripted.some((r) => r.name === n)),
+    used.filter((n) => scripted.some((r) => r.name === n)).join(','));
 }
 
 const failed = results.filter((r) => !r).length;

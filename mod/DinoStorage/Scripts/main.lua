@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.14.0"
+local MOD_VERSION = "3.17.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1677,43 +1677,56 @@ local AI_ROOT = "/Game/TheIsle/Core/Characters/"
 local AI_CTRL = "/Game/TheIsle/Core/AI/Controllers/"
 
 local AI_PAIRS = {
-    -- Predators. The Rex brain also drives Allosaurus.
-    Tyrannosaurus  = { AI_ROOT .. "Dinosaurs/Tyrannosaurus/BP_Tyrannosaurus.BP_Tyrannosaurus_C", "/Script/TheIsle.TIAIRexController" },
-    Allosaurus     = { AI_ROOT .. "Dinosaurs/Allosaurus/BP_Allosaurus.BP_Allosaurus_C", "/Script/TheIsle.TIAIRexController" },
-    Carnotaurus    = { AI_ROOT .. "Dinosaurs/Carnotaurus/BP_Carnotaurus.BP_Carnotaurus_C", "/Script/TheIsle.TIAICarnotaurus" },
-    Ceratosaurus   = { AI_ROOT .. "Dinosaurs/Ceratosaurus/BP_Ceratosaurus.BP_Ceratosaurus_C", "/Script/TheIsle.TIAICeratosaurusController" },
-    Dilophosaurus  = { AI_ROOT .. "Dinosaurs/Dilophosaurus/BP_Dilophosaurus.BP_Dilophosaurus_C", "/Script/TheIsle.TIAIDilophosaurusController" },
-    Omniraptor     = { AI_ROOT .. "Dinosaurs/Omniraptor/BP_Omniraptor.BP_Omniraptor_C", "/Script/TheIsle.TIAIOmniraptor" },
-    Herrerasaurus  = { AI_ROOT .. "Dinosaurs/Herrerasaurus/BP_Herrerasaurus.BP_Herrerasaurus_C", "/Script/TheIsle.TIAIOmniraptor" },
-    Troodon        = { AI_ROOT .. "Dinosaurs/Troodon/BP_Troodon.BP_Troodon_C", AI_CTRL .. "Dinos/BP_AI_Compsognathus_Controller.BP_AI_Compsognathus_Controller_C" },
-    Deinosuchus    = { AI_ROOT .. "Dinosaurs/Deinosuchus/BP_Deinosuchus.BP_Deinosuchus_C", "/Script/TheIsle.TIAIDeinosuchus" },
-    Pteranodon     = { AI_ROOT .. "Dinosaurs/Pteranodon/BP_Pteranodon.BP_Pteranodon_C", "/Script/TheIsle.TIAIPteranodon" },
+    -- { pawn class, controller class, borrowed? }
+    --
+    -- Prefer the BP_AI_* Blueprint controllers over the /Script/TheIsle.TIAI*
+    -- C++ ones. Verified live on this server 2026-08-18: the game runs its own
+    -- AI on the Blueprints, and the C++ classes are the bare bases. Movement
+    -- lives in the base, so a /Script controller pathfinds happily and never
+    -- attacks — the behaviour tree, perception and combat are configured in the
+    -- Blueprint. That is why a spawned Ceratosaurus would chase a player and
+    -- then stand inside them doing nothing.
+    --
+    -- Some species have no Blueprint of their own and fall back to the C++
+    -- base, or borrow the Blueprint of another species. Those are marked
+    -- borrowed, and are kept out of the unsupervised ambient population.
+
+    -- Predators.
+    Ceratosaurus   = { AI_ROOT .. "Dinosaurs/Ceratosaurus/BP_Ceratosaurus.BP_Ceratosaurus_C", AI_CTRL .. "Dinos/BP_AI_Cerato_Controller.BP_AI_Cerato_Controller_C", false },
+    Omniraptor     = { AI_ROOT .. "Dinosaurs/Omniraptor/BP_Omniraptor.BP_Omniraptor_C", AI_CTRL .. "Dinos/BP_AI_Omniraptor_Controller.BP_AI_Omniraptor_Controller_C", false },
+    Deinosuchus    = { AI_ROOT .. "Dinosaurs/Deinosuchus/BP_Deinosuchus.BP_Deinosuchus_C", AI_CTRL .. "Dinos/BP_AI_Deinosuchus_Controller.BP_AI_Deinosuchus_Controller_C", false },
+    Pteranodon     = { AI_ROOT .. "Dinosaurs/Pteranodon/BP_Pteranodon.BP_Pteranodon_C", AI_CTRL .. "Dinos/BP_AI_Pteranodon_Controller.BP_AI_Pteranodon_Controller_C", false },
+    Herrerasaurus  = { AI_ROOT .. "Dinosaurs/Herrerasaurus/BP_Herrerasaurus.BP_Herrerasaurus_C", AI_CTRL .. "Dinos/BP_AI_Omniraptor_Controller.BP_AI_Omniraptor_Controller_C", true },
+    Troodon        = { AI_ROOT .. "Dinosaurs/Troodon/BP_Troodon.BP_Troodon_C", AI_CTRL .. "Dinos/BP_AI_Compsognathus_Controller.BP_AI_Compsognathus_Controller_C", true },
+    -- No Blueprint controller is documented for these four, so they run the C++
+    -- base and will likely behave the way the Ceratosaurus did before this.
+    Tyrannosaurus  = { AI_ROOT .. "Dinosaurs/Tyrannosaurus/BP_Tyrannosaurus.BP_Tyrannosaurus_C", "/Script/TheIsle.TIAIRexController", true },
+    Allosaurus     = { AI_ROOT .. "Dinosaurs/Allosaurus/BP_Allosaurus.BP_Allosaurus_C", "/Script/TheIsle.TIAIRexController", true },
+    Carnotaurus    = { AI_ROOT .. "Dinosaurs/Carnotaurus/BP_Carnotaurus.BP_Carnotaurus_C", "/Script/TheIsle.TIAICarnotaurus", true },
+    Dilophosaurus  = { AI_ROOT .. "Dinosaurs/Dilophosaurus/BP_Dilophosaurus.BP_Dilophosaurus_C", "/Script/TheIsle.TIAIDilophosaurusController", true },
 
     -- Prey.
-    Dryosaurus     = { AI_ROOT .. "Dinosaurs/Dryosaurus/BP_Dryosaurus.BP_Dryosaurus_C", "/Script/TheIsle.TIAIDryosaurusController" },
-    Hypsilophodon  = { AI_ROOT .. "Dinosaurs/Hypsilophodon/BP_Hypsilophodon.BP_Hypsilophodon_C", "/Script/TheIsle.TIAIHypsilophodon" },
-    Gallimimus     = { AI_ROOT .. "Dinosaurs/Gallimimus/BP_Gallimimus.BP_Gallimimus_C", "/Script/TheIsle.TIAIGallimimusController" },
-    Tenontosaurus  = { AI_ROOT .. "Dinosaurs/Tenontosaurus/BP_Tenontosaurus.BP_Tenontosaurus_C", "/Script/TheIsle.TIAITenontosaurusController" },
-    Maiasaura      = { AI_ROOT .. "Dinosaurs/Maiasaura/BP_Maiasaura.BP_Maiasaura_C", "/Script/TheIsle.TIAITenontosaurusController" },
-    Diabloceratops = { AI_ROOT .. "Dinosaurs/Diabloceratops/BP_Diabloceratops.BP_Diabloceratops_C", "/Script/TheIsle.TIAIDiabloceratopsController" },
-    Beipiaosaurus  = { AI_ROOT .. "Dinosaurs/Beipiaosaurus/BP_Beipiaosaurus.BP_Beipiaosaurus_C", AI_CTRL .. "Dinos/BP_AI_Compsognathus_Controller.BP_AI_Compsognathus_Controller_C" },
-    Compsognathus  = { AI_ROOT .. "Dinosaurs/Compsognathus/BP_Compsognathus.BP_Compsognathus_C", AI_CTRL .. "Dinos/BP_AI_Compsognathus_Controller.BP_AI_Compsognathus_Controller_C" },
+    Dryosaurus     = { AI_ROOT .. "Dinosaurs/Dryosaurus/BP_Dryosaurus.BP_Dryosaurus_C", AI_CTRL .. "Dinos/BP_AI_Dino_Dryosaurus_Controller.BP_AI_Dino_Dryosaurus_Controller_C", false },
+    Hypsilophodon  = { AI_ROOT .. "Dinosaurs/Hypsilophodon/BP_Hypsilophodon.BP_Hypsilophodon_C", AI_CTRL .. "Dinos/BP_AI_Hypsilophodon_Controller.BP_AI_Hypsilophodon_Controller_C", false },
+    Gallimimus     = { AI_ROOT .. "Dinosaurs/Gallimimus/BP_Gallimimus.BP_Gallimimus_C", AI_CTRL .. "Dinos/BP_AI_Galli_Controller.BP_AI_Galli_Controller_C", false },
+    Diabloceratops = { AI_ROOT .. "Dinosaurs/Diabloceratops/BP_Diabloceratops.BP_Diabloceratops_C", AI_CTRL .. "Dinos/BP_AI_Diabloceratops_Controller.BP_AI_Diabloceratops_Controller_C", false },
+    Compsognathus  = { AI_ROOT .. "Dinosaurs/Compsognathus/BP_Compsognathus.BP_Compsognathus_C", AI_CTRL .. "Dinos/BP_AI_Compsognathus_Controller.BP_AI_Compsognathus_Controller_C", false },
+    Beipiaosaurus  = { AI_ROOT .. "Dinosaurs/Beipiaosaurus/BP_Beipiaosaurus.BP_Beipiaosaurus_C", AI_CTRL .. "Dinos/BP_AI_Compsognathus_Controller.BP_AI_Compsognathus_Controller_C", true },
+    Triceratops    = { AI_ROOT .. "Dinosaurs/Triceratops/BP_Triceratops.BP_Triceratops_C", AI_CTRL .. "Dinos/BP_AI_Diabloceratops_Controller.BP_AI_Diabloceratops_Controller_C", true },
+    Stegosaurus    = { AI_ROOT .. "Dinosaurs/Stegosaurus/BP_Stegosaurus.BP_Stegosaurus_C", AI_CTRL .. "Dinos/BP_AI_Diabloceratops_Controller.BP_AI_Diabloceratops_Controller_C", true },
+    Pachycephalosaurus = { AI_ROOT .. "Dinosaurs/Pachycephalosaurus/BP_Pachycephalosaurus.BP_Pachycephalosaurus_C", AI_CTRL .. "Dinos/BP_AI_Diabloceratops_Controller.BP_AI_Diabloceratops_Controller_C", true },
+    Tenontosaurus  = { AI_ROOT .. "Dinosaurs/Tenontosaurus/BP_Tenontosaurus.BP_Tenontosaurus_C", "/Script/TheIsle.TIAITenontosaurusController", true },
+    Maiasaura      = { AI_ROOT .. "Dinosaurs/Maiasaura/BP_Maiasaura.BP_Maiasaura_C", "/Script/TheIsle.TIAITenontosaurusController", true },
 
-    -- The big herbivores have no brain of their own and borrow the
-    -- Diabloceratops one. Upstream verified all three.
-    Triceratops    = { AI_ROOT .. "Dinosaurs/Triceratops/BP_Triceratops.BP_Triceratops_C", AI_CTRL .. "Dinos/BP_AI_Diabloceratops_Controller.BP_AI_Diabloceratops_Controller_C" },
-    Stegosaurus    = { AI_ROOT .. "Dinosaurs/Stegosaurus/BP_Stegosaurus.BP_Stegosaurus_C", AI_CTRL .. "Dinos/BP_AI_Diabloceratops_Controller.BP_AI_Diabloceratops_Controller_C" },
-    Pachycephalosaurus = { AI_ROOT .. "Dinosaurs/Pachycephalosaurus/BP_Pachycephalosaurus.BP_Pachycephalosaurus_C", AI_CTRL .. "Dinos/BP_AI_Diabloceratops_Controller.BP_AI_Diabloceratops_Controller_C" },
-
-    -- Small animals: the stuff that makes the island feel lived in.
-    Boar           = { AI_ROOT .. "Animals/Boar/BP_Boar.BP_Boar_C", "/Script/TheIsle.TIAIBoarController" },
-    Deer           = { AI_ROOT .. "Animals/Deer/BP_Deer.BP_Deer_C", AI_CTRL .. "Animals/BP_AI_Deer_Controller.BP_AI_Deer_Controller_C" },
-    Goat           = { AI_ROOT .. "Animals/Goat/BP_goat.BP_Goat_C", "/Script/TheIsle.TIAIGoatController" },
-    Rabbit         = { AI_ROOT .. "Animals/Rabbit/BP_Rabbit.BP_Rabbit_C", "/Script/TheIsle.TIAIRabbitController" },
-    Chicken        = { AI_ROOT .. "Animals/Chicken/BP_Chicken.BP_Chicken_C", "/Script/TheIsle.TIAIChickenController" },
-    Crab           = { AI_ROOT .. "Animals/Crab/BP_Crab.BP_Crab_C", "/Script/TheIsle.TIAICrabController" },
-    Bullfrog       = { AI_ROOT .. "Animals/Bullfrog/BP_Bullfrog.BP_Bullfrog_C", "/Script/TheIsle.TIAIFrogController" },
-    Seaturtle      = { AI_ROOT .. "Animals/Seaturtle/BP_Seaturtle.BP_Seaturtle_C", "/Script/TheIsle.TIAISeaturtleController" },
+    -- Small animals, each with its own Blueprint.
+    Boar           = { AI_ROOT .. "Animals/Boar/BP_Boar.BP_Boar_C", AI_CTRL .. "Animals/BP_AI_Boar_Controller.BP_AI_Boar_Controller_C", false },
+    Deer           = { AI_ROOT .. "Animals/Deer/BP_Deer.BP_Deer_C", AI_CTRL .. "Animals/BP_AI_Deer_Controller.BP_AI_Deer_Controller_C", false },
+    Goat           = { AI_ROOT .. "Animals/Goat/BP_goat.BP_Goat_C", AI_CTRL .. "Animals/BP_AI_Goat_Controller.BP_AI_Goat_Controller_C", false },
+    Rabbit         = { AI_ROOT .. "Animals/Rabbit/BP_Rabbit.BP_Rabbit_C", AI_CTRL .. "Animals/BP_AI_Rabbit_Controller.BP_AI_Rabbit_Controller_C", false },
+    Chicken        = { AI_ROOT .. "Animals/Chicken/BP_Chicken.BP_Chicken_C", AI_CTRL .. "Animals/BP_AI_Chicken_Controller.BP_AI_Chicken_Controller_C", false },
+    Crab           = { AI_ROOT .. "Animals/Crab/BP_Crab.BP_Crab_C", AI_CTRL .. "Animals/BP_AI_Crab_Controller.BP_AI_Crab_Controller_C", false },
+    Bullfrog       = { AI_ROOT .. "Animals/Bullfrog/BP_Bullfrog.BP_Bullfrog_C", AI_CTRL .. "Animals/BP_AI_Animal_Bullfrog_Controller.BP_AI_Animal_Bullfrog_Controller_C", false },
+    Seaturtle      = { AI_ROOT .. "Animals/Seaturtle/BP_Seaturtle.BP_Seaturtle_C", AI_CTRL .. "Animals/BP_AI_SeaTurtle_Controller.BP_AI_SeaTurtle_Controller_C", false },
 }
 
 -- ---------------------------------------------------------------------------
@@ -1817,6 +1830,15 @@ local function handleAI(cmd)
         writeResult(cmd.id, "ai", cmd.steam, false, err)
         return
     end
+
+    -- In admin or spectator cam the possessed pawn is the flying camera. Its
+    -- location is a point in the sky, and spawning there drops the animal into
+    -- the ocean or leaves it hanging. Refuse instead of producing a mystery.
+    if not dinosaurCheck(pawn) then
+        writeResult(cmd.id, "ai", cmd.steam, false,
+            "you are in admin cam - spawn as a dinosaur first, so there is real ground to put them on")
+        return
+    end
     local at = locationOf(pawn)
     if at == nil then
         writeResult(cmd.id, "ai", cmd.steam, false, "could not find where you are")
@@ -1892,6 +1914,101 @@ local function handleAI(cmd)
             or ("could not spawn " .. species))
 end
 
+-- ---------------------------------------------------------------------------
+-- AI probe: read-only
+--
+-- why: upstream verified that a Lua-spawned AI *pathfinds*, and nothing more.
+-- Whether it can attack is unknown. This server runs AIDensity=2, so the game
+-- has spawned its own AI of the same classes right now — and the game's AI
+-- demonstrably works. Comparing one of ours against one of theirs is the only
+-- way to find out what SpawnActor + Possess leaves out.
+--
+-- Strictly read-only, and it only ever touches class names and the small set of
+-- accessors the mod already uses elsewhere. Probing a UObject with a guessed
+-- property name is what killed the tick loop on 2026-08-16.
+-- ---------------------------------------------------------------------------
+
+local function classNameOf(obj)
+    local name
+    pcall(function() name = stripClassPrefix(obj:GetClass():GetFullName()) end)
+    return name or ""
+end
+
+local function handleAIProbe(cmd)
+    if FindAllOf == nil then
+        writeResult(cmd.id, "aiprobe", cmd.steam, false, "FindAllOf is not available")
+        return
+    end
+
+    local wanted = safeString(cmd.args and cmd.args.species) or "Deer"
+    local pair = AI_PAIRS[wanted]
+    if pair == nil then
+        writeResult(cmd.id, "aiprobe", cmd.steam, false, "no pair for " .. tostring(wanted))
+        return
+    end
+
+    local short = pair[1]:match("([^%.]+)$")
+    local found
+    pcall(function() found = FindAllOf(short) end)
+    found = found or {}
+
+    local mine, theirs = 0, 0
+    --- controller class name -> how many pawns are driven by it
+    local brains = {}
+    local samples = {}
+
+    for _, obj in ipairs(found) do
+        local addr = 0
+        pcall(function() addr = obj:GetAddress() end)
+        if type(addr) == "number" and addr ~= 0 then
+            local ours = ambientOwned[addr] ~= nil
+            if ours then mine = mine + 1 else theirs = theirs + 1 end
+
+            local ctrl
+            pcall(function() ctrl = obj:GetController() end)
+            if ctrl == nil then pcall(function() ctrl = obj.Controller end) end
+
+            local brain = ctrl ~= nil and classNameOf(ctrl) or "(none)"
+            local key = (ours and "OURS " or "GAME ") .. brain
+            brains[key] = (brains[key] or 0) + 1
+
+            -- One example of each side, with the handful of values that would
+            -- explain an animal that chases but never bites.
+            local sideKey = ours and "ours" or "game"
+            if samples[sideKey] == nil then
+                samples[sideKey] = {
+                    growth = callNumber(obj, "GetGrowth"),
+                    health = callNumber(obj, "GetHealth"),
+                    stamina = callNumber(obj, "GetStamina"),
+                    hunger = callNumber(obj, "GetHunger"),
+                    brain = brain,
+                }
+            end
+        end
+    end
+
+    local lines = {}
+    for key, count in pairs(brains) do
+        lines[#lines + 1] = string.format("%s x%d", key, count)
+    end
+
+    local function describe(s)
+        if s == nil then return "none found" end
+        return string.format("growth=%s health=%s stamina=%s hunger=%s",
+            tostring(s.growth), tostring(s.health), tostring(s.stamina), tostring(s.hunger))
+    end
+
+    log(string.format("aiprobe %s: %d ours, %d game", wanted, mine, theirs))
+    for _, l in ipairs(lines) do log("  " .. l) end
+    log("  ours: " .. describe(samples.ours))
+    log("  game: " .. describe(samples.game))
+
+    writeResult(cmd.id, "aiprobe", cmd.steam, true,
+        string.format("%s: %d ours, %d game | %s | ours: %s | game: %s",
+            wanted, mine, theirs, table.concat(lines, " ; "),
+            describe(samples.ours), describe(samples.game)))
+end
+
 local function dispatch(cmd)
     if type(cmd) ~= "table" then return end
 
@@ -1905,7 +2022,7 @@ local function dispatch(cmd)
 
     -- `players` and `ambient` are server-wide, asked on nobody's behalf, so
     -- they do not need a real Steam ID attached.
-    if verb ~= "players" and verb ~= "ambient" and not isSteamId(cmd.steam) then
+    if verb ~= "players" and verb ~= "ambient" and verb ~= "aiprobe" and not isSteamId(cmd.steam) then
         writeResult(cmd.id, cmd.verb, cmd.steam, false, "invalid steam id")
         return
     end
@@ -1925,6 +2042,7 @@ local function dispatch(cmd)
     elseif verb == "notify" then handleNotify(cmd)
     elseif verb == "ai" then handleAI(cmd)
     elseif verb == "ambient" then handleAmbient(cmd)
+    elseif verb == "aiprobe" then handleAIProbe(cmd)
     else writeResult(cmd.id, verb, cmd.steam, false, "unknown command: " .. verb) end
 end
 
@@ -2273,27 +2391,24 @@ else
 
 --- What gets spawned, weighted by how often it should appear.
 local AMBIENT_MIX = {
-    -- Only species with their OWN AI controller. A borrowed brain drives
-    -- another body "reasonably" by upstream's own wording, and reasonably is
-    -- what looks like a dinosaur that will not fight back. Troodon, Trike,
-    -- Stego, Pachy, Allo, Herrera, Maia and Beipiao all borrow, so none of them
-    -- belong in a population nobody is supervising. They are still available
-    -- from /admin ai spawn.
+    -- Own Blueprint brain only. A C++ base class pathfinds and never fights,
+    -- and a borrowed Blueprint drives the wrong body; neither belongs in a
+    -- population nobody is supervising. All of them are still available from
+    -- /admin ai spawn.
     --
-    -- No apex here at all: ambient wildlife is meant to be food and scenery,
-    -- not the thing that ends someone's session while they are looking away.
+    -- No apex here: ambient wildlife is food and scenery, not the thing that
+    -- ends a session while somebody is looking the other way.
     "Dryosaurus", "Dryosaurus", "Dryosaurus", "Dryosaurus",
     "Hypsilophodon", "Hypsilophodon", "Hypsilophodon",
     "Gallimimus", "Gallimimus",
-    "Tenontosaurus", "Tenontosaurus",
     "Diabloceratops",
     "Compsognathus",
 
     -- The usual wildlife, so the small carnivores have something to hunt.
     "Deer", "Deer", "Boar", "Boar", "Goat",
 
-    -- Small predators only, and uncommon.
-    "Dilophosaurus", "Omniraptor",
+    -- Small predators, uncommon, and now on brains that can actually commit.
+    "Ceratosaurus", "Omniraptor",
 }
 
 -- Growth bands, weighted young. A population that is all adults reads as
@@ -2441,7 +2556,11 @@ local function ambientSweep()
     local players = onlinePlayers()
     local spots = {}
     for _, p in ipairs(players) do
-        if p.pawn ~= nil then
+        -- Only anchor to someone actually playing a dinosaur. In admin or
+        -- spectator cam the possessed pawn is the flying camera, so its
+        -- location is wherever they happen to be looking from — which put
+        -- wildlife thousands of metres above the ocean.
+        if p.pawn ~= nil and dinosaurCheck(p.pawn) then
             local at = locationOf(p.pawn)
             if at ~= nil then spots[#spots + 1] = at end
         end

@@ -110,9 +110,23 @@ export function setRestartAnnounce(ctx: Ctx, channelId: string, roleId: string |
  * so a long line runs straight through it and becomes unreadable.
  */
 function inGameWarning(minutes: number): string {
-  return minutes === 1
-    ? 'Restart in 1 min — log out safe'
-    : `Restart in ${minutes} min`;
+  // Each one says what to DO, not just what the clock says. A bare countdown
+  // makes people watch the number; telling them to find cover makes them move.
+  // Kept ASCII — a notification with an em dash never arrives (see bridge.ts).
+  switch (minutes) {
+    case 60:
+      return 'Server restarts in 1 hour - plan your route';
+    case 30:
+      return 'Restart in 30 min - start heading somewhere safe';
+    case 15:
+      return 'Restart in 15 min - finish up and find cover';
+    case 5:
+      return 'Restart in 5 min - find a safe spot to log out';
+    case 1:
+      return 'Restart in 1 min - log out safe NOW';
+    default:
+      return `Restart in ${minutes} min - find a safe spot to log out`;
+  }
 }
 
 export function buildRestartEmbed(minutes: number, restart: Date): EmbedBuilder {
