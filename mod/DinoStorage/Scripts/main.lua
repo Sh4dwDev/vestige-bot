@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.9.0"
+local MOD_VERSION = "3.10.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -254,6 +254,46 @@ local function resolvePlayer(steam)
     local pawn = livePawn(ctrl)
     if pawn == nil then return nil, "you are not spawned in yet" end
     return pawn, nil
+end
+
+-- ---------------------------------------------------------------------------
+-- On-screen notifications
+--
+-- why: ClientShowNotification is the persistent notice the game itself uses for
+-- prime conditions. It is the only in-game text that stays put — an RCON
+-- announce draws over the ANNOUNCEMENT label and is gone in about a second.
+--
+-- This crashed the server on 2026-08-17. The cause was the argument, not the
+-- function: it takes an FText, and a plain Lua string marshals into something
+-- the replication serializer dereferences and faults on. UE4SS exposes an FText
+-- constructor, which is the piece that was missing.
+--
+-- Two conditions, both non-negotiable:
+--   * call it from a tick (the inbox poll is one), never inside a native hook;
+--   * resolve the controller fresh — a cached one is a stale pointer.
+--
+-- If FText is unavailable, refuse. Sending the raw string is the exact call
+-- that took the server down, and pcall does not catch it.
+-- ---------------------------------------------------------------------------
+
+local function makeText(message)
+    if FText == nil then return nil end
+    local ok, ft = pcall(function() return FText(message) end)
+    if ok and ft ~= nil then return ft end
+    return nil
+end
+
+local function resolveController(steam)
+    local gm = findGameMode()
+    if gm == nil then return nil, "server is still starting up" end
+    local ctrl
+    pcall(function() ctrl = gm:GetControllerBySteamId(steam) end)
+    if ctrl == nil then return nil, "you are not on the server" end
+
+    local addr = 0
+    pcall(function() addr = ctrl:GetAddress() end)
+    if addr == nil or addr == 0 then return nil, "you are not on the server" end
+    return ctrl, nil
 end
 
 -- ---------------------------------------------------------------------------
@@ -1585,6 +1625,189 @@ local function handlePattern(cmd)
             type(before) == "number" and math.floor(before) or 0, wanted))
 end
 
+local function handleNotify(cmd)
+    local message = safeString(cmd.args and cmd.args.message)
+    if message == nil or message == "" then
+        writeResult(cmd.id, "notify", cmd.steam, false, "no message given")
+        return
+    end
+    -- One on-screen line. Longer than this is unreadable in game.
+    if #message > 120 then message = message:sub(1, 120) end
+
+    local text = makeText(message)
+    if text == nil then
+        writeResult(cmd.id, "notify", cmd.steam, false,
+            "this build cannot build an FText, and a raw string crashes the server")
+        return
+    end
+
+    local ctrl, err = resolveController(cmd.steam)
+    if ctrl == nil then
+        writeResult(cmd.id, "notify", cmd.steam, false, err)
+        return
+    end
+
+    local sent = false
+    safeCall("notify", function()
+        ctrl:ClientShowNotification(text)
+        sent = true
+    end)
+
+    writeResult(cmd.id, "notify", cmd.steam, sent,
+        sent and "shown" or "the notification was refused")
+end
+
+-- ---------------------------------------------------------------------------
+-- AI wildlife
+--
+-- why: there is no config or RCON route to *add* AI — RCON only toggles what
+-- the game spawns for itself. Spawning a pawn and its matching controller is
+-- the only way, and the pairs below are the ones upstream verified working.
+--
+-- They are NOT interchangeable. Several species have no brain of their own and
+-- only work by borrowing the controller of another species; those pairings are
+-- the tested ones, not guesses.
+--
+-- Never destroy these from Lua. K2_DestroyActor on a pawn gameplay has already
+-- removed is an uncatchable native crash. The supported cleanup is a restart,
+-- or RCON ToggleAI, which the bot drives from /admin cleanup.
+-- ---------------------------------------------------------------------------
+
+local AI_ROOT = "/Game/TheIsle/Core/Characters/"
+local AI_CTRL = "/Game/TheIsle/Core/AI/Controllers/"
+
+local AI_PAIRS = {
+    -- Predators. The Rex brain also drives Allosaurus.
+    Tyrannosaurus  = { AI_ROOT .. "Dinosaurs/Tyrannosaurus/BP_Tyrannosaurus.BP_Tyrannosaurus_C", "/Script/TheIsle.TIAIRexController" },
+    Allosaurus     = { AI_ROOT .. "Dinosaurs/Allosaurus/BP_Allosaurus.BP_Allosaurus_C", "/Script/TheIsle.TIAIRexController" },
+    Carnotaurus    = { AI_ROOT .. "Dinosaurs/Carnotaurus/BP_Carnotaurus.BP_Carnotaurus_C", "/Script/TheIsle.TIAICarnotaurus" },
+    Ceratosaurus   = { AI_ROOT .. "Dinosaurs/Ceratosaurus/BP_Ceratosaurus.BP_Ceratosaurus_C", "/Script/TheIsle.TIAICeratosaurusController" },
+    Dilophosaurus  = { AI_ROOT .. "Dinosaurs/Dilophosaurus/BP_Dilophosaurus.BP_Dilophosaurus_C", "/Script/TheIsle.TIAIDilophosaurusController" },
+    Omniraptor     = { AI_ROOT .. "Dinosaurs/Omniraptor/BP_Omniraptor.BP_Omniraptor_C", "/Script/TheIsle.TIAIOmniraptor" },
+    Herrerasaurus  = { AI_ROOT .. "Dinosaurs/Herrerasaurus/BP_Herrerasaurus.BP_Herrerasaurus_C", "/Script/TheIsle.TIAIOmniraptor" },
+    Troodon        = { AI_ROOT .. "Dinosaurs/Troodon/BP_Troodon.BP_Troodon_C", AI_CTRL .. "Dinos/BP_AI_Compsognathus_Controller.BP_AI_Compsognathus_Controller_C" },
+    Deinosuchus    = { AI_ROOT .. "Dinosaurs/Deinosuchus/BP_Deinosuchus.BP_Deinosuchus_C", "/Script/TheIsle.TIAIDeinosuchus" },
+    Pteranodon     = { AI_ROOT .. "Dinosaurs/Pteranodon/BP_Pteranodon.BP_Pteranodon_C", "/Script/TheIsle.TIAIPteranodon" },
+
+    -- Prey.
+    Dryosaurus     = { AI_ROOT .. "Dinosaurs/Dryosaurus/BP_Dryosaurus.BP_Dryosaurus_C", "/Script/TheIsle.TIAIDryosaurusController" },
+    Hypsilophodon  = { AI_ROOT .. "Dinosaurs/Hypsilophodon/BP_Hypsilophodon.BP_Hypsilophodon_C", "/Script/TheIsle.TIAIHypsilophodon" },
+    Gallimimus     = { AI_ROOT .. "Dinosaurs/Gallimimus/BP_Gallimimus.BP_Gallimimus_C", "/Script/TheIsle.TIAIGallimimusController" },
+    Tenontosaurus  = { AI_ROOT .. "Dinosaurs/Tenontosaurus/BP_Tenontosaurus.BP_Tenontosaurus_C", "/Script/TheIsle.TIAITenontosaurusController" },
+    Maiasaura      = { AI_ROOT .. "Dinosaurs/Maiasaura/BP_Maiasaura.BP_Maiasaura_C", "/Script/TheIsle.TIAITenontosaurusController" },
+    Diabloceratops = { AI_ROOT .. "Dinosaurs/Diabloceratops/BP_Diabloceratops.BP_Diabloceratops_C", "/Script/TheIsle.TIAIDiabloceratopsController" },
+    Beipiaosaurus  = { AI_ROOT .. "Dinosaurs/Beipiaosaurus/BP_Beipiaosaurus.BP_Beipiaosaurus_C", AI_CTRL .. "Dinos/BP_AI_Compsognathus_Controller.BP_AI_Compsognathus_Controller_C" },
+    Compsognathus  = { AI_ROOT .. "Dinosaurs/Compsognathus/BP_Compsognathus.BP_Compsognathus_C", AI_CTRL .. "Dinos/BP_AI_Compsognathus_Controller.BP_AI_Compsognathus_Controller_C" },
+
+    -- The big herbivores have no brain of their own and borrow the
+    -- Diabloceratops one. Upstream verified all three.
+    Triceratops    = { AI_ROOT .. "Dinosaurs/Triceratops/BP_Triceratops.BP_Triceratops_C", AI_CTRL .. "Dinos/BP_AI_Diabloceratops_Controller.BP_AI_Diabloceratops_Controller_C" },
+    Stegosaurus    = { AI_ROOT .. "Dinosaurs/Stegosaurus/BP_Stegosaurus.BP_Stegosaurus_C", AI_CTRL .. "Dinos/BP_AI_Diabloceratops_Controller.BP_AI_Diabloceratops_Controller_C" },
+    Pachycephalosaurus = { AI_ROOT .. "Dinosaurs/Pachycephalosaurus/BP_Pachycephalosaurus.BP_Pachycephalosaurus_C", AI_CTRL .. "Dinos/BP_AI_Diabloceratops_Controller.BP_AI_Diabloceratops_Controller_C" },
+
+    -- Small animals: the stuff that makes the island feel lived in.
+    Boar           = { AI_ROOT .. "Animals/Boar/BP_Boar.BP_Boar_C", "/Script/TheIsle.TIAIBoarController" },
+    Deer           = { AI_ROOT .. "Animals/Deer/BP_Deer.BP_Deer_C", AI_CTRL .. "Animals/BP_AI_Deer_Controller.BP_AI_Deer_Controller_C" },
+    Goat           = { AI_ROOT .. "Animals/Goat/BP_goat.BP_Goat_C", "/Script/TheIsle.TIAIGoatController" },
+    Rabbit         = { AI_ROOT .. "Animals/Rabbit/BP_Rabbit.BP_Rabbit_C", "/Script/TheIsle.TIAIRabbitController" },
+    Chicken        = { AI_ROOT .. "Animals/Chicken/BP_Chicken.BP_Chicken_C", "/Script/TheIsle.TIAIChickenController" },
+    Crab           = { AI_ROOT .. "Animals/Crab/BP_Crab.BP_Crab_C", "/Script/TheIsle.TIAICrabController" },
+    Bullfrog       = { AI_ROOT .. "Animals/Bullfrog/BP_Bullfrog.BP_Bullfrog_C", "/Script/TheIsle.TIAIFrogController" },
+    Seaturtle      = { AI_ROOT .. "Animals/Seaturtle/BP_Seaturtle.BP_Seaturtle_C", "/Script/TheIsle.TIAISeaturtleController" },
+}
+
+local MAX_AI_PER_CALL = 10
+
+local function handleAI(cmd)
+    local species = safeString(cmd.args and cmd.args.species)
+    local pair = species and AI_PAIRS[species] or nil
+    if pair == nil then
+        writeResult(cmd.id, "ai", cmd.steam, false,
+            "no AI is known for " .. tostring(species))
+        return
+    end
+
+    local count = tonumber(cmd.args and cmd.args.count) or 1
+    if count < 1 then count = 1 end
+    if count > MAX_AI_PER_CALL then count = MAX_AI_PER_CALL end
+
+    -- Spawned relative to whoever asked. There is no reliable way to pick a
+    -- sensible world position blind, and AI dropped in the sea is wasted.
+    local pawn, err = resolvePlayer(cmd.steam)
+    if pawn == nil then
+        writeResult(cmd.id, "ai", cmd.steam, false, err)
+        return
+    end
+    local at = locationOf(pawn)
+    if at == nil then
+        writeResult(cmd.id, "ai", cmd.steam, false, "could not find where you are")
+        return
+    end
+
+    local gm = findGameMode()
+    local world
+    pcall(function() world = gm:GetWorld() end)
+    if world == nil then
+        writeResult(cmd.id, "ai", cmd.steam, false, "could not reach the world")
+        return
+    end
+
+    local pawnCls, ctrlCls
+    pcall(function() pawnCls = StaticFindObject(pair[1]) end)
+    pcall(function() ctrlCls = StaticFindObject(pair[2]) end)
+    if pawnCls == nil or ctrlCls == nil then
+        writeResult(cmd.id, "ai", cmd.steam, false,
+            "this build does not have the classes for " .. species)
+        return
+    end
+
+    local spawned = 0
+    for n = 1, count do
+        safeCall("aiSpawn", function()
+            -- Spread them so they do not spawn inside one another, and drop them
+            -- from above so they settle on the ground rather than in it.
+            local offset = 300 + (n * 250)
+            local loc = { X = at.X + offset, Y = at.Y + offset, Z = at.Z + 500 }
+
+            local ai
+            pcall(function() ai = world:SpawnActor(pawnCls, loc, { Pitch = 0, Yaw = 0, Roll = 0 }) end)
+            if ai == nil then return end
+
+            local addr = 0
+            pcall(function() addr = ai:GetAddress() end)
+            if addr == nil or addr == 0 then return end
+
+            local brain
+            pcall(function()
+                brain = world:SpawnActor(ctrlCls, { X = at.X, Y = at.Y, Z = at.Z },
+                    { Pitch = 0, Yaw = 0, Roll = 0 })
+            end)
+            if brain == nil then return end
+
+            -- The brain boots on Possess; there is no separate start call.
+            pcall(function() brain:Possess(ai) end)
+
+            -- Growth resets vitals, so it goes first and they are refilled after.
+            pcall(function() ai:SetGrowth(1.0) end)
+            pcall(function() ai:SetHealth(ai:GetMaxHealth()) end)
+            pcall(function() ai:SetFood(ai:GetMaxFoodValue()) end)
+            pcall(function() ai:SetThirst(ai:GetMaxThirst()) end)
+
+            -- Distance-based relevance only: bAlwaysRelevant crashes clients
+            -- during join bursts.
+            pcall(function() ai:SetReplicates(true) end)
+            pcall(function() ai:ForceNetUpdate() end)
+
+            spawned = spawned + 1
+        end)
+    end
+
+    writeResult(cmd.id, "ai", cmd.steam, spawned > 0,
+        spawned > 0
+            and string.format("spawned %d %s", spawned, species)
+            or ("could not spawn " .. species))
+end
+
 local function dispatch(cmd)
     if type(cmd) ~= "table" then return end
 
@@ -1615,6 +1838,8 @@ local function dispatch(cmd)
     elseif verb == "skinget" then handleSkinGet(cmd)
     elseif verb == "skinmany" then handleSkinMany(cmd)
     elseif verb == "pattern" then handlePattern(cmd)
+    elseif verb == "notify" then handleNotify(cmd)
+    elseif verb == "ai" then handleAI(cmd)
     else writeResult(cmd.id, verb, cmd.steam, false, "unknown command: " .. verb) end
 end
 

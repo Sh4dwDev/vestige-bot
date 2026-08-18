@@ -18,7 +18,8 @@ import type { Config } from './config.js';
 
 export type Verb =
   | 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players'
-  | 'give' | 'teleport' | 'where' | 'skinget' | 'skinmany' | 'pattern';
+  | 'give' | 'teleport' | 'where' | 'skinget' | 'skinmany' | 'pattern'
+  | 'notify' | 'ai';
 
 export interface StoredSlot {
   slot: string;
@@ -241,6 +242,31 @@ export class ModBridge {
         text: entry.msg.trim(),
         data: entry.data,
       }));
+  }
+
+  /**
+   * A persistent on-screen notice, the same one the game uses for prime.
+   *
+   * Preferred over RCON `directmessage` for anything a player needs to read:
+   * that renders over the game's own ANNOUNCEMENT label and is gone in about a
+   * second, which is fine for a link code and useless for anything else.
+   *
+   * Never throws. A notice is always a nicety on top of a Discord reply that
+   * already went out, so failing to show one must not fail the command.
+   */
+  async notify(steamId: string, message: string): Promise<boolean> {
+    try {
+      return (await this.run('notify', steamId, { message }, { quiet: true })).ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Spawns AI wildlife near a player. Returns what the mod actually managed. */
+  async spawnAI(steamId: string, species: string, count: number): Promise<string> {
+    const result = await this.run('ai', steamId, { species, count });
+    if (!result.ok) throw new Error(result.msg);
+    return result.msg;
   }
 
   /** Who is playing what, right now. */

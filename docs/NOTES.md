@@ -135,31 +135,71 @@ down from Lua on FText marshalling and is C++ only. So `!discord` is answered by
 the bot over RCON. Any future chat command works the same way: the mod raises an
 event, the bot replies.
 
-## On-screen notifications — DO NOT ATTEMPT FROM LUA
+## On-screen notifications — the FText is the whole trick
 
 `ClientShowNotification` is the persistent on-screen notice the game uses for
-prime conditions. Upstream describes it as "reliably callable from Lua ... the
-workhorse notify path across every mod".
+prime conditions. It is the only in-game text that stays put; an RCON
+`directmessage` draws over the ANNOUNCEMENT label and is gone in about a second.
 
-**On this build it crashes the server.** Tried 2026-08-17 on 0.21.720, called
-from the inbox tick on a freshly-resolved controller — exactly the documented
-conditions, with a plain Lua string as the message:
+**It crashed this server on 2026-08-17** — called from the inbox tick on a
+freshly-resolved controller, with a plain Lua string as the message:
 
 ```
 Unhandled Exception: EXCEPTION_ACCESS_VIOLATION reading address 0x70
 [Callstack] UE4SS.dll  (deeply recursive)
 ```
 
-The server died within seconds. The recursion through UE4SS suggests the FText
-parameter, the same marshalling that makes `UpdateChat` C++ only — a raw string
-is evidently not an acceptable FText here.
+That note used to end "do not re-add a notify verb without a way to construct a
+real FText, which Lua has no obvious route to." **There is a route**, and the
+crash was the argument, not the function:
 
-`pcall` does not save you: the crash is native. **Do not re-add a notify verb
-without a way to construct a real FText**, which Lua has no obvious route to.
+```lua
+local function makeText(message)
+    if FText == nil then return nil end
+    local ok, ft = pcall(function() return FText(message) end)
+    if ok and ft ~= nil then return ft end
+    return nil
+end
+```
 
-Until then, RCON `directmessage` is the only way to reach a player in game. It
-renders as a banner that vanishes in about a second, which is a real limitation
-and the reason linking works the way it does.
+UE4SS marshals a bare Lua string into an FText whose internal shared reference
+is not what the serializer expects; it dereferences during replication and
+faults. Constructing a real `FText` first is the fix.
+
+Three rules, all enforced in `handleNotify`:
+
+- **Build the FText, or refuse.** If `FText` is unavailable, do not fall back to
+  the raw string — that is precisely the call that took the server down, and
+  `pcall` does not catch a native fault.
+- **Call it from a tick**, never inside a native hook. The inbox poll is one.
+- **Resolve the controller fresh** with `gm:GetControllerBySteamId(steam)`. A
+  controller cached from a hook parameter is a stale pointer.
+
+It is a **Client RPC on one controller**, so it reaches one player. There is no
+broadcast form — a server-wide notice means looping the online list.
+
+## AI wildlife
+
+There is no config or RCON route to *add* AI. `0x90 ToggleAI` only switches what
+the game spawns for itself. Adding any means spawning a pawn and its matching
+controller from Lua, which upstream documents in `EVRIMA_AI_Spawn_Pairs.md`.
+
+The pairs are **not interchangeable**, and several species have no brain of
+their own — Triceratops, Stegosaurus and Pachycephalosaurus all borrow the
+Diabloceratops controller; Allosaurus borrows the Rex one. The verified table
+lives in `AI_PAIRS` in the mod, mirrored by name in
+[../src/wildlife.ts](../src/wildlife.ts); a test fails if the two drift.
+
+Order matters: `Possess` first (the brain boots on possession, there is no
+separate start call), then `SetGrowth`, then refill vitals — growth resets them.
+
+Two rules that have each cost a server elsewhere:
+
+- **Never `K2_DestroyActor` a spawned AI.** If gameplay already removed the
+  pawn, the destroy call is an uncatchable native crash. Cleanup is a restart or
+  RCON ToggleAI.
+- **Never set `bAlwaysRelevant`.** It crashes clients during join bursts. Leave
+  relevance distance-based.
 
 ## Config files are rewritten on shutdown
 

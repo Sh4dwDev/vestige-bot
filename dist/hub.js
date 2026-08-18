@@ -100,8 +100,7 @@ export async function handleHubInteraction(ctx, interaction) {
                         .setDescription('They have not been moved.')],
                 components: [],
             });
-            await ctx.rcon.directMessage(request.fromSteam, 'Teleport declined')
-                .catch(() => undefined);
+            await ctx.mod.notify(request.fromSteam, 'Your travel request was declined');
             return true;
         }
         request.accepted = true;
