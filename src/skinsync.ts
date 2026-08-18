@@ -16,6 +16,11 @@ import { encodeColours } from './skins.js';
  *   * they die, since respawning builds a fresh pawn
  *   * the bot starts up, because it cannot know what happened while it was down
  *
+ * A look belongs to a **dinosaur**, not to the player. Dying clears the stored
+ * colours (see the kill handler in index.ts), so the next one spawns in the
+ * game's own colours rather than inheriting a skin set weeks ago. Storing does
+ * not count as dying, so a stored dinosaur keeps what it was painted.
+ *
  * Deliberately not reapplied every poll: that would be a write per player per
  * minute forever, to fix something that only breaks on those three events.
  */

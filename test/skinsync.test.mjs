@@ -1,6 +1,8 @@
 // Reapplying skins. The engine drops colours on relog, respawn and restart, so
 // the bot repaints from its record — and the bugs here are all about the bot
 // wrongly believing it has already done so.
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -8,6 +10,8 @@ const root = path.resolve(import.meta.dirname, '..');
 const { reapplySkins, skinNeedsReapply, forgetAllPainted } = await import(
   pathToFileURL(path.join(root, 'dist/skinsync.js')).href
 );
+
+const { Database } = await import(pathToFileURL(path.join(root, 'dist/db.js')).href);
 
 const results = [];
 const check = (name, ok, detail = '') => {
@@ -189,6 +193,24 @@ const quiet = () => {};
   const ctx = makeCtx(skins);
   await reapplySkins(ctx, [{ species: 'Tyrannosaurus', growth: 1, female: false, prime: false }], quiet);
   check('a row with no steam id is skipped', ctx.sent.length === 0);
+}
+
+// A look belongs to a dinosaur, not to the player. Dying has to clear it, or a
+// skin set once follows someone onto every Allosaurus they ever spawn.
+{
+  const db = new Database(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'vesta-')), 's.sqlite'));
+  db.setSkin('76561198000000001', 'Allosaurus', 'BodyColor=1,0,0');
+  db.setSkin('76561198000000001', 'Tyrannosaurus', 'BodyColor=0,1,0');
+
+  check('a look is saved', db.skinFor('76561198000000001', 'Allosaurus') !== null);
+
+  db.clearSkin('76561198000000001', 'Allosaurus');
+  check('dying as one species clears that look',
+    db.skinFor('76561198000000001', 'Allosaurus') === null);
+  check('and leaves their other species alone',
+    db.skinFor('76561198000000001', 'Tyrannosaurus') !== null);
+
+  db.close();
 }
 
 const failed = results.filter((r) => !r).length;

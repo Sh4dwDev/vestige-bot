@@ -305,6 +305,16 @@ async function handleChatEvent(
 
     ctx.db.recordKill(kill.killer, kill.victim, kill.species, kill.cause);
 
+    // The look belonged to that dinosaur, not to the player forever. Dying ends
+    // it, so whatever they spawn next is the game's own colours until an admin
+    // paints it again — otherwise a skin set once follows someone across every
+    // Allosaurus they ever play.
+    //
+    // Storing and slaying reach here as SetHealth(0) too, but the mod does not
+    // emit a kill for those: they are excluded while the player is `busy`. So a
+    // stored dinosaur keeps its colours, which is what restore replays.
+    if (kill.species) ctx.db.clearSkin(kill.victim, kill.species);
+
     // Respawning builds a fresh pawn, which has none of their colours.
     skinNeedsReapply(kill.victim);
 
