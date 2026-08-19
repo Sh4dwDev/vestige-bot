@@ -90,11 +90,15 @@ export async function checkSpeciesLocks(ctx, client, players, log) {
         }
         // In game as well: the people who need to know are the ones about to spawn
         // it, and they are not reading Discord at that moment.
+        //
+        // These land in chat as <RCON>, where they persist and wrap, so they say
+        // what happened and why rather than being clipped to a code. A line reading
+        // "Rex LOCKED (5/5)" makes people ask what it means; this does not.
         await ctx.rcon
-            // Short: these draw over the game's own ANNOUNCEMENT label.
             .announce(change.locked
-            ? `${change.species} LOCKED (${change.count}/${change.cap})`
-            : `${change.species} open again`)
+            ? `${change.species} has been locked (population limit reached: ` +
+                `${change.count}/${change.cap}). Please pick another species for now.`
+            : `${change.species} has been unlocked (population below limit).`)
             .catch(() => undefined);
     }
 }

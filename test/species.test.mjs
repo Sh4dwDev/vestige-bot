@@ -101,6 +101,32 @@ fs.rmSync(path.dirname(file), { recursive: true, force: true });
   check('the adult threshold is shown per species', /50%\+/.test(rex?.value ?? ''), rex?.value);
 }
 
+// Lock notices land in chat as <RCON>, where they persist and wrap. They say
+// what happened and why: "Rex LOCKED (5/5)" makes people ask what it means.
+{
+  const source = fs.readFileSync(path.join(root, 'src/species.ts'), 'utf8');
+  const call = source.slice(source.indexOf('.announce(change.locked'),
+    source.indexOf('.catch(() => undefined);', source.indexOf('.announce(change.locked')));
+
+  check('a lock says it is locked, in words', /has been locked/.test(call));
+  check('and says why, with the numbers', /population limit reached/.test(call)
+    && /change\.count/.test(call) && /change\.cap/.test(call));
+  check('and tells players what to do about it', /pick another species/.test(call));
+  check('an unlock says it is unlocked', /has been unlocked/.test(call));
+  check('and why it reopened', /population below limit/.test(call));
+  // Only executable lines: the comment above the call quotes the old form on
+  // purpose, so that a future reader knows what this replaced.
+  const code = source.split(/\r?\n/).filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+  check('the old shouty code form is gone', !/LOCKED \(/.test(code));
+  check('but it is still recorded in a comment, so it stays replaced',
+    /LOCKED \(/.test(source));
+  // Non-ASCII is a real hazard for anything the bot sends in game, so the
+  // source of these lines is held to printable ASCII plus whitespace.
+  check('in-game lines stay plain ASCII',
+    !/[^\x20-\x7E\s]/.test(call),
+    (call.match(/[^\x20-\x7E\s]/g) ?? []).join(''));
+}
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
 process.exit(failed === 0 ? 0 : 1);

@@ -188,6 +188,40 @@ function cleanupSettingsOf() {
 db.close();
 fs.rmSync(path.dirname(file), { recursive: true, force: true });
 
+// In-game warning text. These land in chat as <RCON>, where they persist and
+// wrap, so they say what is about to happen rather than being clipped.
+{
+  const { cleanupWarning, CLEANUP_WARNINGS } = cleanup;
+
+  check('players are warned twice, not once', CLEANUP_WARNINGS.length === 2,
+    CLEANUP_WARNINGS.join(','));
+  check('the early warning gives real notice', Math.max(...CLEANUP_WARNINGS) >= 10);
+  check('the ten minute notice says what will be cleared',
+    /10 minutes/.test(cleanupWarning(10)) && /Bodies/.test(cleanupWarning(10)),
+    cleanupWarning(10));
+  check('the last one tells people to finish eating',
+    /\b1 minute\b/.test(cleanupWarning(1)) && /eating/.test(cleanupWarning(1)),
+    cleanupWarning(1));
+  check('it never says "1 minutes"', !/1 minutes/.test(cleanupWarning(1)));
+  check('warnings are plain ASCII, like every other in-game line',
+    CLEANUP_WARNINGS.every((m) => /^[ -~]*$/.test(cleanupWarning(m))));
+
+  // Walking a cycle: the right text must fire at the right time. Taking the
+  // first match in list order would announce "10 minutes" with one to go.
+  const fired = [];
+  const seen = new Set();
+  for (let m = 12; m >= 0; m -= 1) {
+    const due = CLEANUP_WARNINGS.filter((w) => m <= w && !seen.has(w));
+    if (due.length > 0) {
+      const at = Math.max(...due);
+      due.forEach((w) => seen.add(w));
+      fired.push(`${m}->${at}`);
+    }
+  }
+  check('each threshold announces its own number', fired.join(' ') === '10->10 1->1',
+    fired.join(' '));
+}
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
 process.exit(failed === 0 ? 0 : 1);

@@ -78,6 +78,22 @@ export function collidesWithRestart(
   return Math.abs(restartAt.getTime() - cleanupAt.getTime()) <= RESTART_GUARD_MS;
 }
 
+/** Minutes before a cleanup at which players are told, in game. */
+export const CLEANUP_WARNINGS = [10, 1] as const;
+
+/**
+ * These land in chat as <RCON>, where they persist and wrap, so they can say
+ * what is actually about to happen rather than being clipped to a countdown.
+ * ASCII only, like everything else the bot sends in game.
+ */
+export function cleanupWarning(minutes: number): string {
+  return minutes === 1
+    ? 'Server cleanup in 1 minute to keep performance smooth. Bodies will be '
+      + 'cleared, so finish eating.'
+    : `Server cleanup in ${minutes} minutes to keep performance smooth. Bodies `
+      + 'and excess AI will be cleared.';
+}
+
 export async function wipeNow(ctx: Ctx, log: (m: string) => void): Promise<boolean> {
   try {
     await ctx.rcon.wipeCorpses();
@@ -161,7 +177,7 @@ export async function clearAI(ctx: Ctx, log: (m: string) => void): Promise<AIRes
  */
 export function startCleanupScheduler(ctx: Ctx, log: (m: string) => void): void {
   let cycle = 0;
-  let warned = false;
+  const warned = new Set<number>();
   let swept = false;
 
   const tick = async (): Promise<void> => {
@@ -173,24 +189,32 @@ export function startCleanupScheduler(ctx: Ctx, log: (m: string) => void): void 
 
     if (due.getTime() !== cycle) {
       cycle = due.getTime();
-      warned = false;
+      warned.clear();
       swept = false;
     }
 
     const restarts = restartSettings(ctx);
     if (collidesWithRestart(due, nextRestart(now, restarts.intervalHours), restarts.enabled)) {
       // Claim the cycle so it is not reconsidered on every tick.
-      warned = true;
+      for (const at of CLEANUP_WARNINGS) warned.add(at);
       swept = true;
       return;
     }
 
     const minutes = Math.ceil((due.getTime() - now.getTime()) / 60_000);
 
-    if (!warned && minutes <= 1) {
-      warned = true;
-      // Short: this draws over the game's own ANNOUNCEMENT label.
-      await ctx.rcon.announce('Cleanup in 1 min').catch(() => undefined);
+    // Two warnings, not one: a single notice a minute out is no use to someone
+    // mid-meal on a body that is about to disappear.
+    //
+    // Fire the LARGEST threshold passed but not yet sent, and mark them all.
+    // Taking the first match in list order would announce "10 minutes" when one
+    // minute remains, and a bot that was down across the 10 would otherwise
+    // announce it late.
+    const dueWarnings = CLEANUP_WARNINGS.filter((w) => minutes <= w && !warned.has(w));
+    if (dueWarnings.length > 0) {
+      const at = Math.max(...dueWarnings);
+      for (const w of dueWarnings) warned.add(w);
+      await ctx.rcon.announce(cleanupWarning(at)).catch(() => undefined);
     }
 
     if (!swept && isDue(now, due)) {

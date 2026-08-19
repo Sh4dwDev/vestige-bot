@@ -16,6 +16,14 @@ export declare function nextCleanup(now: Date, hours: number): Date;
  * should have it instead.
  */
 export declare function collidesWithRestart(cleanupAt: Date, restartAt: Date, restartsOn: boolean): boolean;
+/** Minutes before a cleanup at which players are told, in game. */
+export declare const CLEANUP_WARNINGS: readonly [10, 1];
+/**
+ * These land in chat as <RCON>, where they persist and wrap, so they can say
+ * what is actually about to happen rather than being clipped to a countdown.
+ * ASCII only, like everything else the bot sends in game.
+ */
+export declare function cleanupWarning(minutes: number): string;
 export declare function wipeNow(ctx: Ctx, log: (m: string) => void): Promise<boolean>;
 /** `AI spawns are now On` / `... now Off` — the reply is the only state readout. */
 export declare function aiStateFromReply(reply: string): boolean | null;

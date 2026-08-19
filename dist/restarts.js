@@ -77,27 +77,31 @@ export function setRestartAnnounce(ctx, channelId, roleId) {
     ctx.db.setSetting(ROLE_KEY, roleId ?? '');
 }
 // ------------------------------------------------------------------ notice --
-/**
- * Short by necessity: the game draws these across its own ANNOUNCEMENT label,
- * so a long line runs straight through it and becomes unreadable.
- */
 function inGameWarning(minutes) {
-    // Each one says what to DO, not just what the clock says. A bare countdown
-    // makes people watch the number; telling them to find cover makes them move.
-    // Kept ASCII — a notification with an em dash never arrives (see bridge.ts).
+    // These land in chat as <RCON>, where they persist and wrap, so they can be
+    // full sentences. An earlier version kept them clipped on the assumption they
+    // drew over the game's own ANNOUNCEMENT label; a screenshot of the live chat
+    // showed otherwise.
+    //
+    // Each says what to DO, not just what the clock says. A bare countdown makes
+    // people watch the number; telling them to find cover makes them move.
+    // ASCII only, to match every other line the bot sends in game.
     switch (minutes) {
         case 60:
-            return 'Server restarts in 1 hour - plan your route';
+            return 'Server restart in 60 minutes. Plan your route and know where you '
+                + 'want to be sitting when it goes down.';
         case 30:
-            return 'Restart in 30 min - start heading somewhere safe';
+            return 'Server restart in 30 minutes. Start heading somewhere safe.';
         case 15:
-            return 'Restart in 15 min - finish up and find cover';
+            return 'Server restart in 15 minutes. Finish what you are doing and find '
+                + 'cover.';
         case 5:
-            return 'Restart in 5 min - find a safe spot to log out';
+            return 'Server restart in 5 minutes. Find a safe spot and log out. The '
+                + 'world is saved first, so nothing is lost.';
         case 1:
-            return 'Restart in 1 min - log out safe NOW';
+            return 'Server restart in 1 minute. Log out somewhere safe now.';
         default:
-            return `Restart in ${minutes} min - find a safe spot to log out`;
+            return `Server restart in ${minutes} minutes. Find a safe spot to log out.`;
     }
 }
 export function buildRestartEmbed(minutes, restart) {
