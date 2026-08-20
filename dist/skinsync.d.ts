@@ -12,4 +12,9 @@ export declare function forgetPainted(steamId: string): void;
  * exactly the "skins do not survive a restart" case.
  */
 export declare function forgetAllPainted(): void;
+export declare const DEFAULT_EXPIRY_HOURS = 6;
+export declare function skinExpiryHours(ctx: Ctx): number;
+export declare function setSkinExpiryHours(ctx: Ctx, hours: number): void;
+/** Called from the poll. Returns how many were forgotten. */
+export declare function expireOldSkins(ctx: Ctx, log: (m: string) => void): number;
 export declare function reapplySkins(ctx: Ctx, players: PlayerRow[], log: (m: string) => void): Promise<void>;

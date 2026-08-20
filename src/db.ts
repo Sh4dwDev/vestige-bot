@@ -390,6 +390,34 @@ export class Database {
     );
   }
 
+  /**
+   * Marks a look as still in use, because it was just repainted onto a live
+   * dinosaur. Expiry counts from here rather than from when it was set, so a
+   * dinosaur somebody is actually playing never expires under them.
+   */
+  touchSkin(steamId: string, species: string): void {
+    this.#db
+      .prepare('UPDATE player_skins SET set_at = ? WHERE steam_id = ? AND species = ?')
+      .run(new Date().toISOString(), steamId, species);
+  }
+
+  /**
+   * Forgets looks nobody has worn for a while.
+   *
+   * A skin belongs to a dinosaur, and a dinosaur that has not been seen for
+   * hours is gone — logged off, or died somewhere the death poll missed.
+   * Without this, a colour set once was reapplied to the next animal of that
+   * species days later, which is what players actually notice and complain
+   * about. Clearing on death alone is not enough, because a death is only
+   * cleared when it is *detected*.
+   */
+  expireSkins(olderThanMs: number): number {
+    const cutoff = new Date(Date.now() - olderThanMs).toISOString();
+    return Number(
+      this.#db.prepare('DELETE FROM player_skins WHERE set_at < ?').run(cutoff).changes,
+    );
+  }
+
   /** Null when they have never been given one, so the game's own is left alone. */
   setPattern(steamId: string, species: string, pattern: number | null): void {
     this.#db
@@ -551,10 +579,17 @@ export class Database {
     ) > 0;
   }
 
-  /** Newest first: the interesting question is usually who just claimed. */
+  /**
+   * Newest first: the interesting question is usually who just claimed.
+   *
+   * Tie-broken on rowid, because two people pressing the button together land
+   * in the same millisecond and `claimed_at` alone leaves their order to
+   * whatever SQLite feels like — which is not an ordering anybody can explain.
+   */
   founders(limit = 50): Array<{ discordId: string; skin: string; claimedAt: number }> {
     return (this.#db
-      .prepare('SELECT discord_id, skin, claimed_at FROM founders ORDER BY claimed_at DESC LIMIT ?')
+      .prepare(`SELECT discord_id, skin, claimed_at FROM founders
+                ORDER BY claimed_at DESC, rowid DESC LIMIT ?`)
       .all(limit) as Array<Record<string, unknown>>)
       .map((row) => ({
         discordId: String(row['discord_id']),

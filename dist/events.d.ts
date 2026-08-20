@@ -45,6 +45,16 @@ export declare function buildEventOverEmbed(species: string, kind: EventKind): E
 /** ASCII, and a full sentence: these land in chat as <RCON> and stay there. */
 export declare function eventAnnounce(event: SpeciesEvent, bonus: number): string;
 export declare function overAnnounce(species: string, kind: EventKind): string;
+/** So the next event tells everybody again rather than staying quiet. */
+export declare function forgetTold(): void;
+export declare function personalMessage(species: string, bonus: number, invite: string): string;
+/**
+ * Messages the players in an endangered event right now.
+ *
+ * Never throws: this sits on top of an announcement that already went out, and
+ * a failed message must not take the population poll down with it.
+ */
+export declare function tellPlayersInEvents(ctx: Ctx, players: PlayerRow[], log: (m: string) => void): Promise<void>;
 /**
  * Called from the population poll, which already has the player list.
  *

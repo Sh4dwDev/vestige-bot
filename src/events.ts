@@ -186,6 +186,79 @@ export function overAnnounce(species: string, kind: EventKind): string {
     : `${species} numbers have recovered. Playing one pays the usual again.`;
 }
 
+// ------------------------------------------------------- personal notices --
+
+/**
+ * Telling the player who is actually in the event.
+ *
+ * A server-wide announce says a species is endangered; it does not tell the one
+ * person playing it that this means them. That person is the entire point of an
+ * endangered event, so they get told directly with the reward spelled out.
+ *
+ * **Endangered only.** A cull event stays a server-wide announce because its
+ * audience is everyone hunting, not the animal being hunted — messaging someone
+ * to say a bounty is on them adds nothing they can act on.
+ *
+ * `directmessage` rather than an on-screen notice: it lands in local chat with
+ * the server as the sender and stays there, so it can be read twice. ASCII,
+ * like every other line the bot sends in game.
+ */
+
+/** Re-sent this often, so somebody who spawns mid-event still finds out. */
+const REMIND_MS = 15 * 60_000;
+
+/** `steam|species` -> when they were last told. */
+const told = new Map<string, number>();
+
+/** So the next event tells everybody again rather than staying quiet. */
+export function forgetTold(): void {
+  told.clear();
+}
+
+export function personalMessage(species: string, bonus: number, invite: string): string {
+  return `You are playing as an Endangered species: ${species}! You earn ${bonus}x `
+    + 'points for every minute you stay alive on it. Help repopulate it.'
+    + (invite ? ` Join Discord: ${invite}` : '');
+}
+
+/**
+ * Messages the players in an endangered event right now.
+ *
+ * Never throws: this sits on top of an announcement that already went out, and
+ * a failed message must not take the population poll down with it.
+ */
+export async function tellPlayersInEvents(
+  ctx: Ctx,
+  players: PlayerRow[],
+  log: (m: string) => void,
+): Promise<void> {
+  const settings = eventSettings(ctx);
+  if (!settings.enabled) return;
+
+  const active = activeEvents(ctx);
+  if (active.size === 0) return;
+
+  const now = Date.now();
+
+  for (const player of players) {
+    if (!player.steam || !player.species) continue;
+    if (active.get(player.species) !== 'rare') continue;
+
+    const key = `${player.steam}|${player.species}`;
+    if (now - (told.get(key) ?? 0) < REMIND_MS) continue;
+    told.set(key, now);
+
+    await ctx.rcon
+      .directMessage(
+        player.steam,
+        personalMessage(player.species, settings.rareBonus, ctx.config.discordInvite),
+      )
+      .catch(() => undefined);
+
+    log(`event: told ${player.steam} they are an endangered ${player.species}`);
+  }
+}
+
 /**
  * Called from the population poll, which already has the player list.
  *
@@ -231,6 +304,8 @@ export async function checkEvents(
     await send(buildEventEmbed(event, bonus));
     await ctx.rcon.announce(eventAnnounce(event, bonus)).catch(() => undefined);
   }
+
+  if (ended.length > 0) forgetTold();
 
   for (const [species, kind] of ended) {
     log(`event: ${species} ${kind} over`);

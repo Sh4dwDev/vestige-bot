@@ -25,11 +25,15 @@ const DRYO = { steam: '76561198000000001', species: 'Dryosaurus', growth: 1, fem
 /** Records every skinmany the bot sends. */
 function makeCtx(skins, patterns = {}) {
   const sent = [];
+  const touches = { count: 0 };
   return {
     sent,
+    touches,
     db: {
       skinFor: (steam, species) => skins[`${steam}|${species}`] ?? null,
       patternFor: (steam, species) => patterns[`${steam}|${species}`] ?? null,
+      // Repainting keeps a look alive, so expiry only catches abandoned ones.
+      touchSkin: () => { touches.count += 1; },
     },
     mod: {
       run: async (verb, steam, args) => {
@@ -211,6 +215,39 @@ const quiet = () => {};
     db.skinFor('76561198000000001', 'Tyrannosaurus') !== null);
 
   db.close();
+}
+
+// Expiry. Reported live: a colour set days earlier was still being applied to a
+// new dinosaur on reconnect. Clearing on death is not enough, because a death
+// is only cleared when it is DETECTED - log off with the animal alive and the
+// look sits there indefinitely.
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vesta-'));
+  const db = new Database(path.join(dir, 'x.sqlite'));
+
+  db.setSkin('76561198000000001', 'Allosaurus', { BodyColor: '#FF0000' });
+  db.setSkin('76561198000000001', 'Tyrannosaurus', { BodyColor: '#00FF00' });
+
+  check('a fresh look is kept', db.expireSkins(60_000) === 0);
+  check('and reads back', db.skinFor('76561198000000001', 'Allosaurus') !== null);
+
+  // Let both age past a one second window.
+  await new Promise((r) => setTimeout(r, 1100));
+
+  // Only one of them is being worn.
+  db.touchSkin('76561198000000001', 'Tyrannosaurus');
+
+  const gone = db.expireSkins(1000);
+  check('the one nobody wore is forgotten', gone === 1, `${gone} removed`);
+  check('and it is gone for good',
+    db.skinFor('76561198000000001', 'Allosaurus') === null);
+  check('the one being worn survives, because touching resets the clock',
+    db.skinFor('76561198000000001', 'Tyrannosaurus') !== null);
+
+  check('expiring an empty table is not an error', db.expireSkins(1000) >= 0);
+
+  db.close();
+  fs.rmSync(dir, { recursive: true, force: true });
 }
 
 const failed = results.filter((r) => !r).length;

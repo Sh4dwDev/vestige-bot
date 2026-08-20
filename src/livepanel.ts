@@ -3,8 +3,8 @@ import type { Client } from 'discord.js';
 import type { Ctx } from './commands.js';
 import { postOrEdit } from './pinned.js';
 import { buildPopulationEmbed } from './population.js';
-import { forgetAllPainted, reapplySkins } from './skinsync.js';
-import { checkEvents } from './events.js';
+import { expireOldSkins, forgetAllPainted, reapplySkins } from './skinsync.js';
+import { checkEvents, tellPlayersInEvents } from './events.js';
 import { checkSpeciesLocks } from './species.js';
 import { tierOf } from './tiers.js';
 
@@ -96,6 +96,15 @@ export function startPopulationPanel(ctx: Ctx, client: Client, log: (m: string) 
         // Shares the same counts: a species over its cap is both a lock and a
         // cull event, and neither costs an extra round trip.
         await checkEvents(ctx, client, players, log);
+
+        // And tell the people actually playing an endangered species, which a
+        // server-wide announcement does not do.
+        await tellPlayersInEvents(ctx, players, log);
+        // Forget looks nobody has worn for hours, before repainting: otherwise
+        // a colour set once is reapplied to the next animal of that species
+        // days later.
+        expireOldSkins(ctx, log);
+
         // Colours do not survive a relog, respawn or restart, so they are
         // reapplied from the record rather than expected to stick.
         await reapplySkins(ctx, players, log);

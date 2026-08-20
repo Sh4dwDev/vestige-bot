@@ -24,6 +24,7 @@ import { enforcementEnabled, enforcementFault, restoreAllPlayables, setEnforceme
 import { handleInGame, handleModeration } from './moderation.js';
 import { buildFounderPanel, founderLimit, FOUNDER_MESSAGE_KEY, founderRows, setFounderChannel, setFounderLimit, skinById, } from './founders.js';
 import { eventSettings, eventsFor, setCullBonus, setEventsEnabled, setRareBonus, } from './events.js';
+import { setSkinExpiryHours } from './skinsync.js';
 import { setSpeciesChannel } from './species.js';
 import { refreshStatusPanel, setStatusChannel } from './status.js';
 import { buildPopulationEmbed, tally } from './population.js';
@@ -188,6 +189,9 @@ export const commandData = [
         .addStringOption((o) => o.setName('part4').setDescription('Another part')
         .addChoices(...PARTS.map((p) => ({ name: p.label, value: p.field }))))
         .addStringOption((o) => o.setName('colour4').setDescription('Its colour').setAutocomplete(true)))
+        .addSubcommand((s) => s.setName('expiry').setDescription('How long a look survives without being worn')
+        .addIntegerOption((o) => o.setName('hours').setDescription('Default 6')
+        .setMinValue(1).setMaxValue(720).setRequired(true)))
         .addSubcommand((s) => s.setName('palette').setDescription('Show the preset colours'))
         .addSubcommand((s) => s.setName('pattern').setDescription('Change the pattern (A, B, C…)')
         .addUserOption((o) => o.setName('user').setDescription('Whose dinosaur').setRequired(true))
@@ -1064,6 +1068,21 @@ async function handleSkin(ctx, i, action) {
         await i.reply({
             embeds: [embed(COLORS.info, '🎨  Preset colours', PRESETS.map((p) => `\`${p.hex}\`  ${p.name}`).join('\n') +
                     '\n\nAny hex works too — these are just a starting point.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'expiry') {
+        const hours = i.options.getInteger('hours', true);
+        setSkinExpiryHours(ctx, hours);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Skin expiry set', `A look is forgotten after **${hours} hours** without being worn.
+
+` +
+                    'The clock runs from the last time it was actually painted onto a live ' +
+                    'dinosaur, so one being played never expires under its owner. It is the ' +
+                    'line between keeping a dinosaur looking right and a colour following ' +
+                    'somebody onto every animal of that species for weeks.')],
             flags: MessageFlags.Ephemeral,
         });
         return;

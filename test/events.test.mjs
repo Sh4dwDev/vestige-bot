@@ -122,6 +122,26 @@ check('turning events off stops every multiplier',
 db.close();
 fs.rmSync(path.dirname(file), { recursive: true, force: true });
 
+// The personal notice: the one player actually in an endangered event.
+// A server-wide announce says the species is endangered; it does not tell the
+// person playing it that this means them.
+{
+  const msg = ev.personalMessage('Ceratosaurus', 2, 'https://discord.gg/abc');
+
+  check('it addresses the player directly', /^You are playing as an Endangered/.test(msg), msg);
+  check('it names the species', /Ceratosaurus/.test(msg));
+  check('it says what they earn', /2x/.test(msg));
+  check('it says what earns it - staying alive, not killing',
+    /stay alive/.test(msg) && !/kill/i.test(msg));
+  check('it asks for the thing the event exists for', /repopulate/i.test(msg));
+  check('it links Discord when there is an invite', /discord\.gg/.test(msg));
+  check('and reads fine without one',
+    !/Join Discord/.test(ev.personalMessage('Rex', 2, '')));
+  check('it is plain ASCII, like every in-game line',
+    /^[ -~]*$/.test(msg));
+  check('it fits in a chat line', msg.length < 240, String(msg.length));
+}
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
 process.exit(failed === 0 ? 0 : 1);

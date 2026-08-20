@@ -51,6 +51,35 @@ export function forgetPainted(steamId) {
 export function forgetAllPainted() {
     painted.clear();
 }
+/**
+ * How long a look survives without being worn.
+ *
+ * The engine drops colours on relog, respawn and restart, so they have to be
+ * stored and reapplied — but stored forever means a skin set once follows
+ * somebody onto the next animal of that species days later. Expiry is the line
+ * between "keep my dinosaur looking right" and "haunt me".
+ *
+ * Counted from the last time it was actually painted onto a live pawn, so a
+ * dinosaur being played never expires under its owner. Six hours: long enough
+ * to survive a restart, a crash, or a night's sleep in the middle of a session;
+ * short enough that next week is a different animal.
+ */
+const EXPIRY_KEY = 'skin_expiry_hours';
+export const DEFAULT_EXPIRY_HOURS = 6;
+export function skinExpiryHours(ctx) {
+    const raw = Number.parseFloat(ctx.db.getSetting(EXPIRY_KEY) ?? '');
+    return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_EXPIRY_HOURS;
+}
+export function setSkinExpiryHours(ctx, hours) {
+    ctx.db.setSetting(EXPIRY_KEY, String(hours));
+}
+/** Called from the poll. Returns how many were forgotten. */
+export function expireOldSkins(ctx, log) {
+    const gone = ctx.db.expireSkins(skinExpiryHours(ctx) * 3_600_000);
+    if (gone > 0)
+        log(`skins: forgot ${gone} look(s) nobody has worn recently`);
+    return gone;
+}
 export async function reapplySkins(ctx, players, log) {
     const live = new Set(players
         .filter((p) => p.steam)
@@ -64,8 +93,12 @@ export async function reapplySkins(ctx, players, log) {
         if (!player.steam)
             continue;
         const entry = key(player.steam, player.species);
-        if (painted.has(entry))
+        if (painted.has(entry)) {
+            // Still on it: keep the look alive so expiry only ever catches dinosaurs
+            // nobody is playing any more.
+            ctx.db.touchSkin(player.steam, player.species);
             continue;
+        }
         // Sent first and on its own: an out-of-range pattern makes the client drop
         // the whole rebuild, so it must never share a write with the colours.
         const pattern = ctx.db.patternFor(player.steam, player.species);
@@ -86,6 +119,7 @@ export async function reapplySkins(ctx, players, log) {
             const result = await ctx.mod.run('skinmany', player.steam, { colors: encodeColours(colours) }, { quiet: true });
             if (result.ok) {
                 painted.add(entry);
+                ctx.db.touchSkin(player.steam, player.species);
                 log(`skin: reapplied ${Object.keys(colours).length} colour(s) ` +
                     `to ${player.steam} (${player.species})`);
             }

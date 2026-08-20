@@ -63,6 +63,23 @@ export declare class Database {
     skinFor(steamId: string, species: string): Record<string, string> | null;
     /** Species omitted clears every look they have. */
     clearSkin(steamId: string, species?: string): number;
+    /**
+     * Marks a look as still in use, because it was just repainted onto a live
+     * dinosaur. Expiry counts from here rather than from when it was set, so a
+     * dinosaur somebody is actually playing never expires under them.
+     */
+    touchSkin(steamId: string, species: string): void;
+    /**
+     * Forgets looks nobody has worn for a while.
+     *
+     * A skin belongs to a dinosaur, and a dinosaur that has not been seen for
+     * hours is gone — logged off, or died somewhere the death poll missed.
+     * Without this, a colour set once was reapplied to the next animal of that
+     * species days later, which is what players actually notice and complain
+     * about. Clearing on death alone is not enough, because a death is only
+     * cleared when it is *detected*.
+     */
+    expireSkins(olderThanMs: number): number;
     /** Null when they have never been given one, so the game's own is left alone. */
     setPattern(steamId: string, species: string, pattern: number | null): void;
     patternFor(steamId: string, species: string): number | null;
@@ -107,7 +124,13 @@ export declare class Database {
      * both claim — so the limit is enforced inside the INSERT itself.
      */
     claimFounder(discordId: string, skin: string, limit: number): boolean;
-    /** Newest first: the interesting question is usually who just claimed. */
+    /**
+     * Newest first: the interesting question is usually who just claimed.
+     *
+     * Tie-broken on rowid, because two people pressing the button together land
+     * in the same millisecond and `claimed_at` alone leaves their order to
+     * whatever SQLite feels like — which is not an ordering anybody can explain.
+     */
     founders(limit?: number): Array<{
         discordId: string;
         skin: string;
