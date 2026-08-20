@@ -4,6 +4,7 @@ import type { Ctx } from './commands.js';
 import { postOrEdit } from './pinned.js';
 import { buildPopulationEmbed } from './population.js';
 import { forgetAllPainted, reapplySkins } from './skinsync.js';
+import { checkEvents } from './events.js';
 import { checkSpeciesLocks } from './species.js';
 import { tierOf } from './tiers.js';
 
@@ -91,6 +92,10 @@ export function startPopulationPanel(ctx: Ctx, client: Client, log: (m: string) 
         }
 
         await checkSpeciesLocks(ctx, client, players, log);
+
+        // Shares the same counts: a species over its cap is both a lock and a
+        // cull event, and neither costs an extra round trip.
+        await checkEvents(ctx, client, players, log);
         // Colours do not survive a relog, respawn or restart, so they are
         // reapplied from the record rather than expected to stick.
         await reapplySkins(ctx, players, log);

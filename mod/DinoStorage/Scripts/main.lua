@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.21.0"
+local MOD_VERSION = "3.22.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1661,6 +1661,39 @@ local function handleNotify(cmd)
         sent and "shown" or "the notification was refused")
 end
 
+local function handleHeal(cmd)
+    local pawn, err = resolvePlayer(cmd.steam)
+    if pawn == nil then
+        writeResult(cmd.id, "heal", cmd.steam, false, err)
+        return
+    end
+
+    -- Only the vitals. Growth is deliberately untouched: healing somebody is a
+    -- favour, and quietly growing their dinosaur is not the favour they asked
+    -- for. Every setter here is one the restore path already verifies.
+    local filled = {}
+    local function fill(setter, getter, maxGetter)
+        local max
+        pcall(function() max = pawn[maxGetter](pawn) end)
+        if type(max) ~= "number" then return end
+        if pcall(function() pawn[setter](pawn, max) end) then
+            filled[#filled + 1] = getter
+        end
+    end
+
+    fill("SetHealth", "health", "GetMaxHealth")
+    fill("SetStamina", "stamina", "GetMaxStamina")
+    fill("SetHunger", "hunger", "GetMaxHunger")
+    fill("SetThirst", "thirst", "GetMaxThirst")
+
+    pcall(function() pawn:ForceNetUpdate() end)
+
+    writeResult(cmd.id, "heal", cmd.steam, #filled > 0,
+        #filled > 0
+            and ("restored " .. table.concat(filled, ", "))
+            or "nothing could be restored")
+end
+
 local function dispatch(cmd)
     if type(cmd) ~= "table" then return end
 
@@ -1692,6 +1725,7 @@ local function dispatch(cmd)
     elseif verb == "skinmany" then handleSkinMany(cmd)
     elseif verb == "pattern" then handlePattern(cmd)
     elseif verb == "notify" then handleNotify(cmd)
+    elseif verb == "heal" then handleHeal(cmd)
     else writeResult(cmd.id, verb, cmd.steam, false, "unknown command: " .. verb) end
 end
 

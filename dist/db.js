@@ -36,6 +36,12 @@ CREATE TABLE IF NOT EXISTS bot_admins (
   added_at   TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS founders (
+  discord_id TEXT PRIMARY KEY,
+  skin       TEXT NOT NULL,
+  claimed_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -390,13 +396,63 @@ export class Database {
          ON CONFLICT (species) DO UPDATE SET cap = excluded.cap`)
             .run(species, cap);
     }
+    /**
+     * Case-insensitive on purpose.
+     *
+     * The table is keyed by name and SQLite compares keys case-sensitively, so a
+     * mis-typed `tyrannosaurus` sits alongside `Tyrannosaurus` as its own row and
+     * never matches a live count. Clearing is how that gets fixed, and refusing
+     * because the case is wrong is how it stays stuck.
+     */
     removeSpeciesCap(species) {
-        return Number(this.#db.prepare('DELETE FROM species_caps WHERE species = ?').run(species).changes) > 0;
+        return Number(this.#db
+            .prepare('DELETE FROM species_caps WHERE species = ? COLLATE NOCASE')
+            .run(species).changes) > 0;
     }
     setSpeciesLocked(species, locked) {
         this.#db
             .prepare('UPDATE species_caps SET locked = ? WHERE species = ?')
             .run(locked ? 1 : 0, species);
+    }
+    // ---- founders ------------------------------------------------------------
+    founderCount() {
+        return Number(this.#db.prepare('SELECT COUNT(*) AS n FROM founders').get().n);
+    }
+    founderSkin(discordId) {
+        const row = this.#db
+            .prepare('SELECT skin FROM founders WHERE discord_id = ?')
+            .get(discordId);
+        return row ? String(row['skin']) : null;
+    }
+    /**
+     * Takes a slot, or returns false because they are gone.
+     *
+     * Counting and inserting have to be one statement. Two people pressing the
+     * last button together would both read 49, both pass a separate check, and
+     * both claim — so the limit is enforced inside the INSERT itself.
+     */
+    claimFounder(discordId, skin, limit) {
+        return Number(this.#db
+            .prepare(`INSERT INTO founders (discord_id, skin, claimed_at)
+           SELECT ?, ?, ?
+           WHERE (SELECT COUNT(*) FROM founders) < ?
+           ON CONFLICT (discord_id) DO NOTHING`)
+            .run(discordId, skin, Date.now(), limit).changes) > 0;
+    }
+    /** Newest first: the interesting question is usually who just claimed. */
+    founders(limit = 50) {
+        return this.#db
+            .prepare('SELECT discord_id, skin, claimed_at FROM founders ORDER BY claimed_at DESC LIMIT ?')
+            .all(limit)
+            .map((row) => ({
+            discordId: String(row['discord_id']),
+            skin: String(row['skin']),
+            claimedAt: Number(row['claimed_at']),
+        }));
+    }
+    /** Staff correction only: a claim is meant to be permanent. */
+    releaseFounder(discordId) {
+        return Number(this.#db.prepare('DELETE FROM founders WHERE discord_id = ?').run(discordId).changes) > 0;
     }
     // ---- cooldowns ---------------------------------------------------------
     /** Milliseconds remaining, or 0 when the action is available. */

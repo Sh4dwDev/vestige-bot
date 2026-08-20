@@ -87,8 +87,34 @@ export declare class Database {
         locked: boolean;
     }>;
     setSpeciesCap(species: string, cap: number): void;
+    /**
+     * Case-insensitive on purpose.
+     *
+     * The table is keyed by name and SQLite compares keys case-sensitively, so a
+     * mis-typed `tyrannosaurus` sits alongside `Tyrannosaurus` as its own row and
+     * never matches a live count. Clearing is how that gets fixed, and refusing
+     * because the case is wrong is how it stays stuck.
+     */
     removeSpeciesCap(species: string): boolean;
     setSpeciesLocked(species: string, locked: boolean): void;
+    founderCount(): number;
+    founderSkin(discordId: string): string | null;
+    /**
+     * Takes a slot, or returns false because they are gone.
+     *
+     * Counting and inserting have to be one statement. Two people pressing the
+     * last button together would both read 49, both pass a separate check, and
+     * both claim — so the limit is enforced inside the INSERT itself.
+     */
+    claimFounder(discordId: string, skin: string, limit: number): boolean;
+    /** Newest first: the interesting question is usually who just claimed. */
+    founders(limit?: number): Array<{
+        discordId: string;
+        skin: string;
+        claimedAt: number;
+    }>;
+    /** Staff correction only: a claim is meant to be permanent. */
+    releaseFounder(discordId: string): boolean;
     /** Milliseconds remaining, or 0 when the action is available. */
     cooldownLeft(steamId: string, action: string, windowMs: number): number;
     startCooldown(steamId: string, action: string): void;

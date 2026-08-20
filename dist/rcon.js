@@ -19,8 +19,14 @@ const OPCODES = {
     updateplayables: 0x15,
     addplayable: 0x1a,
     removeplayable: 0x1b,
+    ban: 0x20,
+    kick: 0x30,
     playerlist: 0x40,
     save: 0x50,
+    togglewhitelist: 0x81,
+    addwhitelist: 0x82,
+    removewhitelist: 0x83,
+    toggleglobalchat: 0x84,
     toggleai: 0x90,
 };
 export class EvrimaRcon {
@@ -192,6 +198,31 @@ export class EvrimaRcon {
     /** Server-wide notice. Renders as a transient banner, so keep it short. */
     async announce(message) {
         await this.send('announce', [message]);
+    }
+    /** Removes them now. They can rejoin immediately. */
+    async kick(steamId) {
+        return this.send('kick', [steamId]);
+    }
+    /**
+     * Ban. `hours` of 0 is permanent on every build seen so far, but the arg
+     * order is `Name,SteamID,Reason,Time` and the name is not optional.
+     */
+    async ban(name, steamId, reason, hours) {
+        return this.send('ban', [name, steamId, reason, String(hours)]);
+    }
+    /** Toggles, so the reply is the only way to know which way it went. */
+    async toggleWhitelist() {
+        return this.send('togglewhitelist', []);
+    }
+    async addWhitelist(steamIds) {
+        return this.send('addwhitelist', steamIds);
+    }
+    async removeWhitelist(steamIds) {
+        return this.send('removewhitelist', steamIds);
+    }
+    /** Also a toggle. Useful for cooling a room down without banning anyone. */
+    async toggleGlobalChat() {
+        return this.send('toggleglobalchat', []);
     }
     /** Writes the world to disk. Always do this before a restart. */
     async save() {

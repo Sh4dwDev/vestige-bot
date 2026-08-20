@@ -1,6 +1,7 @@
 import { EmbedBuilder } from 'discord.js';
 import { SERVER, SIGNATURE } from './brand.js';
 import { rankIcon } from './ranks.js';
+import { playMultiplier } from './events.js';
 import { multiplierFor, tierOf } from './tiers.js';
 /**
  * Points, earned by playing.
@@ -51,7 +52,11 @@ export function awardOnline(ctx, players, elapsedMs) {
     for (const player of players) {
         if (!player.steam)
             continue;
-        const scaled = points * multiplierFor(ctx, tierOf(ctx, player.species));
+        // Tier sets the base rate; an endangered event multiplies on top, so
+        // taking the unpopular species and surviving on it actually pays.
+        const scaled = points
+            * multiplierFor(ctx, tierOf(ctx, player.species))
+            * playMultiplier(ctx, player.species);
         ctx.db.addPoints(player.steam, scaled, minutes);
         paid += scaled;
     }

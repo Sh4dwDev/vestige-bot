@@ -21,9 +21,12 @@ import { nextRestart, restartNow, restartSettings, setRestartAnnounce, setRestar
 import { cleanupSettings, clearAI, nextCleanup, setCleanupAI, setCleanupEnabled, setCleanupHours, wipeNow, } from './cleanup.js';
 import { applyCaps, planCaps } from './capplan.js';
 import { enforcementEnabled, enforcementFault, restoreAllPlayables, setEnforcement, syncPlayables, } from './enforce.js';
+import { handleInGame, handleModeration } from './moderation.js';
+import { buildFounderPanel, founderLimit, FOUNDER_MESSAGE_KEY, founderRows, setFounderChannel, setFounderLimit, skinById, } from './founders.js';
+import { eventSettings, eventsFor, setCullBonus, setEventsEnabled, setRareBonus, } from './events.js';
 import { setSpeciesChannel } from './species.js';
 import { refreshStatusPanel, setStatusChannel } from './status.js';
-import { buildPopulationEmbed } from './population.js';
+import { buildPopulationEmbed, tally } from './population.js';
 const COLORS = { good: 0x57f287, bad: 0xed4245, warn: 0xfee75c, info: 0x5865f2, quiet: 0x4f545c };
 function embed(color, title, description, fields) {
     const e = new EmbedBuilder()
@@ -234,6 +237,54 @@ export const commandData = [
         .setRequired(true)))
         .addSubcommand((s) => s.setName('off').setDescription('Stop cleaning up automatically'))
         .addSubcommand((s) => s.setName('status').setDescription('What cleanup is configured')))
+        .addSubcommandGroup((g) => g.setName('founders').setDescription('Founder skins for the first members')
+        .addSubcommand((c) => c.setName('panel').setDescription('Post the founder skin panel in a channel')
+        .addChannelOption((o) => o.setName('channel').setDescription('Where the panel goes')
+        .addChannelTypes(ChannelType.GuildText).setRequired(true)))
+        .addSubcommand((c) => c.setName('limit').setDescription('How many people can claim one')
+        .addIntegerOption((o) => o.setName('count').setDescription('Default 50')
+        .setMinValue(0).setMaxValue(1000).setRequired(true)))
+        .addSubcommand((c) => c.setName('list').setDescription('Who has claimed one'))
+        .addSubcommand((c) => c.setName('release').setDescription('Free someone up to claim again')
+        .addUserOption((o) => o.setName('user').setDescription('Whose claim to release').setRequired(true))))
+        .addSubcommandGroup((g) => g.setName('events').setDescription('Population events')
+        .addSubcommand((c) => c.setName('on').setDescription('Run cull and endangered events'))
+        .addSubcommand((c) => c.setName('off').setDescription('Stop running events'))
+        .addSubcommand((c) => c.setName('bonus').setDescription('How much an event multiplies points')
+        .addNumberOption((o) => o.setName('cull').setDescription('Killing an over-cap species, default 2')
+        .setMinValue(1).setMaxValue(10))
+        .addNumberOption((o) => o.setName('endangered').setDescription('Playing a rare species, default 2')
+        .setMinValue(1).setMaxValue(10)))
+        .addSubcommand((c) => c.setName('status').setDescription('What is running now')))
+        .addSubcommandGroup((g) => g.setName('mod').setDescription('Moderation')
+        .addSubcommand((c) => c.setName('kick').setDescription('Remove someone from the server')
+        .addUserOption((o) => o.setName('user').setDescription('Who').setRequired(true))
+        .addStringOption((o) => o.setName('reason').setDescription('Shown to them on screen')))
+        .addSubcommand((c) => c.setName('ban').setDescription('Ban a Steam account from the game server')
+        .addUserOption((o) => o.setName('user').setDescription('Who').setRequired(true))
+        .addStringOption((o) => o.setName('reason').setDescription('Why'))
+        .addIntegerOption((o) => o.setName('hours').setDescription('0 or blank is permanent')
+        .setMinValue(0).setMaxValue(8760)))
+        .addSubcommand((c) => c.setName('whitelist').setDescription('Whitelist on, off, or add and remove people')
+        .addStringOption((o) => o.setName('mode').setDescription('What to do').setRequired(true)
+        .addChoices({ name: 'add a player', value: 'add' }, { name: 'remove a player', value: 'remove' }, { name: 'toggle the whitelist itself', value: 'toggle' }))
+        .addUserOption((o) => o.setName('user').setDescription('Who, for add and remove')))
+        .addSubcommand((c) => c.setName('globalchat').setDescription('Turn global chat on or off'))
+        .addSubcommand((c) => c.setName('say').setDescription('Announce something to everyone in game')
+        .addStringOption((o) => o.setName('message').setDescription('Shown in chat as <RCON>').setRequired(true)))
+        .addSubcommand((c) => c.setName('tell').setDescription('Put a notice on one player screen')
+        .addUserOption((o) => o.setName('user').setDescription('Who').setRequired(true))
+        .addStringOption((o) => o.setName('message').setDescription('What to show them').setRequired(true)))
+        .addSubcommand((c) => c.setName('log').setDescription('Where kicks and bans are recorded')
+        .addChannelOption((o) => o.setName('channel').setDescription('Staff channel')
+        .addChannelTypes(ChannelType.GuildText).setRequired(true))))
+        .addSubcommandGroup((g) => g.setName('ingame').setDescription('Hands-on help for players')
+        .addSubcommand((c) => c.setName('heal').setDescription('Full health, food, water and stamina')
+        .addUserOption((o) => o.setName('user').setDescription('Who').setRequired(true)))
+        .addSubcommand((c) => c.setName('bring').setDescription('Teleport a player to you')
+        .addUserOption((o) => o.setName('user').setDescription('Who').setRequired(true)))
+        .addSubcommand((c) => c.setName('goto').setDescription('Teleport yourself to a player')
+        .addUserOption((o) => o.setName('user').setDescription('Who').setRequired(true))))
         .addSubcommandGroup((g) => g.setName('species').setDescription('Per-species population caps')
         .addSubcommand((s) => s.setName('cap').setDescription('Cap how many of a species may be online')
         .addStringOption((o) => o.setName('species').setDescription('Exact species name, e.g. Tyrannosaurus')
@@ -1407,13 +1458,27 @@ async function handleSpecies(ctx, i, action) {
         return;
     }
     if (action === 'list') {
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
         const caps = ctx.db.speciesCaps();
-        await i.reply({
-            embeds: [embed(COLORS.info, 'Species caps', caps.length === 0
+        // A cap whose name the server never reports can never match a live count,
+        // so it silently does nothing — usually a mis-typed one sitting next to the
+        // real row. Flag it rather than listing it as though it worked.
+        const known = await speciesList(ctx);
+        const real = new Set(known);
+        const stale = known.length > 0 ? caps.filter((c) => !real.has(c.species)) : [];
+        const line = (c) => real.has(c.species) || known.length === 0
+            ? `${c.locked ? '🔒' : '🔓'} **${c.species}** — max ${c.cap}`
+            : `⚠️ \`${c.species}\` — max ${c.cap} · not a species this server has`;
+        await i.editReply({
+            embeds: [embed(COLORS.info, 'Species caps', (caps.length === 0
                     ? 'No caps set. Use `/admin species cap` to add one, or ' +
                         '`/admin species preset` for a whole balanced table at once.'
-                    : caps.map((c) => `${c.locked ? '🔒' : '🔓'} **${c.species}** — max ${c.cap}`).join('\n'))],
-            flags: MessageFlags.Ephemeral,
+                    : caps.map(line).join('\n')) +
+                    (stale.length > 0
+                        ? `\n\n⚠️ **${stale.length} of these do nothing.** The server never ` +
+                            'reports those spellings, so they can never match a player. Clear ' +
+                            `them: \`/admin species clear species:${stale[0]?.species}\``
+                        : ''))],
         });
         return;
     }
@@ -1493,29 +1558,184 @@ async function handleSpecies(ctx, i, action) {
         }
         return;
     }
-    const species = i.options.getString('species', true).trim();
+    const typed = i.options.getString('species', true).trim();
     if (action === 'clear') {
-        const removed = ctx.db.removeSpeciesCap(species);
+        // Case-insensitive, deliberately: the row being cleared is often a
+        // mis-typed one, and refusing to remove it because the case is wrong is
+        // exactly how it got stuck there.
+        const removed = ctx.db.removeSpeciesCap(typed);
         await i.reply({
             embeds: [removed
-                    ? embed(COLORS.good, 'Cap removed', `**${species}** is uncapped again.`)
-                    : embed(COLORS.quiet, 'Nothing to remove', `**${species}** had no cap. ` +
-                        'Names are case sensitive — check `/admin species list`.')],
+                    ? embed(COLORS.good, 'Cap removed', `**${typed}** is uncapped again.`)
+                    : embed(COLORS.quiet, 'Nothing to remove', `**${typed}** had no cap. ` +
+                        'Check `/admin species list`.')],
             flags: MessageFlags.Ephemeral,
         });
         return;
     }
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    // Store the spelling the SERVER uses, not the one that was typed.
+    //
+    // The caps table is keyed by name and SQLite compares keys case-sensitively,
+    // so `tyrannosaurus` and `Tyrannosaurus` were two separate rows. Live counts
+    // only ever arrive under the server's spelling, so the mis-cased row could
+    // never match a player and would never lock — a cap that silently does
+    // nothing. Observed live: both spellings sitting in `/admin species list`.
+    const known = await speciesList(ctx);
+    const species = known.find((s) => s.toLowerCase() === typed.toLowerCase());
+    if (!species && known.length > 0) {
+        const near = known.filter((s) => s.toLowerCase().startsWith(typed.slice(0, 3).toLowerCase()));
+        await i.editReply({
+            embeds: [embed(COLORS.warn, 'No such species', `This server does not have a **${typed}**.` +
+                    (near.length > 0 ? `\n\nDid you mean: **${near.join('**, **')}**?` : '') +
+                    '\n\nThe species option autocompletes from what the server actually ' +
+                    'reports — picking from the list avoids this.')],
+        });
+        return;
+    }
     const max = i.options.getInteger('max', true);
-    ctx.db.setSpeciesCap(species, max);
-    await i.reply({
-        embeds: [embed(COLORS.good, 'Cap set', `**${species}** is capped at **${max}** online.\n\n` +
+    ctx.db.setSpeciesCap(species ?? typed, max);
+    const stored = species ?? typed;
+    await i.editReply({
+        embeds: [embed(COLORS.good, 'Cap set', `**${stored}** is capped at **${max}** online.` +
+                (species && species !== typed
+                    ? `\n\nStored as **${species}**, which is how the server spells it.`
+                    : '') +
+                '\n\n' +
                 (enforcementEnabled(ctx)
                     ? 'Enforcement is on, so hitting the cap takes it out of the spawn menu.'
                     : 'This **announces** rather than blocking — staff and players act on it. ' +
-                        '`/admin species enforce on` makes it a real wall.') +
-                '\n\nThe name must match exactly as the game reports it — `/population` ' +
-                'shows the spellings in use.')],
-        flags: MessageFlags.Ephemeral,
+                        '`/admin species enforce on` makes it a real wall.'))],
+    });
+}
+// ------------------------------------------------------------- founders --
+async function handleFounders(ctx, i, action) {
+    if (action === 'limit') {
+        const count = i.options.getInteger('count', true);
+        setFounderLimit(ctx, count);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Founder limit set', `The first **${count}** people can claim a founder skin. ` +
+                    `**${ctx.db.founderCount()}** already have.\n\n` +
+                    'Lowering it below the number already claimed takes nothing away — ' +
+                    'it just means nobody new can claim.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'list') {
+        const claimed = ctx.db.founders(25);
+        await i.reply({
+            embeds: [embed(COLORS.info, 'Founders', `**${ctx.db.founderCount()}** of ${founderLimit(ctx)} claimed.\n\n` +
+                    (claimed.length === 0
+                        ? 'Nobody yet.'
+                        : claimed.map((f, n) => `${n + 1}. <@${f.discordId}> — **${skinById(f.skin)?.name ?? f.skin}**`).join('\n')) +
+                    (ctx.db.founderCount() > claimed.length
+                        ? `\n\n…and ${ctx.db.founderCount() - claimed.length} more.`
+                        : ''))],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'release') {
+        const user = i.options.getUser('user', true);
+        const freed = ctx.db.releaseFounder(user.id);
+        await i.reply({
+            embeds: [freed
+                    ? embed(COLORS.good, 'Claim released', `${user} can claim again, and a slot has opened up.`)
+                    : embed(COLORS.quiet, 'Nothing to release', `${user} has not claimed one.`)],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    const channel = i.options.getChannel('channel', true);
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    setFounderChannel(ctx, channel.id);
+    try {
+        await postOrEdit(ctx.db, i.client, channel.id, FOUNDER_MESSAGE_KEY, [buildFounderPanel(ctx)], founderRows(ctx));
+        await i.editReply({
+            embeds: [embed(COLORS.good, 'Founder panel is live', `It is in <#${channel.id}>.\n\n` +
+                    `**${founderLimit(ctx) - ctx.db.founderCount()}** claims left. The buttons ` +
+                    'keep working after a restart, so it can stay pinned.')],
+        });
+    }
+    catch (err) {
+        await i.editReply({
+            embeds: [embed(COLORS.bad, 'Could not post there', `${describeError(err)}\n\nCheck the bot can **View Channel**, ` +
+                    '**Send Messages** and **Embed Links** there.')],
+        });
+    }
+}
+// --------------------------------------------------------------- events --
+async function handleEvents(ctx, i, action) {
+    if (action === 'on' || action === 'off') {
+        setEventsEnabled(ctx, action === 'on');
+        const settings = eventSettings(ctx);
+        await i.reply({
+            embeds: [action === 'on'
+                    ? embed(COLORS.good, 'Population events on', 'The island now reacts to its own imbalance:\n\n' +
+                        `🩸 **Cull** — a species at or over its cap pays **${settings.cullBonus}x** ` +
+                        'to whoever kills one.\n' +
+                        `🛡️ **Endangered** — a species down to its last few pays **${settings.rareBonus}x** ` +
+                        'to whoever is playing one and staying alive.\n\n' +
+                        'Both are announced in game and in the species channel. Only species ' +
+                        'with a cap take part — without one there is no notion of too many.')
+                    : embed(COLORS.good, 'Population events off', 'Points go back to tier rates alone. Anything running has stopped.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'bonus') {
+        const cull = i.options.getNumber('cull');
+        const rare = i.options.getNumber('endangered');
+        if (cull === null && rare === null) {
+            await i.reply({
+                embeds: [embed(COLORS.warn, 'Nothing to change', 'Give a `cull` multiplier, an `endangered` one, or both.')],
+                flags: MessageFlags.Ephemeral,
+            });
+            return;
+        }
+        if (cull !== null)
+            setCullBonus(ctx, cull);
+        if (rare !== null)
+            setRareBonus(ctx, rare);
+        const settings = eventSettings(ctx);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Event bonuses set', `🩸 Cull kills pay **${settings.cullBonus}x**\n` +
+                    `🛡️ Endangered play pays **${settings.rareBonus}x**\n\n` +
+                    'These multiply on top of tier, so an apex in a cull event is already ' +
+                    'worth a great deal.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    // status
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    const settings = eventSettings(ctx);
+    const caps = ctx.db.speciesCaps();
+    let live;
+    try {
+        const counts = new Map();
+        for (const row of tally(await ctx.mod.players()))
+            counts.set(row.species, row.online);
+        const running = eventsFor(caps, counts);
+        live = running.length === 0
+            ? 'Nothing running right now.'
+            : running.map((e) => e.kind === 'cull'
+                ? `🩸 **${e.species}** — ${e.count}/${e.cap}, kills pay ${settings.cullBonus}x`
+                : `🛡️ **${e.species}** — only ${e.count} left, playing pays ${settings.rareBonus}x`)
+                .join('\n');
+    }
+    catch (err) {
+        live = `Could not read the server: ${describeError(err)}`;
+    }
+    await i.editReply({
+        embeds: [embed(COLORS.info, 'Population events', (settings.enabled ? '**On.**' : '**Off.**') +
+                ` Cull pays ${settings.cullBonus}x, endangered pays ${settings.rareBonus}x.\n\n` +
+                live +
+                (caps.length === 0
+                    ? '\n\n⚠️ No species caps are set, so nothing can ever trigger. ' +
+                        '`/admin species preset` sets a whole table.'
+                    : ''))],
     });
 }
 // ------------------------------------------------------------------ admin --
@@ -1591,6 +1811,14 @@ async function handleAdmin(ctx, i) {
         return handleCleanup(ctx, i, action);
     if (group === 'species')
         return handleSpecies(ctx, i, action);
+    if (group === 'mod')
+        return handleModeration(ctx, i, action);
+    if (group === 'ingame')
+        return handleInGame(ctx, i, action);
+    if (group === 'founders')
+        return handleFounders(ctx, i, action);
+    if (group === 'events')
+        return handleEvents(ctx, i, action);
     if (group === 'teleport') {
         if (action === 'delay') {
             const seconds = i.options.getInteger('seconds', true);

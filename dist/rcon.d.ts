@@ -18,8 +18,14 @@ declare const OPCODES: {
     readonly updateplayables: 21;
     readonly addplayable: 26;
     readonly removeplayable: 27;
+    readonly ban: 32;
+    readonly kick: 48;
     readonly playerlist: 64;
     readonly save: 80;
+    readonly togglewhitelist: 129;
+    readonly addwhitelist: 130;
+    readonly removewhitelist: 131;
+    readonly toggleglobalchat: 132;
     readonly toggleai: 144;
 };
 export type RconCommand = keyof typeof OPCODES;
@@ -46,6 +52,19 @@ export declare class EvrimaRcon {
     directMessage(steamId: string, message: string): Promise<void>;
     /** Server-wide notice. Renders as a transient banner, so keep it short. */
     announce(message: string): Promise<void>;
+    /** Removes them now. They can rejoin immediately. */
+    kick(steamId: string): Promise<string>;
+    /**
+     * Ban. `hours` of 0 is permanent on every build seen so far, but the arg
+     * order is `Name,SteamID,Reason,Time` and the name is not optional.
+     */
+    ban(name: string, steamId: string, reason: string, hours: number): Promise<string>;
+    /** Toggles, so the reply is the only way to know which way it went. */
+    toggleWhitelist(): Promise<string>;
+    addWhitelist(steamIds: string[]): Promise<string>;
+    removeWhitelist(steamIds: string[]): Promise<string>;
+    /** Also a toggle. Useful for cooling a room down without banning anyone. */
+    toggleGlobalChat(): Promise<string>;
     /** Writes the world to disk. Always do this before a restart. */
     save(): Promise<void>;
     /**

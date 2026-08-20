@@ -20,12 +20,14 @@ import {
 import { loadConfig } from './config.js';
 import { Database } from './db.js';
 import { startPopulationPanel } from './livepanel.js';
+import { handleFounderInteraction } from './founders.js';
 import { handleHubInteraction } from './hub.js';
 import { buildKillEmbed, killfeedChannel, type KillEvent } from './kills.js';
 import { awardOnline } from './points.js';
 import { giveJoinRole } from './joinrole.js';
 import { skinNeedsReapply } from './skinsync.js';
 import { clearRequest, requestFor, runAccepted } from './teleport.js';
+import { killMultiplier } from './events.js';
 import { killReward, tierOf } from './tiers.js';
 import { Panel } from './pterodactyl.js';
 import { startRestartScheduler } from './restarts.js';
@@ -180,6 +182,7 @@ async function dispatch(ctx: Ctx, interaction: Interaction): Promise<void> {
       interaction.isButton() || interaction.isStringSelectMenu() ||
       interaction.isModalSubmit() || interaction.isUserSelectMenu()
     ) {
+      if (interaction.isButton() && await handleFounderInteraction(ctx, interaction)) return;
       if (await handleHubInteraction(ctx, interaction)) return;
       await handlePanelInteraction(ctx, interaction);
     }
@@ -325,9 +328,16 @@ async function handleChatEvent(
         tierOf(ctx, kill.killerSpecies),
         tierOf(ctx, kill.species),
       );
-      ctx.db.addPoints(kill.killer, reward.points);
-      log(`points: ${kill.killer} earned ${Math.round(reward.points)} for a kill` +
-        (reward.upset > 0 ? ` (${reward.upset} tier upset)` : ''));
+
+      // A cull event multiplies on top of tier and upset: the point of it is
+      // that thinning an over-cap species is worth going out of your way for.
+      const event = killMultiplier(ctx, kill.species);
+      const points = reward.points * event;
+
+      ctx.db.addPoints(kill.killer, points);
+      log(`points: ${kill.killer} earned ${Math.round(points)} for a kill` +
+        (reward.upset > 0 ? ` (${reward.upset} tier upset)` : '') +
+        (event > 1 ? ` (${event}x cull event)` : ''));
     }
 
     const channelId = killfeedChannel(ctx);

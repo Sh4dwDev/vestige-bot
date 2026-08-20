@@ -19,7 +19,7 @@ import type { Config } from './config.js';
 export type Verb =
   | 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players'
   | 'give' | 'teleport' | 'where' | 'skinget' | 'skinmany' | 'pattern'
-  | 'notify';
+  | 'notify' | 'heal';
 
 export interface StoredSlot {
   slot: string;

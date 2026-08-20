@@ -4,6 +4,7 @@ import { SERVER, SIGNATURE } from './brand.js';
 import type { Ctx } from './commands.js';
 import type { PlayerRow } from './population.js';
 import { rankIcon } from './ranks.js';
+import { playMultiplier } from './events.js';
 import { multiplierFor, tierOf } from './tiers.js';
 
 /**
@@ -63,7 +64,11 @@ export function awardOnline(ctx: Ctx, players: PlayerRow[], elapsedMs: number): 
   let paid = 0;
   for (const player of players) {
     if (!player.steam) continue;
-    const scaled = points * multiplierFor(ctx, tierOf(ctx, player.species));
+    // Tier sets the base rate; an endangered event multiplies on top, so
+    // taking the unpopular species and surviving on it actually pays.
+    const scaled = points
+      * multiplierFor(ctx, tierOf(ctx, player.species))
+      * playMultiplier(ctx, player.species);
     ctx.db.addPoints(player.steam, scaled, minutes);
     paid += scaled;
   }
