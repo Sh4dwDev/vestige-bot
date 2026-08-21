@@ -2,7 +2,7 @@ import { ActivityType, Client, Events, GatewayIntentBits, MessageFlags, } from '
 import { AdminStore } from './admins.js';
 import { SERVER } from './brand.js';
 import { ModBridge } from './bridge.js';
-import { announceLinked, describeError, handleAutocomplete, handleCommand, } from './commands.js';
+import { announceLinked, describeError, handleLinkModal, handleAutocomplete, handleCommand, } from './commands.js';
 import { loadConfig } from './config.js';
 import { Database } from './db.js';
 import { startPopulationPanel } from './livepanel.js';
@@ -168,6 +168,10 @@ async function dispatch(ctx, interaction) {
         // the storage panel. The hub gets first refusal; it answers only its own.
         if (interaction.isButton() || interaction.isStringSelectMenu() ||
             interaction.isModalSubmit() || interaction.isUserSelectMenu()) {
+            // The link form first: it is the one interaction somebody can reach
+            // without having touched any panel.
+            if (interaction.isModalSubmit() && await handleLinkModal(ctx, interaction))
+                return;
             if (interaction.isButton() && await handleFounderInteraction(ctx, interaction))
                 return;
             if (await handleHubInteraction(ctx, interaction))

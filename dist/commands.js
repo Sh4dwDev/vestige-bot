@@ -1,4 +1,4 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, ComponentType, EmbedBuilder, MessageFlags, PermissionFlagsBits, SlashCommandBuilder, } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, ComponentType, EmbedBuilder, MessageFlags, ModalBuilder, PermissionFlagsBits, SlashCommandBuilder, TextInputBuilder, TextInputStyle, } from 'discord.js';
 import { AdminStore } from './admins.js';
 import { ARCHIVE_CAP, SERVER, SIGNATURE } from './brand.js';
 import { buildCommandsEmbed, buildStorageGuideEmbed } from './guides.js';
@@ -70,7 +70,9 @@ export const commandData = [
     new SlashCommandBuilder()
         .setName('link')
         .setDescription(`Let ${SERVER} recognise your Steam account`)
-        .addStringOption((o) => o.setName('steamid').setDescription('Your Steam64 ID (17 digits)').setRequired(true)
+        // Optional: with no argument this opens a form instead, which is a far
+        // better place to paste seventeen digits than a slash command box.
+        .addStringOption((o) => o.setName('steamid').setDescription('Leave blank to get a form').setRequired(false)
         .setMinLength(17).setMaxLength(17)),
     new SlashCommandBuilder().setName('unlink').setDescription('Disconnect your Steam account'),
     new SlashCommandBuilder().setName('slay').setDescription('Kill your own dinosaur'),
@@ -425,10 +427,40 @@ export async function handleCommand(ctx, i) {
     }
 }
 // ---------------------------------------------------------------- linking --
+export const LINK_MODAL_ID = 'lk:steam';
+const LINK_FIELD_ID = 'lk:steamid';
+/** The form. Seventeen digits is a lot to type into a slash command box. */
+export function buildLinkModal() {
+    return new ModalBuilder()
+        .setCustomId(LINK_MODAL_ID)
+        .setTitle('Steam ID')
+        .addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder()
+        .setCustomId(LINK_FIELD_ID)
+        .setLabel('Add your Steam ID')
+        .setPlaceholder('17 digits')
+        .setStyle(TextInputStyle.Short)
+        .setMinLength(17)
+        .setMaxLength(17)
+        .setRequired(true)));
+}
 async function handleLink(ctx, i) {
-    const steamId = i.options.getString('steamid', true).trim();
+    const steamId = i.options.getString('steamid')?.trim();
+    // No argument means show the form. A modal has to be the FIRST response to an
+    // interaction, so this cannot defer first.
+    if (!steamId) {
+        await i.showModal(buildLinkModal());
+        return;
+    }
     await i.deferReply({ flags: MessageFlags.Ephemeral });
     await beginLink(ctx, i, i.user.id, steamId);
+}
+/** Returns true when this submission was the link form. */
+export async function handleLinkModal(ctx, i) {
+    if (i.customId !== LINK_MODAL_ID)
+        return false;
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    await beginLink(ctx, i, i.user.id, i.fields.getTextInputValue(LINK_FIELD_ID));
+    return true;
 }
 /**
  * Issues a link code. Shared by `/link` and the Verify button, so both routes

@@ -78,6 +78,35 @@ check('the in-game commands are documented',
 check('both embeds are signed', /Vesta/.test(guide.footer?.text ?? '') &&
   /Vesta/.test(commands.footer?.text ?? ''));
 
+// The link form. Seventeen digits is a lot to type into a slash command box,
+// so /link with no argument opens a modal instead.
+{
+  const { buildLinkModal, LINK_MODAL_ID } = await load('commands.js');
+  const modal = buildLinkModal().toJSON();
+
+  check('the form is titled like the thing it asks for',
+    modal.title === 'Steam ID', modal.title);
+  check('it has exactly one field', modal.components.length === 1);
+
+  const field = modal.components[0].components[0];
+  check('the field asks for a Steam ID', /Steam ID/i.test(field.label), field.label);
+  check('and says how long one is', /17/.test(field.placeholder ?? ''), field.placeholder);
+  check('it is required', field.required === true);
+  check('and only accepts a 17 digit value',
+    field.min_length === 17 && field.max_length === 17,
+    `${field.min_length}-${field.max_length}`);
+  check('the submission is routed by a stable id', LINK_MODAL_ID === modal.custom_id);
+}
+
+// /link still takes an argument, so nothing that already worked stops working.
+{
+  const link = commandData.find((c) => c.name === 'link');
+  const option = (link.options ?? [])[0];
+  check('the steamid option is now optional', option.required === false);
+  check('but still bounded to 17 characters',
+    option.min_length === 17 && option.max_length === 17);
+}
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
 process.exit(failed === 0 ? 0 : 1);

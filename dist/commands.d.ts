@@ -1,4 +1,4 @@
-import { ActionRowBuilder, ButtonBuilder, EmbedBuilder, type AutocompleteInteraction, type Client, type ChatInputCommandInteraction, type ButtonInteraction } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, EmbedBuilder, ModalBuilder, type AutocompleteInteraction, type Client, type ChatInputCommandInteraction, type ButtonInteraction, type ModalSubmitInteraction } from 'discord.js';
 import { AdminStore } from './admins.js';
 import type { ModBridge } from './bridge.js';
 import type { Config } from './config.js';
@@ -30,6 +30,11 @@ interface Editable {
 export declare function announceLinked(discordId: string): Promise<boolean>;
 export declare const commandData: import("discord.js").RESTPostAPIChatInputApplicationCommandsJSONBody[];
 export declare function handleCommand(ctx: Ctx, i: ChatInputCommandInteraction): Promise<void>;
+export declare const LINK_MODAL_ID = "lk:steam";
+/** The form. Seventeen digits is a lot to type into a slash command box. */
+export declare function buildLinkModal(): ModalBuilder;
+/** Returns true when this submission was the link form. */
+export declare function handleLinkModal(ctx: Ctx, i: ModalSubmitInteraction): Promise<boolean>;
 /**
  * Issues a link code. Shared by `/link` and the Verify button, so both routes
  * behave identically — the interaction must already be deferred, ephemerally.

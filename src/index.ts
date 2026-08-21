@@ -13,6 +13,7 @@ import { ModBridge } from './bridge.js';
 import {
   announceLinked,
   describeError,
+  handleLinkModal,
   handleAutocomplete,
   handleCommand,
   type Ctx,
@@ -197,6 +198,9 @@ async function dispatch(ctx: Ctx, interaction: Interaction): Promise<void> {
       interaction.isButton() || interaction.isStringSelectMenu() ||
       interaction.isModalSubmit() || interaction.isUserSelectMenu()
     ) {
+      // The link form first: it is the one interaction somebody can reach
+      // without having touched any panel.
+      if (interaction.isModalSubmit() && await handleLinkModal(ctx, interaction)) return;
       if (interaction.isButton() && await handleFounderInteraction(ctx, interaction)) return;
       if (await handleHubInteraction(ctx, interaction)) return;
       await handlePanelInteraction(ctx, interaction);
