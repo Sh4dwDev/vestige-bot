@@ -110,8 +110,10 @@ import {
   applyReading, clearReadings, landmarkById, LANDMARKS, storedReadings,
 } from './calibrate.js';
 import {
+  ANCHORS,
   boundsAreManual,
   buildHeatmapEmbed,
+  DEFAULT_BOUNDS,
   effectiveBounds,
   HEATMAP_MESSAGE_KEY,
   heatmapMinutes,
@@ -2558,9 +2560,32 @@ async function handleHeatmapCheck(
         `across, **${(py / 10).toFixed(0)}%** down`;
     }).join('\n');
 
+  // Self-test. Both anchors are places somebody stood and read the HUD, so each
+  // must draw exactly where it sits in the picture. A mismatch means the running
+  // build is not the one that solved the map — a deploy that did not take. That
+  // is invisible in a screenshot, and guessing at it from one wasted hours.
+  const offBy = (a: typeof ANCHORS[number]): number => {
+    const { px, py } = toPixel({ x: a.x, y: a.y }, DEFAULT_BOUNDS, 1000);
+    return Math.max(Math.abs((px / 1000) - a.fx), Math.abs((py / 1000) - a.fy));
+  };
+
+  const selfTest = ANCHORS.map((a) => {
+    const { px, py } = toPixel({ x: a.x, y: a.y }, DEFAULT_BOUNDS, 1000);
+    return `${offBy(a) < 0.01 ? '✅' : '❌'} **${a.label}** draws at ` +
+      `${(px / 10).toFixed(0)}% across, ${(py / 10).toFixed(0)}% down — ` +
+      `should be ${(a.fx * 100).toFixed(0)}%, ${(a.fy * 100).toFixed(0)}%`;
+  }).join('\n');
+
+  const healthy = ANCHORS.every((a) => offBy(a) < 0.01);
+
   await i.editReply({
-    embeds: [embed(COLORS.good, 'Heatmap check',
-      `**Bounds in use** ${manual ? '(calibrated)' : '(default — nothing calibrated)'}\n` +
+    embeds: [embed(healthy ? COLORS.good : COLORS.bad, 'Heatmap check',
+      `**Does this build draw the map correctly?**\n${selfTest}\n` +
+      (healthy ? '' :
+        '\n⚠️ **This bot is not running the build that solved the map.** Its own '
+        + 'landmarks do not land on themselves, so nothing below is worth '
+        + 'reading. Pull the latest commit and restart.\n') +
+      `\n**Bounds in use** ${manual ? '(calibrated)' : '(built in — nothing calibrated)'}\n` +
       `• Lat \`${hud(inUse.minY)}\` to \`${hud(inUse.maxY)}\`\n` +
       `• Long \`${hud(inUse.minX)}\` to \`${hud(inUse.maxX)}\`\n\n` +
       `**Landmark readings held:** ${readings.length}` +

@@ -185,6 +185,19 @@ const CRATER = {
 const SPAN_X = (CRATER.x - HEXAGON.x) / (CRATER.fx - HEXAGON.fx);
 const SPAN_Y = (CRATER.y - HEXAGON.y) / (CRATER.fy - HEXAGON.fy);
 
+/**
+ * The two anchors, exposed so the running bot can check itself against them.
+ *
+ * Both are places somebody stood and read the HUD, and both must draw exactly
+ * where they sit in the picture. If either does not, the code doing the drawing
+ * disagrees with the code that solved the map — which is not a thing that can
+ * be diagnosed from a screenshot, and was being guessed at instead.
+ */
+export const ANCHORS = [
+  { label: 'Hexagon', ...HEXAGON },
+  { label: 'Crater', ...CRATER },
+] as const;
+
 /** The picture, in world coordinates. */
 export const DEFAULT_BOUNDS: Bounds = {
   minX: HEXAGON.x - (HEXAGON.fx * SPAN_X),

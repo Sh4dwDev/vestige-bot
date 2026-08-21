@@ -35,6 +35,27 @@ export declare function boundsAreManual(ctx: Ctx): boolean;
 export declare function storedBounds(ctx: Ctx): Bounds | null;
 export declare function saveBounds(ctx: Ctx, bounds: Bounds): void;
 export declare function resetBounds(ctx: Ctx): void;
+/**
+ * The two anchors, exposed so the running bot can check itself against them.
+ *
+ * Both are places somebody stood and read the HUD, and both must draw exactly
+ * where they sit in the picture. If either does not, the code doing the drawing
+ * disagrees with the code that solved the map — which is not a thing that can
+ * be diagnosed from a screenshot, and was being guessed at instead.
+ */
+export declare const ANCHORS: readonly [{
+    readonly y: number;
+    readonly x: number;
+    readonly fx: number;
+    readonly fy: number;
+    readonly label: "Hexagon";
+}, {
+    readonly y: number;
+    readonly x: number;
+    readonly fx: number;
+    readonly fy: number;
+    readonly label: "Crater";
+}];
 /** The picture, in world coordinates. */
 export declare const DEFAULT_BOUNDS: Bounds;
 /**
