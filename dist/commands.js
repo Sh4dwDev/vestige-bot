@@ -20,9 +20,9 @@ import { buildBalanceEmbed, buildLeaderboardEmbed, display, ratePerHour, setRate
 import { nextRestart, restartNow, restartSettings, setRestartAnnounce, setRestartInterval, setRestartsEnabled, WARNINGS, } from './restarts.js';
 import { cleanupSettings, clearAI, nextCleanup, setCleanupAI, setCleanupEnabled, setCleanupHours, wipeNow, } from './cleanup.js';
 import { backupConfig, lastBackup, listSnapshots, markBackup, restoreSnapshot, runBackup, } from './backup.js';
-import { baseImage, DEFAULT_PATHS, sniffFormat, SUPPORTED } from './heatimage.js';
+import { baseImage, DEFAULT_PATHS, sniffFormat, SUPPORTED, toPixel } from './heatimage.js';
 import { applyReading, clearReadings, landmarkById, LANDMARKS, storedReadings, } from './calibrate.js';
-import { buildHeatmapEmbed, HEATMAP_MESSAGE_KEY, heatmapMinutes, pointsFrom, resetBounds, resolveMapImage, saveBounds, setHeatmapChannel, setHeatmapImage, setHeatmapMinutes, setManualBounds, storedBounds, widen, } from './heatmap.js';
+import { boundsAreManual, buildHeatmapEmbed, effectiveBounds, HEATMAP_MESSAGE_KEY, heatmapMinutes, pointsFrom, resetBounds, resolveMapImage, saveBounds, setHeatmapChannel, setHeatmapImage, setHeatmapMinutes, setManualBounds, storedBounds, widen, } from './heatmap.js';
 import { applyCaps, planCaps } from './capplan.js';
 import { enforcementEnabled, enforcementFault, restoreAllPlayables, setEnforcement, syncPlayables, } from './enforce.js';
 import { handleInGame, handleModeration } from './moderation.js';
@@ -391,6 +391,8 @@ export const commandData = [
         .addStringOption((o) => o.setName('landmark').setDescription('Where you are standing')
         .setRequired(true)
         .addChoices(...LANDMARKS.map((l) => ({ name: l.label, value: l.id })))))
+        .addSubcommand((c) => c.setName('check')
+        .setDescription('What the map is using, and where it puts everyone'))
         .addSubcommand((c) => c.setName('recalibrate')
         .setDescription('Forget the learned map bounds and start again'))
         .addSubcommand((c) => c.setName('off').setDescription('Take the panel down')))
@@ -1792,9 +1794,55 @@ async function handleCalibrate(ctx, i) {
                 'Calibrating more landmarks tightens it — every reading is averaged in.')],
     });
 }
+/**
+ * What the panel is actually working from.
+ *
+ * Written after a long round of guessing at state that could not be read: the
+ * bot runs on a host, its database is not to hand, and "the dot went the wrong
+ * way" is not enough to tell a bad calibration from a bad mapping. This turns
+ * that into one command.
+ */
+async function handleHeatmapCheck(ctx, i) {
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    const stored = storedBounds(ctx);
+    const manual = boundsAreManual(ctx);
+    const readings = storedReadings(ctx);
+    const inUse = effectiveBounds(ctx, stored);
+    const hud = (v) => Math.round(v / 1000);
+    const players = await ctx.mod.players().catch(() => []);
+    const points = pointsFrom(players);
+    const where = points.length === 0
+        ? '_Nobody is in game, so there is nothing to place._'
+        : points.map((p) => {
+            const { px, py } = toPixel(p, inUse, 1000);
+            return `• Lat \`${hud(p.y)}\` Long \`${hud(p.x)}\` → **${(px / 10).toFixed(0)}%** ` +
+                `across, **${(py / 10).toFixed(0)}%** down`;
+        }).join('\n');
+    await i.editReply({
+        embeds: [embed(COLORS.good, 'Heatmap check', `**Bounds in use** ${manual ? '(calibrated)' : '(default — nothing calibrated)'}\n` +
+                `• Lat \`${hud(inUse.minY)}\` to \`${hud(inUse.maxY)}\`\n` +
+                `• Long \`${hud(inUse.minX)}\` to \`${hud(inUse.maxX)}\`\n\n` +
+                `**Landmark readings held:** ${readings.length}` +
+                (readings.length > 0
+                    ? `\n${readings.map((r) => {
+                        const mark = landmarkById(r.id);
+                        return `• ${mark?.label ?? r.id} — recorded at Lat \`${hud(r.y)}\` ` +
+                            `Long \`${hud(r.x)}\``;
+                    }).join('\n')}`
+                    : '') +
+                `\n\n**Where that puts people right now**\n${where}\n\n` +
+                'Compare those percentages with where you actually are on the picture. ' +
+                'If they are wrong, `/setup heatmap recalibrate` drops everything above ' +
+                'and goes back to the default.')],
+    });
+}
 async function handleHeatmap(ctx, i, action) {
     if (action === 'calibrate') {
         await handleCalibrate(ctx, i);
+        return;
+    }
+    if (action === 'check') {
+        await handleHeatmapCheck(ctx, i);
         return;
     }
     if (action === 'every') {
