@@ -174,8 +174,14 @@ export async function renderHeatmap(
         const weight = 0.75 * t;
 
         const existing = image.getPixelColor(x, y);
+
+        // Blend toward the heat colour rather than adding to what is there.
+        // Adding light works on the dark greyscale maps these are usually drawn
+        // on, but this island is bright green — every hot core came out white,
+        // because adding to an already-bright pixel saturates all three
+        // channels. Mixing keeps the hue, so hot still reads as green.
         const add = (over: number, under: number): number =>
-          Math.min(255, Math.round(under + (over * weight)));
+          Math.round((over * weight) + (under * (1 - weight)));
 
         image.setPixelColor(
           (((add(r, (existing >>> 24) & 0xff) << 24) >>> 0)
@@ -297,6 +303,30 @@ export async function baseImage(source: string): Promise<Buffer | null> {
     return null;
   }
 }
+
+/**
+ * What a file actually is, from its first bytes.
+ *
+ * The extension is not evidence. A picture saved from a browser as `map.png`
+ * is very often a WebP, jimp reads the bytes rather than the name, and refuses
+ * it — which surfaced as "no map" with nothing pointing at the real cause.
+ * Naming the true format turns that into a one-line fix.
+ */
+export function sniffFormat(data: Buffer): string {
+  if (data.length < 12) return 'not an image';
+  const head = data.subarray(0, 12);
+
+  if (head[0] === 0x89 && head.subarray(1, 4).toString('latin1') === 'PNG') return 'PNG';
+  if (head[0] === 0xff && head[1] === 0xd8) return 'JPEG';
+  if (head.subarray(0, 4).toString('latin1') === 'RIFF'
+    && head.subarray(8, 12).toString('latin1') === 'WEBP') return 'WebP';
+  if (head.subarray(0, 3).toString('latin1') === 'GIF') return 'GIF';
+  if (head.subarray(0, 2).toString('latin1') === 'BM') return 'BMP';
+  return 'not a picture the bot recognises';
+}
+
+/** Formats jimp can actually draw on. WebP is readable by neither. */
+export const SUPPORTED = ['PNG', 'JPEG', 'BMP'];
 
 /** Whether a buffer is actually an image this can draw on. */
 export async function decodes(data: Buffer): Promise<boolean> {

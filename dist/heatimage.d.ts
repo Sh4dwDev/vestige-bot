@@ -51,6 +51,17 @@ export declare function findMaps(): Promise<{
  * fetched; anything else is read as a path relative to where the bot runs.
  */
 export declare function baseImage(source: string): Promise<Buffer | null>;
+/**
+ * What a file actually is, from its first bytes.
+ *
+ * The extension is not evidence. A picture saved from a browser as `map.png`
+ * is very often a WebP, jimp reads the bytes rather than the name, and refuses
+ * it — which surfaced as "no map" with nothing pointing at the real cause.
+ * Naming the true format turns that into a one-line fix.
+ */
+export declare function sniffFormat(data: Buffer): string;
+/** Formats jimp can actually draw on. WebP is readable by neither. */
+export declare const SUPPORTED: string[];
 /** Whether a buffer is actually an image this can draw on. */
 export declare function decodes(data: Buffer): Promise<boolean>;
 export declare function forgetBaseImage(): void;

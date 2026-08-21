@@ -105,13 +105,14 @@ import {
   restoreSnapshot,
   runBackup,
 } from './backup.js';
-import { baseImage, DEFAULT_PATHS } from './heatimage.js';
+import { baseImage, DEFAULT_PATHS, sniffFormat, SUPPORTED } from './heatimage.js';
 import {
   buildHeatmapEmbed,
   HEATMAP_MESSAGE_KEY,
   heatmapMinutes,
   pointsFrom,
   resetBounds,
+  resolveMapImage,
   saveBounds,
   setHeatmapChannel,
   setHeatmapImage,
@@ -2451,18 +2452,22 @@ async function handleHeatmap(
     if (!url) {
       // Blank does not mean "no picture" — it means "look in the usual place",
       // which is the whole point of being able to just drop a file in.
-      const found = await baseImage('');
+      const found = await resolveMapImage(ctx);
       await i.editReply({
         embeds: [found
-          ? embed(COLORS.good, 'Using the map on the host',
-            `Found one at \`${DEFAULT_PATHS[0]}\` (or one of its neighbours) and ` +
-            'it reads fine. Replace the file whenever you like — the bot notices ' +
-            'and picks the new one up.')
-          : embed(COLORS.warn, 'No map picture found',
+          ? embed(COLORS.good, 'Map picture found',
+            `It reads fine — **${sniffFormat(found)}**, ${Math.round(found.length / 1024)} KB. ` +
+            'Replace the file whenever you like; the bot notices and picks the ' +
+            'new one up.')
+          : embed(COLORS.warn, 'No map picture the bot can read',
             'Nothing configured, and nothing at ' +
             DEFAULT_PATHS.map((f) => `\`${f}\``).join(', ') + '.\n\n' +
             'Upload one there in the PebbleHost file manager and it is picked ' +
-            'up automatically. The heat is drawn on a plain grid until then.')],
+            'up automatically. The heat is drawn on a plain grid until then.\n\n' +
+            `Readable formats are **${SUPPORTED.join('**, **')}**. A picture saved ` +
+            'from a browser is often a **WebP** even when it is named `.png`, ' +
+            'and that is read by its bytes rather than its name — so re-save it ' +
+            'as a real PNG if it looks right but will not load.')],
       });
       return;
     }

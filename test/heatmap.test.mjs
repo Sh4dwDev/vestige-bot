@@ -277,6 +277,34 @@ check('the grid is the size it says it is', (() => {
   check('both are still pictures', one.length > 100 && many.length > 100);
 }
 
+// The extension is not evidence. A picture saved from a browser as map.png is
+// very often a WebP; jimp reads the bytes, refuses it, and the panel showed a
+// plain grid with nothing pointing at why. Observed live 2026-08-21.
+{
+  const img = await import(pathToFileURL(path.join(root, 'dist/heatimage.js')).href);
+
+  const png = await img.renderHeatmap([], null, null, 32);
+  check('a real PNG is identified', img.sniffFormat(png) === 'PNG', img.sniffFormat(png));
+
+  // RIFF....WEBP - exactly what was sitting on the server named map.png.
+  const webp = Buffer.concat([
+    Buffer.from('RIFF', 'latin1'), Buffer.alloc(4), Buffer.from('WEBPVP8 ', 'latin1'),
+  ]);
+  check('a WebP is named as a WebP however the file is called',
+    img.sniffFormat(webp) === 'WebP', img.sniffFormat(webp));
+
+  check('a JPEG is identified',
+    img.sniffFormat(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0])) === 'JPEG');
+  check('rubbish is not guessed at',
+    /not a picture|not an image/.test(img.sniffFormat(Buffer.from('hello world!!'))));
+  check('a tiny buffer does not crash the sniffer',
+    typeof img.sniffFormat(Buffer.from([1, 2])) === 'string');
+
+  check('WebP is not offered as readable', !img.SUPPORTED.includes('WebP'),
+    img.SUPPORTED.join(','));
+  check('PNG and JPEG are', img.SUPPORTED.includes('PNG') && img.SUPPORTED.includes('JPEG'));
+}
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
 process.exit(failed === 0 ? 0 : 1);
