@@ -986,7 +986,8 @@ export async function startTeleport(ctx, i, friendId) {
                 `They can accept with the button or by typing \`!accept\`. You will travel ` +
                 `**${delaySeconds(ctx)} seconds** after they do.\n\n` +
                 '⚠️ **Do not move** during the countdown, or it cancels. You must both be ' +
-                'the same species.')],
+                'the same species, and **they must be at full health** — travel is not a ' +
+                'way to join a fight that has already started.')],
     });
 }
 async function handleTeleport(ctx, i) {

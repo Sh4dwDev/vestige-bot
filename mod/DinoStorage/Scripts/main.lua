@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.24.0"
+local MOD_VERSION = "3.25.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1414,6 +1414,25 @@ local function handleTeleport(cmd)
             "you are a %s and they are a %s — you can only travel to your own species",
             moverSpecies, anchorSpecies))
         return
+    end
+
+    -- The arrival point has to be somewhere safe, and the only signal for that
+    -- the server can actually read is whether the friend is hurt. Travelling to
+    -- somebody at half health is travelling into whatever took the other half:
+    -- it turns a convenience into a way to call in reinforcements mid-fight, or
+    -- to escape one by jumping to a friend who is already losing.
+    local anchorHealth = callNumber(anchor, "GetHealth")
+    local anchorMax = callNumber(anchor, "GetMaxHealth")
+    if anchorHealth ~= nil and anchorMax ~= nil and anchorMax > 0 then
+        -- A small margin: health ticks and regenerates constantly, and refusing
+        -- at 99.4% would read as broken rather than as a rule.
+        if (anchorHealth / anchorMax) < 0.98 then
+            writeResult(cmd.id, "teleport", cmd.steam, false, string.format(
+                "your friend is hurt (%d%% health) — they have to be at full health, "
+                .. "so travel cannot be used to join a fight",
+                math.floor((anchorHealth / anchorMax) * 100)))
+            return
+        end
     end
 
     local to = locationOf(anchor)

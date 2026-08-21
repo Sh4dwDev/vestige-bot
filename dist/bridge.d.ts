@@ -98,16 +98,18 @@ export declare class ModBridge {
      */
     notify(steamId: string, message: string): Promise<boolean>;
     /**
-     * Reads a file out of the mod directory on the game server.
+     * Finds and reads a file in the mod directory, by listing rather than by
+     * guessing names.
      *
-     * The bot and the game run on different hosts, and only the game host has a
-     * file manager most people already use. So a picture dropped in beside the
-     * mod is reachable without anybody touching the bot's own filesystem.
+     * Guessing meant four `get` calls per refresh for a file that is usually not
+     * there, and a miss goes through the reconnect-and-retry path — so a server
+     * with no map picture reconnected SFTP eight times every five minutes and
+     * filled the log with it. One listing answers the whole question.
      *
-     * Null rather than throwing when it is not there: callers are asking whether
-     * a file exists, and absence is the normal answer.
+     * The negative answer is cached too: "there is no map here" does not change
+     * often enough to be worth asking every time.
      */
-    readFile(name: string): Promise<Buffer | null>;
+    findFile(match: RegExp): Promise<Buffer | null>;
     /** Who is playing what, right now. */
     players(): Promise<PlayerRow[]>;
     close(): Promise<void>;

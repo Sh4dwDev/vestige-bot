@@ -297,16 +297,35 @@ export class ModBridge {
 
 
   /**
-   * Reads a file out of the mod directory on the game server.
+   * Finds and reads a file in the mod directory, by listing rather than by
+   * guessing names.
    *
-   * The bot and the game run on different hosts, and only the game host has a
-   * file manager most people already use. So a picture dropped in beside the
-   * mod is reachable without anybody touching the bot's own filesystem.
+   * Guessing meant four `get` calls per refresh for a file that is usually not
+   * there, and a miss goes through the reconnect-and-retry path — so a server
+   * with no map picture reconnected SFTP eight times every five minutes and
+   * filled the log with it. One listing answers the whole question.
    *
-   * Null rather than throwing when it is not there: callers are asking whether
-   * a file exists, and absence is the normal answer.
+   * The negative answer is cached too: "there is no map here" does not change
+   * often enough to be worth asking every time.
    */
-  async readFile(name: string): Promise<Buffer | null> {
+  async findFile(match: RegExp): Promise<Buffer | null> {
+    const now = Date.now();
+    if (this.#missAt && now - this.#missAt < 10 * 60_000) return null;
+
+    let name: string | null = null;
+    try {
+      const listing = await this.#withClient((client) => client.list(this.modDir));
+      name = listing.find((entry) => entry.type === '-' && match.test(entry.name))?.name ?? null;
+    } catch {
+      return null;
+    }
+
+    if (!name) {
+      this.#missAt = now;
+      return null;
+    }
+
+    this.#missAt = 0;
     try {
       const data = await this.#withClient((client) => client.get(`${this.modDir}/${name}`));
       return Buffer.isBuffer(data) ? data : null;
@@ -314,6 +333,9 @@ export class ModBridge {
       return null;
     }
   }
+
+  /** When the last listing found nothing, so it is not asked again immediately. */
+  #missAt = 0;
 
   /** Who is playing what, right now. */
   async players(): Promise<PlayerRow[]> {

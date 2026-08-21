@@ -47,6 +47,28 @@ check('starting again replaces, not duplicates', db.cooldownLeft(A, 'slay', FIFT
 db.close();
 fs.rmSync(path.dirname(file), { recursive: true, force: true });
 
+// Travel to a friend requires the ARRIVAL POINT to be unhurt. Travelling to
+// somebody at half health is travelling into whatever took the other half, so
+// without this it is a way to call in reinforcements mid-fight - or to escape
+// one by jumping to a friend who is already losing.
+{
+  const fs4 = await import('node:fs');
+  const path4 = await import('node:path');
+  const lua4 = fs4.readFileSync(
+    path4.join(path4.dirname(new URL(import.meta.url).pathname).replace(/^\//, ''),
+      '..', 'mod/DinoStorage/Scripts/main.lua'), 'utf8');
+  const tp = lua4.slice(lua4.indexOf('local function handleTeleport'),
+    lua4.indexOf('local function handleSkinGet'));
+
+  check('the destination health is read', /GetHealth/.test(tp) && /GetMaxHealth/.test(tp));
+  check('and a hurt friend is refused', /they have to be at full health/.test(tp));
+  check('the refusal says how hurt they are', /%d%%/.test(tp));
+  check('there is a margin, so regen ticks do not read as broken',
+    /0\.98/.test(tp), '');
+  check('it is checked before anybody is moved',
+    tp.indexOf('GetHealth') < tp.indexOf('locationOf(anchor)'));
+}
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
 process.exit(failed === 0 ? 0 : 1);

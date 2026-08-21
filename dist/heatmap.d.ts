@@ -59,8 +59,8 @@ export declare function buildHeatmapEmbed(points: Point[], bounds: Bounds | null
 }): EmbedBuilder;
 /** Positions from the mod, skipping anyone whose pawn would not give one. */
 export declare function pointsFrom(players: PlayerRow[]): Point[];
-/** Names looked for on the game server, beside the mod. */
-export declare const SERVER_MAP_NAMES: string[];
+/** Anything named like a map, beside the mod on the game server. */
+export declare const SERVER_MAP_MATCH: RegExp;
 /**
  * The map picture, from wherever it actually is.
  *

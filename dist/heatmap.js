@@ -205,8 +205,8 @@ export function pointsFrom(players) {
         && Number.isFinite(p.x) && Number.isFinite(p.y))
         .map((p) => ({ x: p.x, y: p.y }));
 }
-/** Names looked for on the game server, beside the mod. */
-export const SERVER_MAP_NAMES = ['map.png', 'map.jpg', 'map.jpeg', 'map.webp'];
+/** Anything named like a map, beside the mod on the game server. */
+export const SERVER_MAP_MATCH = /^map.*\.(png|jpe?g|webp)$/i;
 /**
  * The map picture, from wherever it actually is.
  *
@@ -219,13 +219,9 @@ export async function resolveMapImage(ctx) {
     const local = await baseImage(heatmapImageUrl(ctx));
     if (local)
         return local;
-    for (const name of SERVER_MAP_NAMES) {
-        const data = await ctx.mod.readFile(name).catch(() => null);
-        if (!data || data.length === 0)
-            continue;
-        if (await decodes(data))
-            return data;
-    }
+    const remote = await ctx.mod.findFile(SERVER_MAP_MATCH).catch(() => null);
+    if (remote && remote.length > 0 && await decodes(remote))
+        return remote;
     return null;
 }
 export function startHeatmapPanel(ctx, client, log) {
