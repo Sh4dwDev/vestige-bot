@@ -54,9 +54,19 @@ export declare const DEFAULT_BOUNDS: Bounds;
 /**
  * The bounds actually used to draw.
  *
- * Manual always wins — somebody who lined the corners up to their own picture
- * means it. Otherwise learned bounds are only trusted once they cover enough
- * ground to be a map rather than a huddle.
+ * Manual wins, and otherwise the fallback is used rather than what the panel
+ * has learned — which is the opposite of what it did at first, and the reason
+ * is the ocean.
+ *
+ * Learned bounds track where **people walk**, so they converge on the outline
+ * of the island. The map picture is the island *plus the sea around it*.
+ * Stretching one onto the other pushes anybody near a coast off the edge, and
+ * it drifts every time somebody swims somewhere new. The fallback at least
+ * models the same thing the picture does: a fixed square centred on the origin.
+ *
+ * Learned bounds are still kept, because they are the honest record of where
+ * the playable area actually is, and they are what a proper calibration would
+ * be built from.
  */
 export declare function effectiveBounds(ctx: Ctx, learned: Bounds | null): Bounds;
 /**
@@ -71,8 +81,20 @@ export declare function widen(bounds: Bounds | null, points: Point[]): Bounds | 
 export declare function grid(points: Point[], bounds: Bounds): number[][];
 /** The grid as a monospace block, scaled so the busiest cell is the darkest. */
 export declare function render(cells: number[][]): string;
-/** The busiest cells, described in coordinates somebody can actually go to. */
-export declare function hotspots(cells: number[][], bounds: Bounds, limit?: number): Array<{
+/**
+ * The busiest places, in the coordinates the players are actually standing on.
+ *
+ * This used to reconstruct a position by inverting the grid maths — cell index
+ * back to a fraction, fraction back through the bounds. That was wrong twice
+ * over: it reported the middle of a cell rather than where anybody was, and it
+ * inherited every error in the bounds, so a guessed extent produced confidently
+ * wrong coordinates. A player at Lat -143,646 was reported at Lat 25.
+ *
+ * The mod already sends exact positions. Averaging the real ones in a cluster
+ * is both simpler and correct however wrong the bounds happen to be, because it
+ * never converts anything.
+ */
+export declare function hotspots(points: Point[], bounds: Bounds, limit?: number): Array<{
     lat: string;
     long: string;
     count: number;

@@ -115,24 +115,26 @@ export const DEFAULT_BOUNDS = {
     minX: -400_000, maxX: 400_000,
     minY: -400_000, maxY: 400_000,
 };
-/** Learned bounds narrower than this are noise, not a map. */
-const MIN_USEFUL_SPAN = 150_000;
 /**
  * The bounds actually used to draw.
  *
- * Manual always wins — somebody who lined the corners up to their own picture
- * means it. Otherwise learned bounds are only trusted once they cover enough
- * ground to be a map rather than a huddle.
+ * Manual wins, and otherwise the fallback is used rather than what the panel
+ * has learned — which is the opposite of what it did at first, and the reason
+ * is the ocean.
+ *
+ * Learned bounds track where **people walk**, so they converge on the outline
+ * of the island. The map picture is the island *plus the sea around it*.
+ * Stretching one onto the other pushes anybody near a coast off the edge, and
+ * it drifts every time somebody swims somewhere new. The fallback at least
+ * models the same thing the picture does: a fixed square centred on the origin.
+ *
+ * Learned bounds are still kept, because they are the honest record of where
+ * the playable area actually is, and they are what a proper calibration would
+ * be built from.
  */
 export function effectiveBounds(ctx, learned) {
     if (learned && boundsAreManual(ctx))
         return learned;
-    if (learned) {
-        const spanX = learned.maxX - learned.minX;
-        const spanY = learned.maxY - learned.minY;
-        if (spanX >= MIN_USEFUL_SPAN && spanY >= MIN_USEFUL_SPAN)
-            return learned;
-    }
     return DEFAULT_BOUNDS;
 }
 /**
@@ -186,26 +188,45 @@ export function render(cells) {
 }
 /** In-game HUD coordinates: the game shows world units over a thousand. */
 const hud = (world) => (world / 1000).toFixed(0);
-/** The busiest cells, described in coordinates somebody can actually go to. */
-export function hotspots(cells, bounds, limit = 3) {
-    const found = [];
-    cells.forEach((row, r) => row.forEach((count, c) => {
-        if (count > 0)
-            found.push({ row: r, col: c, count });
-    }));
-    return found
-        .sort((a, b) => b.count - a.count)
+/**
+ * The busiest places, in the coordinates the players are actually standing on.
+ *
+ * This used to reconstruct a position by inverting the grid maths — cell index
+ * back to a fraction, fraction back through the bounds. That was wrong twice
+ * over: it reported the middle of a cell rather than where anybody was, and it
+ * inherited every error in the bounds, so a guessed extent produced confidently
+ * wrong coordinates. A player at Lat -143,646 was reported at Lat 25.
+ *
+ * The mod already sends exact positions. Averaging the real ones in a cluster
+ * is both simpler and correct however wrong the bounds happen to be, because it
+ * never converts anything.
+ */
+export function hotspots(points, bounds, limit = 3) {
+    if (points.length === 0)
+        return [];
+    // Grouped by grid cell, since that is the same grouping the picture shows.
+    const spanX = bounds.maxX - bounds.minX;
+    const spanY = bounds.maxY - bounds.minY;
+    const clusters = new Map();
+    for (const point of points) {
+        const fx = spanX > 0 ? (point.x - bounds.minX) / spanX : 0.5;
+        const fy = spanY > 0 ? (point.y - bounds.minY) / spanY : 0.5;
+        const col = Math.min(COLS - 1, Math.max(0, Math.floor(fx * COLS)));
+        const row = Math.min(ROWS - 1, Math.max(0, Math.floor((1 - fy) * ROWS)));
+        const key = `${row}:${col}`;
+        const group = clusters.get(key) ?? [];
+        group.push(point);
+        clusters.set(key, group);
+    }
+    return [...clusters.values()]
+        .sort((a, b) => b.length - a.length)
         .slice(0, limit)
-        .map((cell) => {
-        // The middle of the cell, which is as precise as a grid can honestly be.
-        const fx = (cell.col + 0.5) / COLS;
-        const fy = 1 - ((cell.row + 0.5) / ROWS);
-        return {
-            long: hud(bounds.minX + (fx * (bounds.maxX - bounds.minX))),
-            lat: hud(bounds.minY + (fy * (bounds.maxY - bounds.minY))),
-            count: cell.count,
-        };
-    });
+        .map((group) => ({
+        // The middle of where they actually are, not the middle of a cell.
+        lat: hud(group.reduce((sum, p) => sum + p.y, 0) / group.length),
+        long: hud(group.reduce((sum, p) => sum + p.x, 0) / group.length),
+        count: group.length,
+    }));
 }
 export function buildHeatmapEmbed(points, bounds, options = {}) {
     const embed = new EmbedBuilder()
@@ -226,7 +247,7 @@ export function buildHeatmapEmbed(points, bounds, options = {}) {
         return embed.setColor(0x4f545c)
             .setDescription('🌙  **All quiet.** Nobody is out there right now.');
     }
-    const spots = hotspots(grid(points, bounds), bounds);
+    const spots = hotspots(points, bounds);
     return embed
         .setColor(0x5865f2)
         .setDescription(`**${points.length}** on the island. North is up.` +

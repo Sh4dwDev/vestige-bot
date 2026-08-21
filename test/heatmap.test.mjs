@@ -109,17 +109,17 @@ check('the grid is the size it says it is', (() => {
 // ---- telling people where to go -------------------------------------------
 
 {
-  const cells = h.grid([at(750, 750), at(750, 750), at(100, 100)], BOUNDS);
-  const spots = h.hotspots(cells, BOUNDS);
+  // Real positions in, real positions out — no grid inversion anywhere.
+  const spots = h.hotspots([at(750, 750), at(752, 748), at(100, 100)], BOUNDS);
 
   check('the busiest place is listed first', spots[0].count === 2, JSON.stringify(spots[0]));
   check('coordinates are in the in-game scale, not raw world units',
-    Number(spots[0].lat) < 10 && Number(spots[0].long) < 10,
+    Math.abs(Number(spots[0].lat)) < 10 && Math.abs(Number(spots[0].long)) < 10,
     `lat ${spots[0].lat} long ${spots[0].long}`);
-  check('and point at roughly the right place',
-    Math.abs(Number(spots[0].lat)) >= 0 && spots[0].lat !== undefined);
+  check('and are the average of where those players actually are',
+    spots[0].lat === '1' && spots[0].long === '1', JSON.stringify(spots[0]));
   check('empty cells are never listed', spots.every((s) => s.count > 0));
-  check('an empty map has no hotspots', h.hotspots(h.grid([], BOUNDS), BOUNDS).length === 0);
+  check('an empty map has no hotspots', h.hotspots([], BOUNDS).length === 0);
 }
 
 // ---- the panel ------------------------------------------------------------
@@ -327,11 +327,11 @@ check('the grid is the size it says it is', (() => {
     `${one.length} vs ${crowd.length}`);
 }
 
-// Which bounds actually get used. Reported live: a lone player was drawn in the
-// bottom-left corner, because bounds "learned" from one person standing still
-// collapse to a box a few metres wide - and then that player IS its corner.
+// Which bounds actually get used. Learned bounds track where people WALK, so
+// they converge on the island outline - but the picture is the island plus the
+// sea around it, so stretching one onto the other pushes coastal players off
+// the edge. Manual wins; otherwise the fixed square that models the picture.
 {
-  const ctx = { db: new Map(), };
   const fakeCtx = (manual = false) => ({
     db: {
       getSetting: (k) => (k === 'heatmap_manual' && manual ? '1' : ''),
@@ -339,25 +339,21 @@ check('the grid is the size it says it is', (() => {
     },
   });
 
-  const huddle = { minX: -44000, maxX: -44400, minY: -143000, maxY: -143600 };
   const tiny = { minX: 0, maxX: 500, minY: 0, maxY: 500 };
-  const real = { minX: -300000, maxX: 300000, minY: -300000, maxY: 300000 };
+  const island = { minX: -300000, maxX: 300000, minY: -300000, maxY: 300000 };
 
-  check('nothing learned falls back to the island',
+  check('nothing learned falls back to the island square',
     h.effectiveBounds(fakeCtx(), null) === h.DEFAULT_BOUNDS);
-  check('a box a few metres wide is not treated as a map',
+  check('a huddle is never treated as a map',
     h.effectiveBounds(fakeCtx(), tiny) === h.DEFAULT_BOUNDS);
-  check('bounds covering real ground are used',
-    h.effectiveBounds(fakeCtx(), real) === real);
-  check('manual bounds always win, however small',
-    h.effectiveBounds(fakeCtx(true), tiny) === tiny);
+  check('nor are learned bounds, however wide - they have no ocean margin',
+    h.effectiveBounds(fakeCtx(), island) === h.DEFAULT_BOUNDS);
+  check('manual bounds always win', h.effectiveBounds(fakeCtx(true), tiny) === tiny);
 
   check('the fallback is centred on the origin, where the world is',
     h.DEFAULT_BOUNDS.minX < 0 && h.DEFAULT_BOUNDS.maxX > 0
     && h.DEFAULT_BOUNDS.minY < 0 && h.DEFAULT_BOUNDS.maxY > 0);
 
-  // A real reading from the server: this must land ON the island, not in a
-  // corner. Corners are what the bug looked like.
   const img = await import(pathToFileURL(path.join(root, 'dist/heatimage.js')).href);
   const live = img.toPixel({ x: -44465, y: -143643.5 }, h.DEFAULT_BOUNDS, 720);
   const margin = 720 * 0.15;
@@ -365,7 +361,33 @@ check('the grid is the size it says it is', (() => {
     live.px > margin && live.px < 720 - margin
     && live.py > margin && live.py < 720 - margin,
     JSON.stringify(live));
-  void ctx;
+}
+
+// The coordinates printed under the map are the REAL ones. They used to be
+// reconstructed by inverting the grid maths, which reported the middle of a
+// cell and inherited every error in the bounds: a player at Lat -143,646 was
+// printed as Lat 25.
+{
+  const one = h.hotspots([{ x: -44465, y: -143643.5 }], h.DEFAULT_BOUNDS);
+  check('one player reports their own position', one.length === 1);
+  check('the latitude is theirs, not a cell centre', one[0].lat === '-144',
+    `lat ${one[0].lat}`);
+  check('and so is the longitude', one[0].long === '-44', `long ${one[0].long}`);
+
+  // Wrong bounds must not corrupt the numbers any more.
+  const wrong = h.hotspots([{ x: -44465, y: -143643.5 }],
+    { minX: 0, maxX: 10, minY: 0, maxY: 10 });
+  check('coordinates survive nonsense bounds unchanged',
+    wrong[0].lat === '-144' && wrong[0].long === '-44',
+    `${wrong[0].lat} / ${wrong[0].long}`);
+
+  const group = h.hotspots([
+    { x: 1000, y: 1000 }, { x: 3000, y: 3000 }, { x: 500000, y: 500000 },
+  ], h.DEFAULT_BOUNDS);
+  check('a cluster is reported as the middle of where they actually are',
+    group[0].count === 2 && group[0].lat === '2', JSON.stringify(group[0]));
+  check('the busiest cluster is listed first', group[0].count >= group[1].count);
+  check('an empty server has no hotspots', h.hotspots([], h.DEFAULT_BOUNDS).length === 0);
 }
 
 const failed = results.filter((r) => !r).length;
