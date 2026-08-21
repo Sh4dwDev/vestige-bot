@@ -101,9 +101,7 @@ import {
   restoreSnapshot,
   runBackup,
 } from './backup.js';
-import {
-  baseImage,
-} from './heatimage.js';
+import { baseImage, DEFAULT_PATHS } from './heatimage.js';
 import {
   buildHeatmapEmbed,
   HEATMAP_MESSAGE_KEY,
@@ -734,7 +732,7 @@ export const commandData = [
         .addSubcommand((c) =>
           c.setName('image').setDescription('The map picture the heat is drawn on')
             .addStringOption((o) =>
-              o.setName('url').setDescription('Direct link to a map image, or blank to clear')))
+              o.setName('url').setDescription('Link or file path. Blank uses data/map.png on the host')))
         .addSubcommand((c) =>
           c.setName('bounds').setDescription('Line the picture up with the world')
             .addNumberOption((o) =>
@@ -2402,9 +2400,20 @@ async function handleHeatmap(
     setHeatmapImage(ctx, url);
 
     if (!url) {
+      // Blank does not mean "no picture" — it means "look in the usual place",
+      // which is the whole point of being able to just drop a file in.
+      const found = await baseImage('');
       await i.editReply({
-        embeds: [embed(COLORS.good, 'Map picture cleared',
-          'The heat is drawn on a plain grid again.')],
+        embeds: [found
+          ? embed(COLORS.good, 'Using the map on the host',
+            `Found one at \`${DEFAULT_PATHS[0]}\` (or one of its neighbours) and ` +
+            'it reads fine. Replace the file whenever you like — the bot notices ' +
+            'and picks the new one up.')
+          : embed(COLORS.warn, 'No map picture found',
+            'Nothing configured, and nothing at ' +
+            DEFAULT_PATHS.map((f) => `\`${f}\``).join(', ') + '.\n\n' +
+            'Upload one there in the PebbleHost file manager and it is picked ' +
+            'up automatically. The heat is drawn on a plain grid until then.')],
       });
       return;
     }
@@ -2420,8 +2429,10 @@ async function handleHeatmap(
           'placed from bounds the bot learned by watching, which will not match ' +
           'a real map.')
         : embed(COLORS.bad, 'Could not use that image',
-          'It did not download, or it is not an image the bot can read. It has ' +
-          'to be a **direct** link to a PNG or JPEG, not a page containing one.')],
+          'That is neither a file on the host nor an image the bot could ' +
+          'download.\n\nA link has to be **direct** to a PNG or JPEG rather ' +
+          'than a page containing one. A path is relative to where the bot ' +
+          `runs, which is why \`${DEFAULT_PATHS[0]}\` is the easy answer.`)],
     });
     return;
   }

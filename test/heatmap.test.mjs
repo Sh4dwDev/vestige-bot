@@ -213,6 +213,43 @@ check('the grid is the size it says it is', (() => {
   check('and so does the live one', live.image?.url === 'attachment://heatmap.png');
 }
 
+// Picking the map up off the host. The whole point is that dropping a file in
+// is the entire setup, so the default path has to work with no configuration.
+{
+  const img = await import(pathToFileURL(path.join(root, 'dist/heatimage.js')).href);
+  const fs2 = await import('node:fs');
+  const os2 = await import('node:os');
+
+  check('there is a default place to put it', img.DEFAULT_PATHS.length > 0,
+    img.DEFAULT_PATHS.join(', '));
+  check('it sits beside the database, which already exists on the host',
+    img.DEFAULT_PATHS[0].startsWith('data/'), img.DEFAULT_PATHS[0]);
+  check('png is the first thing looked for', /\.png$/.test(img.DEFAULT_PATHS[0]));
+
+  const dir = fs2.mkdtempSync(path.join(os2.tmpdir(), 'vesta-'));
+  const file = path.join(dir, 'map.png');
+
+  // A real PNG to read back: the renderer makes one, so use that.
+  fs2.writeFileSync(file, await img.renderHeatmap([], null, null, 64));
+  const loaded = await img.baseImage(file);
+  check('a file path is read from disk', loaded !== null && loaded.length > 0);
+
+  img.forgetBaseImage();
+  check('a path that is not there is not an error', await img.baseImage(
+    path.join(dir, 'nope.png')) === null);
+
+  img.forgetBaseImage();
+  fs2.writeFileSync(path.join(dir, 'notanimage.png'), 'this is not a picture');
+  check('a file that is not an image is skipped rather than thrown',
+    await img.baseImage(path.join(dir, 'notanimage.png')) === null);
+
+  img.forgetBaseImage();
+  check('a link is still fetched rather than treated as a path',
+    await img.baseImage('https://example.invalid/x.png') === null);
+
+  fs2.rmSync(dir, { recursive: true, force: true });
+}
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
 process.exit(failed === 0 ? 0 : 1);

@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises';
 import { Jimp, JimpMime } from 'jimp';
 /**
  * The heatmap as an actual picture.
@@ -9,9 +10,9 @@ import { Jimp, JimpMime } from 'jimp';
  *
  * **The map image is supplied by the server owner**, not shipped here. The
  * game's own map is not ours to redistribute, and every community map has its
- * own terms. Point `/setup heatmap image` at whichever one you have the right
- * to use and it is fetched and cached; without one the picture is drawn on a
- * plain grid so the panel still shows something.
+ * own terms. Drop one at `data/map.png` on the host and it is picked up with no
+ * configuration at all; a link works too. Without either, the heat is drawn on
+ * a plain grid so the panel still shows something.
  */
 export const SIZE = 720;
 /** How far one player's heat reaches, in pixels. */
@@ -143,28 +144,67 @@ export async function renderHeatmap(points, bounds, base, size = SIZE) {
     return Buffer.from(await image.getBuffer(JimpMime.png));
 }
 // ------------------------------------------------------------- base image --
-let cached = null;
 /**
- * Fetches the configured map picture, once.
+ * Where a map picture is looked for when nothing is configured.
  *
- * Cached by URL: this runs every few minutes forever, and re-downloading a
- * megabyte each time to draw a dozen dots on it would be rude to whoever is
- * hosting the image.
+ * Next to the database, because that directory already exists on the host and
+ * is already the place the bot keeps its own files. Dropping a picture in is
+ * the whole setup — no command, no link, no hosting it anywhere.
  */
-export async function baseImage(url) {
-    const trimmed = url.trim();
-    if (!trimmed)
+export const DEFAULT_PATHS = [
+    'data/map.png', 'data/map.jpg', 'data/map.jpeg', 'data/map.webp',
+];
+/** Cached by source AND mtime, so replacing the file on disk is picked up. */
+let cached = null;
+async function readLocal(file) {
+    try {
+        const stat = await fs.stat(file);
+        if (!stat.isFile())
+            return null;
+        return { key: `${file}:${stat.mtimeMs}`, data: await fs.readFile(file) };
+    }
+    catch {
         return null;
-    if (cached && cached.url === trimmed)
+    }
+}
+/**
+ * The map picture: a file on the host, or a link, or nothing.
+ *
+ * `source` empty means look in the default places. A value containing `://` is
+ * fetched; anything else is read as a path relative to where the bot runs.
+ */
+export async function baseImage(source) {
+    const trimmed = source.trim();
+    if (!trimmed || !trimmed.includes('://')) {
+        const candidates = trimmed ? [trimmed, ...DEFAULT_PATHS] : DEFAULT_PATHS;
+        for (const file of candidates) {
+            const found = await readLocal(file);
+            if (!found)
+                continue;
+            if (cached?.key === found.key)
+                return cached.data;
+            try {
+                // Prove it decodes now rather than failing inside the panel later.
+                await Jimp.read(found.data);
+                cached = found;
+                return found.data;
+            }
+            catch {
+                // A file that is not an image is worth skipping rather than throwing:
+                // somebody may have dropped a readme in there.
+            }
+        }
+        return null;
+    }
+    if (cached?.key === trimmed)
         return cached.data;
     try {
         const response = await fetch(trimmed);
         if (!response.ok)
             return null;
         const data = Buffer.from(await response.arrayBuffer());
-        // Prove it decodes now rather than failing inside the panel later.
         await Jimp.read(data);
-        cached = { url: trimmed, data };
+        cached = { key: trimmed, data };
         return data;
     }
     catch {
