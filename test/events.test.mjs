@@ -166,6 +166,24 @@ fs.rmSync(path.dirname(file), { recursive: true, force: true });
 }
 
 
+// Which events reach the whole server. Reported live: an endangered event put a
+// full-width ANNOUNCEMENT banner in front of everyone, on top of the on-screen
+// notice the one affected player already had.
+{
+  const source = fs.readFileSync(path.join(root, 'src/events.ts'), 'utf8');
+  const body = source.slice(source.indexOf('for (const event of started)'),
+    source.indexOf('export', source.indexOf('for (const event of started)')));
+
+  check('starting an event is announced only for a cull',
+    /if \(event\.kind === 'cull'\) \{\s*await ctx\.rcon\.announce/.test(body), '');
+  check('and the end likewise', /if \(kind === 'cull'\) \{\s*await ctx\.rcon\.announce/.test(body));
+  check('the Discord embed still goes out for both',
+    (body.match(/await send\(/g) ?? []).length === 2,
+    String((body.match(/await send\(/g) ?? []).length));
+  check('the announce text itself is still there for culls',
+    typeof ev.eventAnnounce === 'function' && typeof ev.overAnnounce === 'function');
+}
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
 process.exit(failed === 0 ? 0 : 1);

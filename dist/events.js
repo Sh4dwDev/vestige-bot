@@ -248,18 +248,31 @@ export async function checkEvents(ctx, client, players, log) {
             await channel.send({ embeds: [embed] }).catch(() => undefined);
         }
     };
+    // Only a cull is announced to the whole server.
+    //
+    // A cull is a call to action for everyone hunting, so it belongs in front
+    // of everyone. An endangered event has an audience of exactly one — the
+    // person on that species — and they already get told on screen. Announcing
+    // it as well put a full-width banner in front of the whole server that was
+    // noise for everybody else and a duplicate for the one person it concerned.
     for (const event of started) {
         const bonus = event.kind === 'cull' ? settings.cullBonus : settings.rareBonus;
         log(`event: ${event.species} ${event.kind} (${event.count}/${event.cap})`);
         await send(buildEventEmbed(event, bonus));
-        await ctx.rcon.announce(eventAnnounce(event, bonus)).catch(() => undefined);
+        if (event.kind === 'cull') {
+            await ctx.rcon.announce(eventAnnounce(event, bonus)).catch(() => undefined);
+        }
     }
     if (ended.length > 0)
         forgetTold();
     for (const [species, kind] of ended) {
         log(`event: ${species} ${kind} over`);
         await send(buildEventOverEmbed(species, kind));
-        await ctx.rcon.announce(overAnnounce(species, kind)).catch(() => undefined);
+        // Nothing was announced when it started, so announcing the end would be
+        // the first the server heard of it.
+        if (kind === 'cull') {
+            await ctx.rcon.announce(overAnnounce(species, kind)).catch(() => undefined);
+        }
     }
 }
 //# sourceMappingURL=events.js.map
