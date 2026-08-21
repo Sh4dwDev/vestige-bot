@@ -21,7 +21,7 @@ import { nextRestart, restartNow, restartSettings, setRestartAnnounce, setRestar
 import { cleanupSettings, clearAI, nextCleanup, setCleanupAI, setCleanupEnabled, setCleanupHours, wipeNow, } from './cleanup.js';
 import { backupConfig, lastBackup, listSnapshots, markBackup, restoreSnapshot, runBackup, } from './backup.js';
 import { baseImage, DEFAULT_PATHS, sniffFormat, SUPPORTED } from './heatimage.js';
-import { applyReading, landmarkById, LANDMARKS } from './calibrate.js';
+import { applyReading, clearReadings, landmarkById, LANDMARKS, storedReadings, } from './calibrate.js';
 import { buildHeatmapEmbed, HEATMAP_MESSAGE_KEY, heatmapMinutes, pointsFrom, resetBounds, resolveMapImage, saveBounds, setHeatmapChannel, setHeatmapImage, setHeatmapMinutes, setManualBounds, storedBounds, widen, } from './heatmap.js';
 import { applyCaps, planCaps } from './capplan.js';
 import { enforcementEnabled, enforcementFault, restoreAllPlayables, setEnforcement, syncPlayables, } from './enforce.js';
@@ -1761,12 +1761,19 @@ async function handleCalibrate(ctx, i) {
         });
         return;
     }
+    // Where this reading lands on the picture, so standing in the wrong place is
+    // obvious now rather than after wondering why everybody draws in the sea.
+    const drawn = `\n\n*Everything is now placed as though you were standing at ` +
+        `${Math.round((mark.fx ?? 0.5) * 100)}% across and ` +
+        `${Math.round((mark.fy ?? 0.5) * 100)}% down the map picture. If that is ` +
+        'not where you actually were, run this again from the right spot.*';
     if (!exact) {
         await i.editReply({
             embeds: [embed(COLORS.good, `Pinned: ${mark.label}`, `You read as Lat **${hud(me.y)}**, Long **${hud(me.x)}**.\n\n` +
                     `**${mark.label} will now draw in the right place** from the next ` +
                     'refresh. How wide the picture is remains a guess, though, so places ' +
-                    'far from here are still off.\n\nOne more reading measures it properly. ' +
+                    'far from here are still off.' + drawn + '\n\nOne more reading measures ' +
+                    'it properly. ' +
                     'A coastal tip only settles the axis it sits on — standing at the ' +
                     'northern point says everything about how far north the picture reaches ' +
                     'and nothing about east to west.\n\n**Next, any of:**\n' +
@@ -1876,12 +1883,21 @@ async function handleHeatmap(ctx, i, action) {
     }
     if (action === 'recalibrate') {
         const had = storedBounds(ctx);
+        const readings = storedReadings(ctx).length;
         resetBounds(ctx);
+        // The landmark readings have to go too. Leaving them meant "start again"
+        // silently rebuilt the same wrong bounds from the same wrong readings the
+        // next time anybody calibrated.
+        clearReadings(ctx);
         await i.reply({
             embeds: [embed(COLORS.good, 'Bounds forgotten', (had
                     ? `Was Lat \`${(had.minY / 1000).toFixed(0)}\` to \`${(had.maxY / 1000).toFixed(0)}\`, ` +
                         `Long \`${(had.minX / 1000).toFixed(0)}\` to \`${(had.maxX / 1000).toFixed(0)}\`.\n\n`
                     : 'Nothing had been learned yet.\n\n') +
+                    (readings > 0
+                        ? `**${readings} landmark reading${readings === 1 ? '' : 's'} cleared** as well, ` +
+                            'so calibrating starts from nothing.\n\n'
+                        : '') +
                     'The panel learns the map from where people actually go, and only ever ' +
                     'widens. Reset it if something once put a player somewhere impossible ' +
                     'and stretched the grid.')],

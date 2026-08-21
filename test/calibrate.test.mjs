@@ -171,6 +171,47 @@ check('nothing is suggested once the map is lined up',
     needed.map((m) => m.id).join(','));
 }
 
+// ---- storing readings ------------------------------------------------------
+
+{
+  // A stand-in for the settings table.
+  const store = new Map();
+  const ctx = {
+    db: {
+      getSetting: (k) => store.get(k) ?? '',
+      setSetting: (k, v) => store.set(k, v),
+    },
+  };
+
+  const lake = { id: 'dome', x: -40_643.9, y: 113_184.4 };
+  c.applyReading(ctx, lake);
+  check('a reading is remembered', c.storedReadings(ctx).length === 1);
+
+  const again = c.applyReading(ctx, { id: 'dome', x: -44_465, y: -143_644 });
+  check('calibrating the same landmark replaces rather than stacks',
+    again.readings.length === 1, JSON.stringify(again.readings));
+  check('and it is the newer reading that survives',
+    c.storedReadings(ctx)[0].y === -143_644);
+
+  check('a solved map is marked manual, so the panel stops widening it',
+    store.get('heatmap_manual') === '1');
+
+  // The bug this guards: forgetting the bounds but keeping the readings meant
+  // the next calibration silently rebuilt exactly the same wrong map.
+  c.clearReadings(ctx);
+  check('clearing readings really empties them', c.storedReadings(ctx).length === 0);
+
+  check('a reading with no landmark is dropped rather than stored as junk',
+    c.storedReadings({
+      db: { getSetting: () => '[{"id":"dome"}]', setSetting: () => {} },
+    }).length === 0);
+
+  check('unreadable stored readings are not fatal',
+    c.storedReadings({
+      db: { getSetting: () => 'not json', setSetting: () => {} },
+    }).length === 0);
+}
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
 process.exit(failed === 0 ? 0 : 1);
