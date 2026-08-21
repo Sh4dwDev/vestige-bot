@@ -3,6 +3,7 @@ import { EmbedBuilder, type Client } from 'discord.js';
 import { SERVER, SIGNATURE } from './brand.js';
 import type { Ctx } from './commands.js';
 import type { PlayerRow } from './bridge.js';
+import { baseImage, forgetBaseImage, renderHeatmap } from './heatimage.js';
 import { postOrEdit } from './pinned.js';
 
 /**
@@ -69,6 +70,44 @@ export function setHeatmapMinutes(ctx: Ctx, minutes: number): void {
   ctx.db.setSetting(MINUTES_KEY, String(minutes));
 }
 
+const IMAGE_KEY = 'heatmap_image';
+
+export function heatmapImageUrl(ctx: Ctx): string {
+  return ctx.db.getSetting(IMAGE_KEY) || '';
+}
+
+export function setHeatmapImage(ctx: Ctx, url: string | null): void {
+  ctx.db.setSetting(IMAGE_KEY, url ?? '');
+  forgetBaseImage();
+}
+
+/**
+ * Bounds an admin set by hand, in the Lat/Long the game shows.
+ *
+ * Self-calibration is fine for a bare grid, but it cannot line up with a real
+ * map picture: the corners of the image are fixed and the learned bounds are
+ * whatever people happened to walk to. Setting them makes the dots land in the
+ * right place.
+ */
+export function setManualBounds(
+  ctx: Ctx,
+  latMin: number, latMax: number, longMin: number, longMax: number,
+): Bounds {
+  // The HUD shows world units over a thousand, so that is the scale admins
+  // read off an interactive map and the scale they type here.
+  const bounds: Bounds = {
+    minY: latMin * 1000, maxY: latMax * 1000,
+    minX: longMin * 1000, maxX: longMax * 1000,
+  };
+  saveBounds(ctx, bounds);
+  ctx.db.setSetting('heatmap_manual', '1');
+  return bounds;
+}
+
+export function boundsAreManual(ctx: Ctx): boolean {
+  return ctx.db.getSetting('heatmap_manual') === '1';
+}
+
 export function storedBounds(ctx: Ctx): Bounds | null {
   const raw = ctx.db.getSetting(BOUNDS_KEY);
   if (!raw) return null;
@@ -88,6 +127,7 @@ export function saveBounds(ctx: Ctx, bounds: Bounds): void {
 
 export function resetBounds(ctx: Ctx): void {
   ctx.db.setSetting(BOUNDS_KEY, '');
+  ctx.db.setSetting('heatmap_manual', '');
 }
 
 /**
@@ -195,21 +235,24 @@ export function buildHeatmapEmbed(
       .setDescription(`## 🔴  Unreachable\n${SERVER} is not responding.`);
   }
 
+  // The picture is attached by the caller and always present, including on
+  // an empty server: a panel that swaps between an image and a line of text
+  // reads as broken rather than quiet.
+  embed.setImage('attachment://heatmap.png');
+
   if (points.length === 0 || !bounds) {
     return embed.setColor(0x4f545c)
-      .setDescription('## 🌙  All quiet\nNobody is out there right now.');
+      .setDescription('🌙  **All quiet.** Nobody is out there right now.');
   }
 
-  const cells = grid(points, bounds);
-  const spots = hotspots(cells, bounds);
+  const spots = hotspots(grid(points, bounds), bounds);
 
   return embed
     .setColor(0x5865f2)
     .setDescription(
-      `**${points.length}** on the island. North is up.\n` +
-      render(cells) +
+      `**${points.length}** on the island. North is up.` +
       (spots.length > 0
-        ? '\n**Busiest right now**\n' + spots
+        ? '\n\n**Busiest right now**\n' + spots
           .map((s) => `**${s.count}** around Lat \`${s.lat}\` Long \`${s.long}\``)
           .join('\n')
         : '') +
@@ -233,15 +276,20 @@ export function startHeatmapPanel(ctx: Ctx, client: Client, log: (m: string) => 
 
     let embed: EmbedBuilder;
     let bounds = storedBounds(ctx);
+    let points: Point[] = [];
 
     try {
-      const points = pointsFrom(await ctx.mod.players());
+      points = pointsFrom(await ctx.mod.players());
 
-      // Learn the map from where people actually go, and keep it.
-      const widened = widen(bounds, points);
-      if (widened && JSON.stringify(widened) !== JSON.stringify(bounds)) {
-        saveBounds(ctx, widened);
-        bounds = widened;
+      // Learn the map from where people actually go — unless an admin has
+      // pinned the bounds to a real map picture, in which case widening them
+      // would slide every dot off the landmarks they were aligned to.
+      if (!boundsAreManual(ctx)) {
+        const widened = widen(bounds, points);
+        if (widened && JSON.stringify(widened) !== JSON.stringify(bounds)) {
+          saveBounds(ctx, widened);
+          bounds = widened;
+        }
       }
 
       embed = buildHeatmapEmbed(points, bounds, { minutes: heatmapMinutes(ctx) });
@@ -250,10 +298,15 @@ export function startHeatmapPanel(ctx: Ctx, client: Client, log: (m: string) => 
       embed = buildHeatmapEmbed([], null, { unreachable: true });
     }
 
-    await postOrEdit(ctx.db, client, channelId, HEATMAP_MESSAGE_KEY, [embed])
-      .catch((err: unknown) => {
-        log(`heatmap: could not post: ${err instanceof Error ? err.message : String(err)}`);
-      });
+    try {
+      const picture = await renderHeatmap(
+        points, bounds, await baseImage(heatmapImageUrl(ctx)),
+      );
+      await postOrEdit(ctx.db, client, channelId, HEATMAP_MESSAGE_KEY, [embed], [],
+        [{ attachment: picture, name: 'heatmap.png' }]);
+    } catch (err) {
+      log(`heatmap: could not post: ${err instanceof Error ? err.message : String(err)}`);
+    }
   };
 
   // Checked every minute, but only refreshed when the chosen interval is up:

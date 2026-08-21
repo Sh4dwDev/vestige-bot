@@ -26,6 +26,7 @@ export async function postOrEdit(
   messageKey: string,
   embeds: EmbedBuilder[],
   components: ActionRowBuilder<ButtonBuilder>[] = [],
+  files: Array<{ attachment: Buffer; name: string }> = [],
 ): Promise<void> {
   const channel = await client.channels.fetch(channelId).catch(() => null);
   if (!channel || channel.type !== ChannelType.GuildText) {
@@ -38,11 +39,17 @@ export async function postOrEdit(
   if (existingId) {
     const existing = await text.messages.fetch(existingId).catch(() => null);
     if (existing) {
-      await existing.edit({ embeds, components });
+      // `attachments: []` drops what was there before. Without it Discord keeps
+      // the old picture alongside the new one and the panel grows a gallery.
+      await existing.edit(
+        files.length > 0
+          ? { embeds, components, files, attachments: [] }
+          : { embeds, components },
+      );
       return;
     }
   }
 
-  const sent = await text.send({ embeds, components });
+  const sent = await text.send({ embeds, components, files });
   db.setSetting(messageKey, sent.id);
 }

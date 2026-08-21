@@ -10,4 +10,7 @@ import type { Database } from './db.js';
  * If the message is gone (deleted, or the channel changed) a fresh one is
  * posted and the new id recorded.
  */
-export declare function postOrEdit(db: Database, client: Client, channelId: string, messageKey: string, embeds: EmbedBuilder[], components?: ActionRowBuilder<ButtonBuilder>[]): Promise<void>;
+export declare function postOrEdit(db: Database, client: Client, channelId: string, messageKey: string, embeds: EmbedBuilder[], components?: ActionRowBuilder<ButtonBuilder>[], files?: Array<{
+    attachment: Buffer;
+    name: string;
+}>): Promise<void>;

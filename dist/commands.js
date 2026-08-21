@@ -20,7 +20,8 @@ import { buildBalanceEmbed, buildLeaderboardEmbed, display, ratePerHour, setRate
 import { nextRestart, restartNow, restartSettings, setRestartAnnounce, setRestartInterval, setRestartsEnabled, WARNINGS, } from './restarts.js';
 import { cleanupSettings, clearAI, nextCleanup, setCleanupAI, setCleanupEnabled, setCleanupHours, wipeNow, } from './cleanup.js';
 import { backupConfig, lastBackup, listSnapshots, markBackup, restoreSnapshot, runBackup, } from './backup.js';
-import { buildHeatmapEmbed, HEATMAP_MESSAGE_KEY, heatmapMinutes, pointsFrom, resetBounds, saveBounds, setHeatmapChannel, setHeatmapMinutes, storedBounds, widen, } from './heatmap.js';
+import { baseImage, } from './heatimage.js';
+import { buildHeatmapEmbed, HEATMAP_MESSAGE_KEY, heatmapMinutes, pointsFrom, resetBounds, saveBounds, setHeatmapChannel, setHeatmapImage, setHeatmapMinutes, setManualBounds, storedBounds, widen, } from './heatmap.js';
 import { applyCaps, planCaps } from './capplan.js';
 import { enforcementEnabled, enforcementFault, restoreAllPlayables, setEnforcement, syncPlayables, } from './enforce.js';
 import { handleInGame, handleModeration } from './moderation.js';
@@ -375,6 +376,13 @@ export const commandData = [
         .addSubcommand((c) => c.setName('every').setDescription('How often it refreshes')
         .addIntegerOption((o) => o.setName('minutes').setDescription('Default 5')
         .setMinValue(1).setMaxValue(120).setRequired(true)))
+        .addSubcommand((c) => c.setName('image').setDescription('The map picture the heat is drawn on')
+        .addStringOption((o) => o.setName('url').setDescription('Direct link to a map image, or blank to clear')))
+        .addSubcommand((c) => c.setName('bounds').setDescription('Line the picture up with the world')
+        .addNumberOption((o) => o.setName('lat_min').setDescription('Lat at the BOTTOM edge').setRequired(true))
+        .addNumberOption((o) => o.setName('lat_max').setDescription('Lat at the TOP edge').setRequired(true))
+        .addNumberOption((o) => o.setName('long_min').setDescription('Long at the LEFT edge').setRequired(true))
+        .addNumberOption((o) => o.setName('long_max').setDescription('Long at the RIGHT edge').setRequired(true)))
         .addSubcommand((c) => c.setName('recalibrate')
         .setDescription('Forget the learned map bounds and start again'))
         .addSubcommand((c) => c.setName('off').setDescription('Take the panel down')))
@@ -1683,6 +1691,54 @@ async function handleHeatmap(ctx, i, action) {
         await i.reply({
             embeds: [embed(COLORS.good, 'Heatmap off', 'It will stop refreshing. The last message stays where it is - delete ' +
                     'it yourself if you want it gone.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'image') {
+        const url = i.options.getString('url')?.trim() ?? '';
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        setHeatmapImage(ctx, url);
+        if (!url) {
+            await i.editReply({
+                embeds: [embed(COLORS.good, 'Map picture cleared', 'The heat is drawn on a plain grid again.')],
+            });
+            return;
+        }
+        // Fetched now rather than at the next refresh, so a bad link is somebody
+        // else's problem for ten seconds instead of a panel that quietly stops.
+        const data = await baseImage(url);
+        await i.editReply({
+            embeds: [data
+                    ? embed(COLORS.good, 'Map picture set', 'The heat will be drawn over it from the next refresh.\n\n' +
+                        'Line it up with `/setup heatmap bounds` — until then the dots are ' +
+                        'placed from bounds the bot learned by watching, which will not match ' +
+                        'a real map.')
+                    : embed(COLORS.bad, 'Could not use that image', 'It did not download, or it is not an image the bot can read. It has ' +
+                        'to be a **direct** link to a PNG or JPEG, not a page containing one.')],
+        });
+        return;
+    }
+    if (action === 'bounds') {
+        const latMin = i.options.getNumber('lat_min', true);
+        const latMax = i.options.getNumber('lat_max', true);
+        const longMin = i.options.getNumber('long_min', true);
+        const longMax = i.options.getNumber('long_max', true);
+        if (latMin === latMax || longMin === longMax) {
+            await i.reply({
+                embeds: [embed(COLORS.warn, 'Those edges are the same', 'Opposite edges of a map cannot share a coordinate — everything would ' +
+                        'land on one line.')],
+                flags: MessageFlags.Ephemeral,
+            });
+            return;
+        }
+        setManualBounds(ctx, latMin, latMax, longMin, longMax);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Bounds pinned', `Bottom **${latMin}** to top **${latMax}** Lat, left **${longMin}** to ` +
+                    `right **${longMax}** Long.\n\n` +
+                    'The bot will stop widening them by itself, so the dots stay lined up ' +
+                    'with the picture. Read the corner values off any interactive Isle map ' +
+                    'in the same Lat/Long your HUD shows.')],
             flags: MessageFlags.Ephemeral,
         });
         return;

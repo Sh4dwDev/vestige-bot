@@ -20,6 +20,18 @@ export declare function setHeatmapChannel(ctx: Ctx, channelId: string | null): v
 export declare function heatmapChannel(ctx: Ctx): string | null;
 export declare function heatmapMinutes(ctx: Ctx): number;
 export declare function setHeatmapMinutes(ctx: Ctx, minutes: number): void;
+export declare function heatmapImageUrl(ctx: Ctx): string;
+export declare function setHeatmapImage(ctx: Ctx, url: string | null): void;
+/**
+ * Bounds an admin set by hand, in the Lat/Long the game shows.
+ *
+ * Self-calibration is fine for a bare grid, but it cannot line up with a real
+ * map picture: the corners of the image are fixed and the learned bounds are
+ * whatever people happened to walk to. Setting them makes the dots land in the
+ * right place.
+ */
+export declare function setManualBounds(ctx: Ctx, latMin: number, latMax: number, longMin: number, longMax: number): Bounds;
+export declare function boundsAreManual(ctx: Ctx): boolean;
 export declare function storedBounds(ctx: Ctx): Bounds | null;
 export declare function saveBounds(ctx: Ctx, bounds: Bounds): void;
 export declare function resetBounds(ctx: Ctx): void;

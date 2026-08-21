@@ -159,6 +159,60 @@ check('the grid is the size it says it is', (() => {
   check('and it is the right one', points[0].x === 10 && points[0].y === 20);
 }
 
+// ---- the picture ----------------------------------------------------------
+// It has to be a real PNG, and it has to exist even with nobody online.
+{
+  const img = await import(pathToFileURL(path.join(root, 'dist/heatimage.js')).href);
+
+  const isPng = (buf) => buf.length > 8
+    && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+
+  const empty = await img.renderHeatmap([], null, null);
+  check('an empty server still produces a picture', isPng(empty), `${empty.length} bytes`);
+
+  const busy = await img.renderHeatmap(
+    [at(200, 200), at(210, 210), at(800, 800)], BOUNDS, null);
+  check('a populated map produces a picture', isPng(busy));
+  check('and it differs from the empty one', !busy.equals(empty));
+
+  // North up, and west left: getting either wrong mirrors the island.
+  const nw = img.toPixel(at(0, 1000), BOUNDS);
+  const se = img.toPixel(at(1000, 0), BOUNDS);
+  check('north-west is the top left corner', nw.px === 0 && nw.py === 0, JSON.stringify(nw));
+  check('south-east is the bottom right', se.px === img.SIZE - 1 && se.py === img.SIZE - 1,
+    JSON.stringify(se));
+
+  const mid = img.toPixel(at(500, 500), BOUNDS);
+  check('the middle lands in the middle',
+    Math.abs(mid.px - img.SIZE / 2) < 2 && Math.abs(mid.py - img.SIZE / 2) < 2,
+    JSON.stringify(mid));
+
+  // Everybody on one spot gives a zero span; NaN pixels draw nothing at all.
+  const flat = { minX: 5, maxX: 5, minY: 5, maxY: 5 };
+  const one = img.toPixel(at(5, 5), flat);
+  check('a zero-width map does not produce NaN pixels',
+    Number.isFinite(one.px) && Number.isFinite(one.py), JSON.stringify(one));
+
+  const outside = img.toPixel(at(99999, -99999), BOUNDS);
+  check('a point outside the bounds is clamped onto the picture',
+    outside.px >= 0 && outside.px < img.SIZE && outside.py >= 0 && outside.py < img.SIZE,
+    JSON.stringify(outside));
+
+  check('a missing map image falls back rather than throwing',
+    (await img.baseImage('https://example.invalid/nope.png')) === null);
+  check('an empty url is simply no image', (await img.baseImage('')) === null);
+}
+
+// The embed points at the attachment, always - including on an empty server.
+{
+  const quiet = h.buildHeatmapEmbed([], null).toJSON();
+  check('the empty panel still shows the picture',
+    quiet.image?.url === 'attachment://heatmap.png', JSON.stringify(quiet.image));
+
+  const live = h.buildHeatmapEmbed([at(1, 1)], BOUNDS).toJSON();
+  check('and so does the live one', live.image?.url === 'attachment://heatmap.png');
+}
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
 process.exit(failed === 0 ? 0 : 1);
