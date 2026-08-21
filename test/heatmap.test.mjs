@@ -406,9 +406,11 @@ check('the grid is the size it says it is', (() => {
 // narrow, so positions well inside the island drew in the open sea below it.
 
 {
-  // Read off the HUD while standing in the hexagon, and where the hexagon sits
-  // in the map picture.
-  const DOME = { y: 114107.9, x: -40634.8, fx: 0.4138, fy: 0.6531 };
+  // Read off the HUD while standing in each, and where each sits in the map
+  // picture. These are the two points the whole map is solved from, so if
+  // either stops landing on itself the solve is broken.
+  const DOME = { y: 114107.898, x: -40634.836, fx: 0.4138, fy: 0.6531 };
+  const CRATER = { y: -278431.438, x: 267709.266, fx: 0.6760, fy: 0.2983 };
   // The island's own extent in the picture, measured from the file.
   const ISLAND = { north: 0.1157, south: 0.9089, west: 0.0882, east: 0.9344 };
 
@@ -420,6 +422,17 @@ check('the grid is the size it says it is', (() => {
     Math.abs(across(DOME.x) - DOME.fx) < 0.001
     && Math.abs(down(DOME.y) - DOME.fy) < 0.001,
     `${(across(DOME.x) * 100).toFixed(1)}% across, ${(down(DOME.y) * 100).toFixed(1)}% down`);
+
+  check('the crater draws where the crater actually is',
+    Math.abs(across(CRATER.x) - CRATER.fx) < 0.001
+    && Math.abs(down(CRATER.y) - CRATER.fy) < 0.001,
+    `${(across(CRATER.x) * 100).toFixed(1)}% across, ${(down(CRATER.y) * 100).toFixed(1)}% down`);
+
+  // A single anchor fixes position but not scale, which is what made every
+  // earlier version exact at one spot and wrong everywhere else. Two distinct
+  // points is the minimum that can be wrong in a way this notices.
+  check('the map is solved from two separated points, not one',
+    Math.abs(CRATER.fx - DOME.fx) > 0.2 && Math.abs(CRATER.fy - DOME.fy) > 0.2);
 
   // Every position actually observed on the server. All were on land, so any
   // of them landing outside the island's coastline means the bounds are wrong.
@@ -446,11 +459,11 @@ check('the grid is the size it says it is', (() => {
     `highlands ${(down(HIGHLANDS_LAT) * 100).toFixed(0)}% vs `
     + `hexagon ${(down(HEXAGON_LAT) * 100).toFixed(0)}% down`);
 
-  // Not merely "above the hexagon" - the highlands sit near the crater, so a
-  // scale that is wildly off would still pass the comparison above.
-  check('the highlands land near the crater, which is where they are',
-    Math.abs(down(HIGHLANDS_LAT) - 0.2983) < 0.08,
-    `${(down(HIGHLANDS_LAT) * 100).toFixed(1)}% down vs crater at 29.8%`);
+  // Not merely "above the hexagon": at the old 800,000 width this drew at 33%,
+  // which was reported as too far north. Between the two anchors it is 41%.
+  check('the highlands land between the hexagon and the crater',
+    down(HIGHLANDS_LAT) > CRATER.fy && down(HIGHLANDS_LAT) < DOME.fy,
+    `${(down(HIGHLANDS_LAT) * 100).toFixed(1)}% down, between 29.8% and 65.3%`);
 
   check('east is right', across(200000) > across(-200000));
 }

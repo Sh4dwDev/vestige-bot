@@ -35,13 +35,7 @@ export declare function boundsAreManual(ctx: Ctx): boolean;
 export declare function storedBounds(ctx: Ctx): Bounds | null;
 export declare function saveBounds(ctx: Ctx, bounds: Bounds): void;
 export declare function resetBounds(ctx: Ctx): void;
-/**
- * The island, anchored on the hexagon and scaled by the estimate above.
- *
- * Anchoring beats centring on the origin: the world is not centred on the
- * origin, and assuming it was is what put the hexagon in the wrong place to
- * begin with.
- */
+/** The picture, in world coordinates. */
 export declare const DEFAULT_BOUNDS: Bounds;
 /**
  * The bounds actually used to draw.

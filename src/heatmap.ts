@@ -138,51 +138,61 @@ export function resetBounds(ctx: Ctx): void {
 }
 
 /**
- * Where the hexagon stands, read off the HUD while standing in it.
+ * Two places somebody stood and read the HUD, and where each sits in the map
+ * picture.
  *
- * This is a measurement rather than a guess, and it is the one fixed point the
- * whole picture hangs from. The fractions are where that structure sits in the
- * supplied map image, found by scanning the file for it and confirmed by
- * drawing a crosshair at the result.
+ * These are measurements. Everything before them was a guess at how big the
+ * world is, and every guess was wrong in a way that only showed up far from
+ * wherever the last one had been anchored.
+ *
+ * The picture fractions were found by scanning the image file — the hexagon by
+ * its bright low-saturation shape, the crater by its bare rock — and both were
+ * confirmed by drawing a crosshair at the result and looking at it.
  */
-const DOME = {
-  y: 114_107.9,
-  x: -40_634.8,
+const HEXAGON = {
+  y: 114_107.898,
+  x: -40_634.836,
   fx: 0.4138,
   /** Measured down from the top of the picture. */
   fy: 0.6531,
 };
 
+const CRATER = {
+  y: -278_431.438,
+  x: 267_709.266,
+  fx: 0.6760,
+  fy: 0.2983,
+};
+
 /**
  * How wide the picture is in world units, which is the part still estimated.
  *
- * Briefly widened to 1,100,000 to stop players drawing in the sea below the
- * island. That was treating a symptom. They were not too far south because the
- * picture was too narrow — they were mirrored, because Lat grows southward and
- * every conversion assumed it grew northward. Widening the picture to fit a
- * mirrored position is fitting the wrong curve, so it is back at 800,000 now
- * the direction is right.
+ * How much world the picture covers, solved from the two landmarks above
+ * rather than guessed. A single anchor fixes where the map sits but not how
+ * big it is, which is why every earlier version was exact at one spot and
+ * wrong everywhere else - and why "walk north" kept landing in the wrong
+ * place by an amount that grew with the distance walked.
  *
- * Still an estimate. It puts the highlands at 33% down against a crater
- * measured at 30%, which is close enough to be believable and not close enough
- * to call measured. Superseded the moment two landmarks are calibrated.
+ * The two axes come out 6% apart, where a square world in a 975x977 picture
+ * would give the same number twice. The likeliest cause is the crater
+ * fraction: it is the centre of the bare rock as the image scan found it,
+ * while the reading was taken at the cave mouth inside the crater, and the
+ * gap between those is about 17 pixels - well inside a blob whose own spread
+ * is 62. Each axis is therefore solved on its own, which costs nothing and
+ * lands both known points exactly, instead of assuming a square world and
+ * pushing that 6% into one of them.
  */
-const ASSUMED_SPAN = 800_000;
+const SPAN_X = (CRATER.x - HEXAGON.x) / (CRATER.fx - HEXAGON.fx);
+const SPAN_Y = (CRATER.y - HEXAGON.y) / (CRATER.fy - HEXAGON.fy);
 
-/**
- * The island, anchored on the hexagon and scaled by the estimate above.
- *
- * Anchoring beats centring on the origin: the world is not centred on the
- * origin, and assuming it was is what put the hexagon in the wrong place to
- * begin with.
- */
+/** The picture, in world coordinates. */
 export const DEFAULT_BOUNDS: Bounds = {
-  minX: DOME.x - (DOME.fx * ASSUMED_SPAN),
-  maxX: DOME.x - (DOME.fx * ASSUMED_SPAN) + ASSUMED_SPAN,
+  minX: HEXAGON.x - (HEXAGON.fx * SPAN_X),
+  maxX: HEXAGON.x - (HEXAGON.fx * SPAN_X) + SPAN_X,
   // No flip: the picture grows downward and so does Lat, so the fraction from
   // the top is used as it stands. minY is the NORTHERN edge.
-  minY: DOME.y - (DOME.fy * ASSUMED_SPAN),
-  maxY: DOME.y - (DOME.fy * ASSUMED_SPAN) + ASSUMED_SPAN,
+  minY: HEXAGON.y - (HEXAGON.fy * SPAN_Y),
+  maxY: HEXAGON.y - (HEXAGON.fy * SPAN_Y) + SPAN_Y,
 };
 
 /**

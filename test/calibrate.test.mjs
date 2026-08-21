@@ -33,8 +33,10 @@ const standOn = (mark) => ({
 });
 
 const hm = await import(pathToFileURL(path.join(root, 'dist/heatmap.js')).href);
-// Whatever width the fallback assumes is what a single reading must carry over.
-const SPAN = hm.DEFAULT_BOUNDS.maxX - hm.DEFAULT_BOUNDS.minX;
+// Whatever the fallback covers is what a single reading must carry over. The
+// two axes are solved separately and do not match, so each is kept apart.
+const SPAN_X = hm.DEFAULT_BOUNDS.maxX - hm.DEFAULT_BOUNDS.minX;
+const SPAN_Y = hm.DEFAULT_BOUNDS.maxY - hm.DEFAULT_BOUNDS.minY;
 
 const dome = c.landmarkById('dome');
 const north = c.landmarkById('north');
@@ -97,10 +99,11 @@ check('the tips are the right way round in the picture',
     Math.abs(fx - dome.fx) < 1e-6 && Math.abs(fy - dome.fy) < 1e-6,
     `fx ${fx.toFixed(4)} vs ${dome.fx}, fy ${fy.toFixed(4)} vs ${dome.fy}`);
 
-  check('and the assumed width is carried over unchanged',
-    Math.abs((bounds.maxX - bounds.minX) - SPAN) < 1
-    && Math.abs((bounds.maxY - bounds.minY) - SPAN) < 1,
-    `${(bounds.maxX - bounds.minX).toFixed(0)} vs ${SPAN}`);
+  check('and each axis carries over its own assumed width',
+    Math.abs((bounds.maxX - bounds.minX) - SPAN_X) < 1
+    && Math.abs((bounds.maxY - bounds.minY) - SPAN_Y) < 1,
+    `${(bounds.maxX - bounds.minX).toFixed(0)}/${(bounds.maxY - bounds.minY).toFixed(0)}`
+    + ` vs ${SPAN_X.toFixed(0)}/${SPAN_Y.toFixed(0)}`);
 }
 
 {
