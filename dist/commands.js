@@ -21,6 +21,7 @@ import { nextRestart, restartNow, restartSettings, setRestartAnnounce, setRestar
 import { cleanupSettings, clearAI, nextCleanup, setCleanupAI, setCleanupEnabled, setCleanupHours, wipeNow, } from './cleanup.js';
 import { backupConfig, lastBackup, listSnapshots, markBackup, restoreSnapshot, runBackup, } from './backup.js';
 import { baseImage, DEFAULT_PATHS, sniffFormat, SUPPORTED } from './heatimage.js';
+import { applyReading, landmarkById, LANDMARKS } from './calibrate.js';
 import { buildHeatmapEmbed, HEATMAP_MESSAGE_KEY, heatmapMinutes, pointsFrom, resetBounds, resolveMapImage, saveBounds, setHeatmapChannel, setHeatmapImage, setHeatmapMinutes, setManualBounds, storedBounds, widen, } from './heatmap.js';
 import { applyCaps, planCaps } from './capplan.js';
 import { enforcementEnabled, enforcementFault, restoreAllPlayables, setEnforcement, syncPlayables, } from './enforce.js';
@@ -385,6 +386,11 @@ export const commandData = [
         .addNumberOption((o) => o.setName('lat_max').setDescription('Lat at the TOP edge').setRequired(true))
         .addNumberOption((o) => o.setName('long_min').setDescription('Long at the LEFT edge').setRequired(true))
         .addNumberOption((o) => o.setName('long_max').setDescription('Long at the RIGHT edge').setRequired(true)))
+        .addSubcommand((c) => c.setName('calibrate')
+        .setDescription('Stand on a landmark in game, then run this')
+        .addStringOption((o) => o.setName('landmark').setDescription('Where you are standing')
+        .setRequired(true)
+        .addChoices(...LANDMARKS.map((l) => ({ name: l.label, value: l.id })))))
         .addSubcommand((c) => c.setName('recalibrate')
         .setDescription('Forget the learned map bounds and start again'))
         .addSubcommand((c) => c.setName('off').setDescription('Take the panel down')))
@@ -1707,7 +1713,73 @@ async function handleSpecies(ctx, i, action) {
     });
 }
 // -------------------------------------------------------------- heatmap --
+/**
+ * Reads where the admin is standing right now and treats it as a fixed point
+ * on the map picture.
+ *
+ * Two of these settle the whole map. It replaces guessing the extent of the
+ * world, which is what put a lone player in the bottom-left corner and printed
+ * coordinates that matched nothing on anybody's screen.
+ */
+async function handleCalibrate(ctx, i) {
+    const id = i.options.getString('landmark', true);
+    const mark = landmarkById(id);
+    if (!mark) {
+        await i.reply({
+            embeds: [embed(COLORS.bad, 'Unknown landmark', 'Pick one from the list.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    const link = ctx.db.linkFor(i.user.id);
+    if (!link) {
+        await i.editReply({
+            embeds: [embed(COLORS.warn, 'Link your account first', 'The bot reads the position of your live dinosaur, so it needs to know ' +
+                    'which account is yours.')],
+        });
+        return;
+    }
+    const players = await ctx.mod.players().catch(() => []);
+    const me = players.find((p) => p.steam === link.steamId);
+    if (!me || me.x === undefined || me.y === undefined) {
+        await i.editReply({
+            embeds: [embed(COLORS.warn, 'Cannot see where you are', me
+                    ? 'You are online, but the mod did not report a position. Give it a ' +
+                        'few seconds and try again.'
+                    : 'You do not look like you are in game right now. Join the server, ' +
+                        `${mark.hint.charAt(0).toLowerCase()}${mark.hint.slice(1)} then run this again.`)],
+        });
+        return;
+    }
+    const { bounds, needed } = applyReading(ctx, { id, x: me.x, y: me.y });
+    const hud = (v) => Math.round(v / 1000);
+    if (!bounds) {
+        await i.editReply({
+            embeds: [embed(COLORS.good, `Recorded: ${mark.label}`, `Lat **${hud(me.y)}**, Long **${hud(me.x)}**.\n\n` +
+                    'One more is needed before the map can be lined up. A coastal tip only ' +
+                    'settles the axis it sits on — standing at the northern point says ' +
+                    'everything about how far north the map reaches and nothing about ' +
+                    'east to west.\n\n**Next, any of:**\n' +
+                    needed.map((l) => `• **${l.label}** — ${l.hint}`).join('\n'))],
+        });
+        return;
+    }
+    await i.editReply({
+        embeds: [embed(COLORS.good, 'Map lined up', `Recorded **${mark.label}** at Lat **${hud(me.y)}**, Long **${hud(me.x)}**.\n\n` +
+                'The picture now covers:\n' +
+                `• Lat **${hud(bounds.minY)}** to **${hud(bounds.maxY)}** (bottom to top)\n` +
+                `• Long **${hud(bounds.minX)}** to **${hud(bounds.maxX)}** (left to right)\n\n` +
+                'Dots land in the right place from the next refresh, and the panel will ' +
+                'no longer drift these to follow where people walk.\n\n' +
+                'Calibrating more landmarks tightens it — every reading is averaged in.')],
+    });
+}
 async function handleHeatmap(ctx, i, action) {
+    if (action === 'calibrate') {
+        await handleCalibrate(ctx, i);
+        return;
+    }
     if (action === 'every') {
         const minutes = i.options.getInteger('minutes', true);
         setHeatmapMinutes(ctx, minutes);

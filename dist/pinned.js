@@ -27,15 +27,22 @@ export async function postOrEdit(db, client, channelId, messageKey, embeds, comp
             // an embed pointing at an attachment that was no longer there. Leaving
             // the key out lets discord.js describe the upload itself.
             await existing.edit(files.length > 0 ? { embeds, components, files } : { embeds, components });
-            // Self-heal: if the edit still left no attachment behind, the message is
-            // unusable for a picture panel, so start a fresh one rather than editing
-            // an empty frame forever.
-            if (files.length > 0) {
-                const after = await text.messages.fetch(existing.id).catch(() => null);
+            // Self-heal, once and only once per message.
+            //
+            // If an edit leaves no attachment the panel is an empty frame forever, so
+            // it is worth starting a fresh one. But a repost on every refresh is
+            // exactly the duplicate-spam this whole function exists to prevent, so a
+            // message that has already been replaced is never replaced again — and
+            // the check reads the message from the API rather than the cache, because
+            // a stale cached copy would make a healthy panel look broken.
+            if (files.length > 0 && db.getSetting(`${messageKey}_healed`) !== existing.id) {
+                const after = await text.messages.fetch({ message: existing.id, force: true })
+                    .catch(() => null);
                 if (after && after.attachments.size === 0) {
                     await existing.delete().catch(() => undefined);
                     const replacement = await text.send({ embeds, components, files });
                     db.setSetting(messageKey, replacement.id);
+                    db.setSetting(`${messageKey}_healed`, replacement.id);
                 }
             }
             return;

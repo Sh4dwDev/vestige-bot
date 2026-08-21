@@ -32,8 +32,13 @@ export const ROWS = 12;
 /** Density ramp. Space reads as empty far better than a dot does. */
 const RAMP = [' ', '.', ':', 'o', 'O', '#', '@'];
 export function setHeatmapChannel(ctx, channelId) {
+    const current = ctx.db.getSetting(CHANNEL_KEY) || '';
     ctx.db.setSetting(CHANNEL_KEY, channelId ?? '');
-    ctx.db.setSetting(HEATMAP_MESSAGE_KEY, '');
+    // Only forget the panel when it is moving somewhere else. Re-running the
+    // command against the channel it is already in should refresh the panel that
+    // is there, not abandon it and leave a dead copy above the new one.
+    if ((channelId ?? '') !== current)
+        ctx.db.setSetting(HEATMAP_MESSAGE_KEY, '');
 }
 export function heatmapChannel(ctx) {
     return ctx.db.getSetting(CHANNEL_KEY) || null;
