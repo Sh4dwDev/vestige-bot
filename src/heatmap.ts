@@ -3,7 +3,7 @@ import { EmbedBuilder, type Client } from 'discord.js';
 import { SERVER, SIGNATURE } from './brand.js';
 import type { Ctx } from './commands.js';
 import type { PlayerRow } from './bridge.js';
-import { baseImage, forgetBaseImage, renderHeatmap } from './heatimage.js';
+import { baseImage, decodes, forgetBaseImage, renderHeatmap } from './heatimage.js';
 import { postOrEdit } from './pinned.js';
 
 /**
@@ -269,6 +269,29 @@ export function pointsFrom(players: PlayerRow[]): Point[] {
     .map((p) => ({ x: p.x, y: p.y }));
 }
 
+/** Names looked for on the game server, beside the mod. */
+export const SERVER_MAP_NAMES = ['map.png', 'map.jpg', 'map.jpeg', 'map.webp'];
+
+/**
+ * The map picture, from wherever it actually is.
+ *
+ * Three places, in order: whatever an admin configured, a file on the bot host,
+ * then the mod directory on the **game** server. The last one matters because
+ * the bot and the game run on different hosts, and the game host is the one
+ * whose file manager people already have open.
+ */
+export async function resolveMapImage(ctx: Ctx): Promise<Buffer | null> {
+  const local = await baseImage(heatmapImageUrl(ctx));
+  if (local) return local;
+
+  for (const name of SERVER_MAP_NAMES) {
+    const data = await ctx.mod.readFile(name).catch(() => null);
+    if (!data || data.length === 0) continue;
+    if (await decodes(data)) return data;
+  }
+  return null;
+}
+
 export function startHeatmapPanel(ctx: Ctx, client: Client, log: (m: string) => void): void {
   const tick = async (): Promise<void> => {
     const channelId = heatmapChannel(ctx);
@@ -300,7 +323,7 @@ export function startHeatmapPanel(ctx: Ctx, client: Client, log: (m: string) => 
 
     try {
       const picture = await renderHeatmap(
-        points, bounds, await baseImage(heatmapImageUrl(ctx)),
+        points, bounds, await resolveMapImage(ctx),
       );
       await postOrEdit(ctx.db, client, channelId, HEATMAP_MESSAGE_KEY, [embed], [],
         [{ attachment: picture, name: 'heatmap.png' }]);

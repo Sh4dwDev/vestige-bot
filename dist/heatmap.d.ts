@@ -59,4 +59,15 @@ export declare function buildHeatmapEmbed(points: Point[], bounds: Bounds | null
 }): EmbedBuilder;
 /** Positions from the mod, skipping anyone whose pawn would not give one. */
 export declare function pointsFrom(players: PlayerRow[]): Point[];
+/** Names looked for on the game server, beside the mod. */
+export declare const SERVER_MAP_NAMES: string[];
+/**
+ * The map picture, from wherever it actually is.
+ *
+ * Three places, in order: whatever an admin configured, a file on the bot host,
+ * then the mod directory on the **game** server. The last one matters because
+ * the bot and the game run on different hosts, and the game host is the one
+ * whose file manager people already have open.
+ */
+export declare function resolveMapImage(ctx: Ctx): Promise<Buffer | null>;
 export declare function startHeatmapPanel(ctx: Ctx, client: Client, log: (m: string) => void): void;

@@ -29,11 +29,21 @@ export declare function renderHeatmap(points: Point[], bounds: Bounds | null, ba
 /**
  * Where a map picture is looked for when nothing is configured.
  *
- * Next to the database, because that directory already exists on the host and
- * is already the place the bot keeps its own files. Dropping a picture in is
- * the whole setup — no command, no link, no hosting it anywhere.
+ * `data/` because that directory already exists on the host and is already
+ * where the bot keeps its own files, and the bot root because that is where
+ * somebody uploading through a file manager tends to drop things.
  */
+export declare const SEARCH_DIRS: string[];
 export declare const DEFAULT_PATHS: string[];
+/**
+ * Every image the bot can see that looks like a map, and everything else in
+ * those directories — so a failure can say what it actually found rather than
+ * only that it found nothing.
+ */
+export declare function findMaps(): Promise<{
+    maps: string[];
+    sawInstead: string[];
+}>;
 /**
  * The map picture: a file on the host, or a link, or nothing.
  *
@@ -41,4 +51,6 @@ export declare const DEFAULT_PATHS: string[];
  * fetched; anything else is read as a path relative to where the bot runs.
  */
 export declare function baseImage(source: string): Promise<Buffer | null>;
+/** Whether a buffer is actually an image this can draw on. */
+export declare function decodes(data: Buffer): Promise<boolean>;
 export declare function forgetBaseImage(): void;

@@ -162,13 +162,40 @@ export async function renderHeatmap(points, bounds, base, size = SIZE) {
 /**
  * Where a map picture is looked for when nothing is configured.
  *
- * Next to the database, because that directory already exists on the host and
- * is already the place the bot keeps its own files. Dropping a picture in is
- * the whole setup — no command, no link, no hosting it anywhere.
+ * `data/` because that directory already exists on the host and is already
+ * where the bot keeps its own files, and the bot root because that is where
+ * somebody uploading through a file manager tends to drop things.
  */
-export const DEFAULT_PATHS = [
-    'data/map.png', 'data/map.jpg', 'data/map.jpeg', 'data/map.webp',
-];
+export const SEARCH_DIRS = ['data', '.'];
+/** Anything named like a map, whatever the case or extension. */
+const LOOKS_LIKE_A_MAP = /^map.*\.(png|jpe?g|webp)$/i;
+export const DEFAULT_PATHS = ['data/map.png'];
+/**
+ * Every image the bot can see that looks like a map, and everything else in
+ * those directories — so a failure can say what it actually found rather than
+ * only that it found nothing.
+ */
+export async function findMaps() {
+    const maps = [];
+    const sawInstead = [];
+    for (const dir of SEARCH_DIRS) {
+        let entries;
+        try {
+            entries = await fs.readdir(dir);
+        }
+        catch {
+            continue;
+        }
+        for (const name of entries) {
+            const full = dir === '.' ? name : `${dir}/${name}`;
+            if (LOOKS_LIKE_A_MAP.test(name))
+                maps.push(full);
+            else if (/\.(png|jpe?g|webp|gif|bmp)$/i.test(name))
+                sawInstead.push(full);
+        }
+    }
+    return { maps, sawInstead };
+}
 /** Cached by source AND mtime, so replacing the file on disk is picked up. */
 let cached = null;
 async function readLocal(file) {
@@ -191,7 +218,12 @@ async function readLocal(file) {
 export async function baseImage(source) {
     const trimmed = source.trim();
     if (!trimmed || !trimmed.includes('://')) {
-        const candidates = trimmed ? [trimmed, ...DEFAULT_PATHS] : DEFAULT_PATHS;
+        // An explicit path first, then anything in the usual places that looks
+        // like a map. Case-insensitive and loose about the exact name, because
+        // "Map.PNG" and "map-v3.png" are the same intent.
+        const candidates = trimmed
+            ? [trimmed, ...(await findMaps()).maps]
+            : (await findMaps()).maps;
         for (const file of candidates) {
             const found = await readLocal(file);
             if (!found)
@@ -205,8 +237,8 @@ export async function baseImage(source) {
                 return found.data;
             }
             catch {
-                // A file that is not an image is worth skipping rather than throwing:
-                // somebody may have dropped a readme in there.
+                // Not an image after all. Skip it: somebody will eventually drop a
+                // readme or a corrupt download in that folder.
             }
         }
         return null;
@@ -224,6 +256,16 @@ export async function baseImage(source) {
     }
     catch {
         return null;
+    }
+}
+/** Whether a buffer is actually an image this can draw on. */
+export async function decodes(data) {
+    try {
+        await Jimp.read(data);
+        return true;
+    }
+    catch {
+        return false;
     }
 }
 export function forgetBaseImage() {

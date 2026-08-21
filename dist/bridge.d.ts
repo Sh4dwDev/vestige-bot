@@ -97,6 +97,17 @@ export declare class ModBridge {
      * already went out, so failing to show one must not fail the command.
      */
     notify(steamId: string, message: string): Promise<boolean>;
+    /**
+     * Reads a file out of the mod directory on the game server.
+     *
+     * The bot and the game run on different hosts, and only the game host has a
+     * file manager most people already use. So a picture dropped in beside the
+     * mod is reachable without anybody touching the bot's own filesystem.
+     *
+     * Null rather than throwing when it is not there: callers are asking whether
+     * a file exists, and absence is the normal answer.
+     */
+    readFile(name: string): Promise<Buffer | null>;
     /** Who is playing what, right now. */
     players(): Promise<PlayerRow[]>;
     close(): Promise<void>;
