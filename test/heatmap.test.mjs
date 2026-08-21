@@ -468,6 +468,41 @@ check('the grid is the size it says it is', (() => {
   check('east is right', across(200000) > across(-200000));
 }
 
+// ---- bounds left over from older code -------------------------------------
+//
+// Calibrating under the old code, which had latitude running the wrong way,
+// stored the southern edge as minY. Those bounds outlived the code that made
+// them and kept mirroring the island long after the sign was fixed, so every
+// later fix looked like it had failed to deploy.
+
+{
+  const store = new Map();
+  const ctx = { db: { getSetting: (k) => store.get(k) ?? '', setSetting: (k, v) => store.set(k, v) } };
+
+  // Exactly what an old calibration wrote: min and max the wrong way round.
+  const inverted = { minX: -527268, maxX: 648719, minY: 497908, maxY: -608460 };
+  store.set('heatmap_bounds', JSON.stringify(inverted));
+
+  const read = h.storedBounds(ctx);
+  check('inverted stored bounds are put the right way round on read',
+    read.minY < read.maxY && read.minY === -608460 && read.maxY === 497908,
+    JSON.stringify(read));
+
+  // The failure this caused: the crater drew at 70% down instead of 30%.
+  const img = await import(pathToFileURL(path.join(root, 'dist/heatimage.js')).href);
+  const crater = { x: 267709.266, y: -278431.438 };
+  const bad = img.toPixel(crater, inverted, 1000);
+  const good = img.toPixel(crater, read, 1000);
+  check('which is what mirrored the island',
+    bad.py > 600 && good.py < 400,
+    `inverted ${(bad.py / 10).toFixed(0)}% down, corrected ${(good.py / 10).toFixed(0)}% down`);
+
+  h.saveBounds(ctx, inverted);
+  const saved = JSON.parse(store.get('heatmap_bounds'));
+  check('and they are never written back inverted either',
+    saved.minY < saved.maxY && saved.minX < saved.maxX, JSON.stringify(saved));
+}
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
 process.exit(failed === 0 ? 0 : 1);

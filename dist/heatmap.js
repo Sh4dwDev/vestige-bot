@@ -80,6 +80,28 @@ export function setManualBounds(ctx, latMin, latMax, longMin, longMax) {
 export function boundsAreManual(ctx) {
     return ctx.db.getSetting('heatmap_manual') === '1';
 }
+/**
+ * Puts a rectangle the right way round.
+ *
+ * A rectangle whose min is above its max is never a legitimate state, but it is
+ * an easy one to write: calibrating under the old code — which had latitude
+ * running the wrong way — stored the southern edge as `minY` and the northern
+ * as `maxY`. The bounds outlived the code that made them, sitting in the
+ * database long after the sign was fixed.
+ *
+ * The renderer then divided by a negative span and mirrored the island, so a
+ * corrected build kept drawing the old, wrong map and every fix looked like it
+ * had failed to deploy. Swapping here costs nothing and makes that whole class
+ * of stale state harmless.
+ */
+function normalise(bounds) {
+    return {
+        minX: Math.min(bounds.minX, bounds.maxX),
+        maxX: Math.max(bounds.minX, bounds.maxX),
+        minY: Math.min(bounds.minY, bounds.maxY),
+        maxY: Math.max(bounds.minY, bounds.maxY),
+    };
+}
 export function storedBounds(ctx) {
     const raw = ctx.db.getSetting(BOUNDS_KEY);
     if (!raw)
@@ -88,14 +110,14 @@ export function storedBounds(ctx) {
         const parsed = JSON.parse(raw);
         const ok = ['minX', 'maxX', 'minY', 'maxY']
             .every((k) => typeof parsed[k] === 'number' && Number.isFinite(parsed[k]));
-        return ok ? parsed : null;
+        return ok ? normalise(parsed) : null;
     }
     catch {
         return null;
     }
 }
 export function saveBounds(ctx, bounds) {
-    ctx.db.setSetting(BOUNDS_KEY, JSON.stringify(bounds));
+    ctx.db.setSetting(BOUNDS_KEY, JSON.stringify(normalise(bounds)));
 }
 export function resetBounds(ctx) {
     ctx.db.setSetting(BOUNDS_KEY, '');

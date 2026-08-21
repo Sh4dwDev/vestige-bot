@@ -113,7 +113,6 @@ import {
   ANCHORS,
   boundsAreManual,
   buildHeatmapEmbed,
-  DEFAULT_BOUNDS,
   effectiveBounds,
   HEATMAP_MESSAGE_KEY,
   heatmapMinutes,
@@ -2564,13 +2563,17 @@ async function handleHeatmapCheck(
   // must draw exactly where it sits in the picture. A mismatch means the running
   // build is not the one that solved the map — a deploy that did not take. That
   // is invisible in a screenshot, and guessing at it from one wasted hours.
+  // Tested against the bounds the panel actually draws with, not the built-in
+  // ones. Checking DEFAULT_BOUNDS was useless: it reported healthy while the
+  // panel drew from inverted stored bounds, which is precisely the fault it
+  // existed to catch.
   const offBy = (a: typeof ANCHORS[number]): number => {
-    const { px, py } = toPixel({ x: a.x, y: a.y }, DEFAULT_BOUNDS, 1000);
+    const { px, py } = toPixel({ x: a.x, y: a.y }, inUse, 1000);
     return Math.max(Math.abs((px / 1000) - a.fx), Math.abs((py / 1000) - a.fy));
   };
 
   const selfTest = ANCHORS.map((a) => {
-    const { px, py } = toPixel({ x: a.x, y: a.y }, DEFAULT_BOUNDS, 1000);
+    const { px, py } = toPixel({ x: a.x, y: a.y }, inUse, 1000);
     return `${offBy(a) < 0.01 ? '✅' : '❌'} **${a.label}** draws at ` +
       `${(px / 10).toFixed(0)}% across, ${(py / 10).toFixed(0)}% down — ` +
       `should be ${(a.fx * 100).toFixed(0)}%, ${(a.fy * 100).toFixed(0)}%`;
