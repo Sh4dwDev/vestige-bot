@@ -138,6 +138,23 @@ export declare class Database {
     }>;
     /** Staff correction only: a claim is meant to be permanent. */
     releaseFounder(discordId: string): boolean;
+    /**
+     * Every table this database has.
+     *
+     * Read from the schema rather than listed anywhere, because a hand-written
+     * list is what a future feature forgets to update - and a backup missing one
+     * table is only discovered on the day it is needed.
+     */
+    tableNames(): string[];
+    dumpTable(table: string): Array<Record<string, unknown>>;
+    /**
+     * Empties a table and refills it from a snapshot. Returns rows written.
+     *
+     * Columns come from the rows themselves and are checked against the live
+     * schema, so a snapshot taken before a column existed still restores what it
+     * does have rather than failing outright.
+     */
+    replaceTable(table: string, rows: Array<Record<string, unknown>>): number;
     /** Milliseconds remaining, or 0 when the action is available. */
     cooldownLeft(steamId: string, action: string, windowMs: number): number;
     startCooldown(steamId: string, action: string): void;

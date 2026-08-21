@@ -33,5 +33,11 @@ export interface PopulationOptions {
     }>;
     /** Species tier, for grouping and the card badge. */
     tierOf?: (species: string) => number;
+    /** Live bounties, shown on the panel so people can see what is worth hunting. */
+    bounties?: Array<{
+        species: string;
+        reward: number;
+        claims: number;
+    }>;
 }
 export declare function buildPopulationEmbed(players: PlayerRow[], options?: PopulationOptions): EmbedBuilder;

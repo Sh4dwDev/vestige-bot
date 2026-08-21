@@ -27,11 +27,13 @@ import { awardOnline } from './points.js';
 import { giveJoinRole } from './joinrole.js';
 import { skinNeedsReapply } from './skinsync.js';
 import { clearRequest, requestFor, runAccepted } from './teleport.js';
+import { bountyPaidAnnounce, claimBounty } from './bounties.js';
 import { killMultiplier } from './events.js';
 import { killReward, tierOf } from './tiers.js';
 import { Panel } from './pterodactyl.js';
 import { startRestartScheduler } from './restarts.js';
 import { startCleanupScheduler } from './cleanup.js';
+import { backupConfig, startBackupScheduler } from './backup.js';
 import { speciesList } from './catalog.js';
 import { enforcementEnabled, restoreAllPlayables } from './enforce.js';
 import { refreshStatusPanel } from './status.js';
@@ -109,6 +111,17 @@ async function main(): Promise<void> {
       startPopulationPanel(ctx, ready, log);
       startRestartScheduler(ctx, ready, log);
     startCleanupScheduler(ctx, log);
+
+    // Everything the bot knows is in one file on the game host. This is the
+    // only copy of it anywhere.
+    const backup = backupConfig(config);
+    if (backup) {
+      startBackupScheduler(ctx, backup, log);
+      log(`backups: on, to ${backup.database} on ${backup.host}`);
+    } else {
+      log('WARNING: no backup database configured, so the bot data has no copy. ' +
+        'Set MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD and MYSQL_DATABASE.');
+    }
 
     // If enforcement is off, nothing else will ever put back a species that was
     // locked when the bot last stopped — it would sit unspawnable forever.
@@ -332,12 +345,24 @@ async function handleChatEvent(
       // A cull event multiplies on top of tier and upset: the point of it is
       // that thinning an over-cap species is worth going out of your way for.
       const event = killMultiplier(ctx, kill.species);
-      const points = reward.points * event;
+
+      // A bounty is a flat pot on top, and claiming spends one of its payouts.
+      // Checked here rather than in the reward maths because it has a side
+      // effect: the pot has to actually go down.
+      const bounty = claimBounty(ctx, kill.species);
+      const points = (reward.points * event) + (bounty?.reward ?? 0);
 
       ctx.db.addPoints(kill.killer, points);
       log(`points: ${kill.killer} earned ${Math.round(points)} for a kill` +
         (reward.upset > 0 ? ` (${reward.upset} tier upset)` : '') +
-        (event > 1 ? ` (${event}x cull event)` : ''));
+        (event > 1 ? ` (${event}x cull event)` : '') +
+        (bounty ? ` (+${bounty.reward} bounty, ${bounty.claims} left)` : ''));
+
+      if (bounty) {
+        await ctx.rcon
+          .announce(bountyPaidAnnounce(kill.species, bounty.reward, bounty.claims))
+          .catch(() => undefined);
+      }
     }
 
     const channelId = killfeedChannel(ctx);

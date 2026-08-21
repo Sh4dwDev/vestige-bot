@@ -93,6 +93,14 @@ import {
   setCleanupHours,
   wipeNow,
 } from './cleanup.js';
+import {
+  backupConfig,
+  lastBackup,
+  listSnapshots,
+  markBackup,
+  restoreSnapshot,
+  runBackup,
+} from './backup.js';
 import { applyCaps, planCaps, type PlannedCap } from './capplan.js';
 import {
   enforcementEnabled,
@@ -111,6 +119,13 @@ import {
   setFounderLimit,
   skinById,
 } from './founders.js';
+import {
+  activeBounties,
+  bountyLines,
+  bountySettings,
+  setBountiesEnabled,
+  setBountyBase,
+} from './bounties.js';
 import {
   eventSettings,
   eventsFor,
@@ -488,6 +503,32 @@ export const commandData = [
           c.setName('release').setDescription('Free someone up to claim again')
             .addUserOption((o) =>
               o.setName('user').setDescription('Whose claim to release').setRequired(true))),
+    )
+    .addSubcommandGroup((g) =>
+      g.setName('backup').setDescription('Database backups')
+        .addSubcommand((c) => c.setName('now').setDescription('Take a snapshot right now'))
+        .addSubcommand((c) => c.setName('status').setDescription('When the last one ran'))
+        .addSubcommand((c) => c.setName('list').setDescription('Every snapshot held'))
+        .addSubcommand((c) =>
+          c.setName('restore').setDescription('Replace the live database with a snapshot')
+            .addStringOption((o) =>
+              o.setName('snapshot').setDescription('Which one, from /admin backup list')
+                .setRequired(true))
+            .addStringOption((o) =>
+              o.setName('confirm').setDescription('Type REPLACE to confirm')
+                .setRequired(true))),
+    )
+    .addSubcommandGroup((g) =>
+      g.setName('bounties').setDescription('Bounties on overpopulated species')
+        .addSubcommand((c) => c.setName('on').setDescription('Post bounties automatically'))
+        .addSubcommand((c) => c.setName('off').setDescription('Stop posting bounties'))
+        .addSubcommand((c) =>
+          c.setName('reward').setDescription('Points per claim, before the tier multiplier')
+            .addIntegerOption((o) =>
+              o.setName('points').setDescription('Default 150')
+                .setMinValue(1).setMaxValue(10_000).setRequired(true)))
+        .addSubcommand((c) => c.setName('status').setDescription('What is on offer now'))
+        .addSubcommand((c) => c.setName('clear').setDescription('Take every bounty down')),
     )
     .addSubcommandGroup((g) =>
       g.setName('events').setDescription('Population events')
@@ -1594,9 +1635,7 @@ async function handleSkin(
     setSkinExpiryHours(ctx, hours);
     await i.reply({
       embeds: [embed(COLORS.good, 'Skin expiry set',
-        `A look is forgotten after **${hours} hours** without being worn.
-
-` +
+        `A look is forgotten after **${hours} hours** without being worn.\n\n` +
         'The clock runs from the last time it was actually painted onto a live ' +
         'dinosaur, so one being played never expires under its owner. It is the ' +
         'line between keeping a dinosaur looking right and a colour following ' +
@@ -2264,6 +2303,166 @@ async function handleSpecies(
   });
 }
 
+// --------------------------------------------------------------- backup --
+
+async function handleBackup(
+  ctx: Ctx,
+  i: ChatInputCommandInteraction,
+  action: string,
+): Promise<void> {
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const cfg = backupConfig(ctx.config);
+  if (!cfg) {
+    await i.editReply({
+      embeds: [embed(COLORS.warn, 'No backup database configured',
+        'Set `MYSQL_HOST`, `MYSQL_USER`, `MYSQL_PASSWORD` and `MYSQL_DATABASE` ' +
+        'in the environment, from the database PebbleHost gives you.\n\n' +
+        'Until then everything the bot knows lives in one file on the game ' +
+        'host, with no copy anywhere.')],
+    });
+    return;
+  }
+
+  try {
+    if (action === 'now') {
+      const result = await runBackup(ctx, cfg);
+      markBackup(ctx, result.takenAt);
+      await i.editReply({
+        embeds: [embed(COLORS.good, 'Snapshot taken',
+          `**${result.rows}** rows across **${result.tables}** tables.\n\n` +
+          `<t:${Math.floor(result.takenAt / 1000)}:F>`)],
+      });
+      return;
+    }
+
+    if (action === 'list') {
+      const snapshots = await listSnapshots(cfg);
+      await i.editReply({
+        embeds: [embed(COLORS.info, 'Snapshots',
+          snapshots.length === 0
+            ? 'None yet. `/admin backup now` takes one.'
+            : snapshots.map((snap) =>
+              `\`${snap.takenAt}\` — <t:${Math.floor(snap.takenAt / 1000)}:R> · ` +
+              `${snap.rows} rows, ${snap.tables} tables`).join('\n') +
+              '\n\nThe code in backticks is what `/admin backup restore` wants.')],
+      });
+      return;
+    }
+
+    if (action === 'restore') {
+      const snapshot = Number.parseInt(i.options.getString('snapshot', true).trim(), 10);
+      const confirm = i.options.getString('confirm', true).trim();
+
+      if (confirm !== 'REPLACE') {
+        await i.editReply({
+          embeds: [embed(COLORS.warn, 'Not confirmed',
+            'This **replaces every table** with the snapshot, and anything that ' +
+            'happened since is lost — points earned, links made, purchases.\n\n' +
+            'Type `REPLACE` in the confirm option if that is what you want.')],
+        });
+        return;
+      }
+
+      const result = await restoreSnapshot(ctx, cfg, snapshot);
+      await i.editReply({
+        embeds: [embed(COLORS.good, 'Restored',
+          `**${result.rows}** rows across **${result.tables}** tables, from ` +
+          `<t:${Math.floor(snapshot / 1000)}:F>.\n\n` +
+          '⚠️ Restart the bot. Anything it was holding in memory is now out of ' +
+          'step with what is on disk.')],
+      });
+      return;
+    }
+
+    const last = lastBackup(ctx);
+    const snapshots = await listSnapshots(cfg);
+    await i.editReply({
+      embeds: [embed(COLORS.info, 'Backups',
+        `Backing up to \`${cfg.database}\` on \`${cfg.host}\`.\n\n` +
+        (last === 0
+          ? '**Never run.** `/admin backup now` takes the first one.'
+          : `Last snapshot <t:${Math.floor(last / 1000)}:R>.`) +
+        `\n\n**${snapshots.length}** held, newest first. One is taken daily, and ` +
+        'the oldest are dropped once there are more than fourteen.')],
+    });
+  } catch (err) {
+    await i.editReply({
+      embeds: [embed(COLORS.bad, 'Backup failed', `${describeError(err)}\n\n` +
+        'Check the MySQL details, and that PebbleHost allows connections from ' +
+        'the bot.')],
+    });
+  }
+}
+
+// ------------------------------------------------------------- bounties --
+
+async function handleBounties(
+  ctx: Ctx,
+  i: ChatInputCommandInteraction,
+  action: string,
+): Promise<void> {
+  if (action === 'on' || action === 'off') {
+    setBountiesEnabled(ctx, action === 'on');
+    const settings = bountySettings(ctx);
+    await i.reply({
+      embeds: [action === 'on'
+        ? embed(COLORS.good, 'Bounties on',
+          'A species over its cap now gets a bounty posted on it automatically: ' +
+          `**${settings.base}** points a kill, scaled by tier, with a limited ` +
+          'number of payouts.\n\n' +
+          'They show on the population panel, are announced in game, and come ' +
+          'down when the population drops or the payouts run out.\n\n' +
+          'Never posted on an endangered species — paying for kills on the last ' +
+          'few of something would finish them off.')
+        : embed(COLORS.good, 'Bounties off',
+          'Nothing new will be posted. Anything already on the board stays until ' +
+          'it is claimed — use `/admin bounties clear` to take it down now.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (action === 'reward') {
+    const points = i.options.getInteger('points', true);
+    setBountyBase(ctx, points);
+    await i.reply({
+      embeds: [embed(COLORS.good, 'Bounty reward set',
+        `**${points}** points a kill, before the tier multiplier — so an apex is ` +
+        'worth roughly twice a tier 1.\n\n' +
+        'Only affects bounties posted from now on.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (action === 'clear') {
+    const had = activeBounties(ctx).length;
+    ctx.db.setSetting('bounties_active', '[]');
+    await i.reply({
+      embeds: [embed(COLORS.good, 'Board cleared',
+        had === 0 ? 'There were none up.' : `Took down **${had}**.`)],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const settings = bountySettings(ctx);
+  const live = activeBounties(ctx);
+  await i.reply({
+    embeds: [embed(COLORS.info, '💰  Bounties',
+      (settings.enabled ? '**On.**' : '**Off.**') +
+      ` Base reward ${settings.base} points a kill.\n\n` +
+      (live.length === 0
+        ? 'Nothing on the board. One goes up when a species passes its cap.'
+        : bountyLines(live)) +
+      (ctx.db.speciesCaps().length === 0
+        ? '\n\n⚠️ No species caps are set, so nothing can ever trigger.'
+        : ''))],
+    flags: MessageFlags.Ephemeral,
+  });
+}
+
 // ------------------------------------------------------------- founders --
 
 async function handleFounders(
@@ -2503,6 +2702,8 @@ async function handleAdmin(ctx: Ctx, i: ChatInputCommandInteraction): Promise<vo
   if (group === 'ingame') return handleInGame(ctx, i, action);
   if (group === 'founders') return handleFounders(ctx, i, action);
   if (group === 'events') return handleEvents(ctx, i, action);
+  if (group === 'bounties') return handleBounties(ctx, i, action);
+  if (group === 'backup') return handleBackup(ctx, i, action);
 
   if (group === 'teleport') {
     if (action === 'delay') {

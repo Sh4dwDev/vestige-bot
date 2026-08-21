@@ -605,6 +605,87 @@ export class Database {
     ) > 0;
   }
 
+  // ---- backup --------------------------------------------------------------
+
+  /**
+   * Every table this database has.
+   *
+   * Read from the schema rather than listed anywhere, because a hand-written
+   * list is what a future feature forgets to update - and a backup missing one
+   * table is only discovered on the day it is needed.
+   */
+  tableNames(): string[] {
+    return (this.#db
+      .prepare(`SELECT name FROM sqlite_master
+                WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
+      .all() as Array<Record<string, unknown>>)
+      .map((row) => String(row['name']));
+  }
+
+  dumpTable(table: string): Array<Record<string, unknown>> {
+    this.#assertKnownTable(table);
+    return this.#db.prepare(`SELECT * FROM "${table}"`)
+      .all() as Array<Record<string, unknown>>;
+  }
+
+  /**
+   * Empties a table and refills it from a snapshot. Returns rows written.
+   *
+   * Columns come from the rows themselves and are checked against the live
+   * schema, so a snapshot taken before a column existed still restores what it
+   * does have rather than failing outright.
+   */
+  replaceTable(table: string, rows: Array<Record<string, unknown>>): number {
+    this.#assertKnownTable(table);
+
+    const live = new Set(
+      (this.#db.prepare(`PRAGMA table_info("${table}")`)
+        .all() as Array<Record<string, unknown>>).map((c) => String(c['name'])),
+    );
+
+    const columns = [...new Set(rows.flatMap((r) => Object.keys(r)))]
+      .filter((c) => live.has(c));
+
+    // Explicit BEGIN/COMMIT: node:sqlite has no transaction() wrapper, and a
+    // restore that empties a table and then fails halfway is worse than one
+    // that does not run at all.
+    this.#db.exec('BEGIN');
+    try {
+      this.#db.prepare(`DELETE FROM "${table}"`).run();
+
+      let written = 0;
+      if (rows.length > 0 && columns.length > 0) {
+        const sql = `INSERT INTO "${table}" (${columns.map((c) => `"${c}"`).join(', ')}) `
+          + `VALUES (${columns.map(() => '?').join(', ')})`;
+        const insert = this.#db.prepare(sql);
+
+        for (const row of rows) {
+          insert.run(...columns.map((c) => (row[c] ?? null) as never));
+          written += 1;
+        }
+      }
+
+      this.#db.exec('COMMIT');
+      return written;
+    } catch (err) {
+      // Rolled back, so the table still holds what it did before. A restore
+      // that empties a table and then fails is the worst outcome available:
+      // the snapshot did not go in and the live data is gone too.
+      this.#db.exec('ROLLBACK');
+      throw new Error(
+        `restoring ${table} failed, and it was left untouched: `
+        + (err instanceof Error ? err.message : String(err)),
+      );
+    }
+  }
+
+  /** Table names reach SQL by interpolation, so they must come from the schema. */
+  #assertKnownTable(table: string): void {
+    if (!this.tableNames().includes(table)) {
+      throw new Error(`unknown table: ${table}`);
+    }
+  }
+
   // ---- cooldowns ---------------------------------------------------------
 
   /** Milliseconds remaining, or 0 when the action is available. */

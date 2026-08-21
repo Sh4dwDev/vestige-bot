@@ -103,10 +103,20 @@ export function buildPopulationEmbed(players, options = {}) {
     }
     const capFor = new Map((options.caps ?? []).map((c) => [c.species, c]));
     const locked = (options.caps ?? []).filter((c) => c.locked).map((c) => c.species);
+    // Bounties go in the headline rather than a field at the bottom: they are the
+    // one thing on this panel somebody might act on in the next ten minutes, and
+    // nothing below twenty species cards gets read.
+    const bounties = (options.bounties ?? []).filter((b) => b.claims > 0);
+    const bountyLine = bounties.length > 0
+        ? '\n\n💰 **Bounties:** ' + bounties
+            .map((b) => `${b.species} — **${b.reward}** pts (${b.claims} left)`)
+            .join(' · ')
+        : '';
     const headline = `**${totals.online}** playing · **${totals.adults}** adult · ` +
         `**${totals.prime}** prime (${percent(totals.prime, totals.adults)} of adults) · ` +
         `**${rows.length}** species` +
-        (locked.length > 0 ? `\n\n🔒 **Locked:** ${locked.join(', ')}` : '');
+        (locked.length > 0 ? `\n\n🔒 **Locked:** ${locked.join(', ')}` : '') +
+        bountyLine;
     embed.setColor(0x5865f2);
     // A handful of species reads far better as cards than as a one-row table,
     // which is what it looked like: mostly empty column headers. Past a certain

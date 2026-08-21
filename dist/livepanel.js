@@ -1,6 +1,7 @@
 import { postOrEdit } from './pinned.js';
 import { buildPopulationEmbed } from './population.js';
 import { expireOldSkins, forgetAllPainted, reapplySkins } from './skinsync.js';
+import { activeBounties, checkBounties } from './bounties.js';
 import { checkEvents, tellPlayersInEvents } from './events.js';
 import { checkSpeciesLocks } from './species.js';
 import { tierOf } from './tiers.js';
@@ -42,6 +43,7 @@ export async function refreshPopulationPanel(ctx, client) {
             live: true,
             caps: ctx.db.speciesCaps(),
             tierOf: (species) => tierOf(ctx, species),
+            bounties: activeBounties(ctx),
         });
     }
     catch {
@@ -83,6 +85,9 @@ export function startPopulationPanel(ctx, client, log) {
             // Shares the same counts: a species over its cap is both a lock and a
             // cull event, and neither costs an extra round trip.
             await checkEvents(ctx, client, players, log);
+            // Bounties read the same counts, and are deliberately checked after
+            // events so an endangered species can never have one posted on it.
+            await checkBounties(ctx, client, players, log);
             // And tell the people actually playing an endangered species, which a
             // server-wide announcement does not do.
             await tellPlayersInEvents(ctx, players, log);

@@ -4,6 +4,7 @@ import type { Ctx } from './commands.js';
 import { postOrEdit } from './pinned.js';
 import { buildPopulationEmbed } from './population.js';
 import { expireOldSkins, forgetAllPainted, reapplySkins } from './skinsync.js';
+import { activeBounties, checkBounties } from './bounties.js';
 import { checkEvents, tellPlayersInEvents } from './events.js';
 import { checkSpeciesLocks } from './species.js';
 import { tierOf } from './tiers.js';
@@ -49,6 +50,7 @@ export async function refreshPopulationPanel(ctx: Ctx, client: Client): Promise<
       live: true,
       caps: ctx.db.speciesCaps(),
       tierOf: (species) => tierOf(ctx, species),
+      bounties: activeBounties(ctx),
     });
   } catch {
     // An unreachable server still gets an embed; a panel that vanishes when the
@@ -96,6 +98,10 @@ export function startPopulationPanel(ctx: Ctx, client: Client, log: (m: string) 
         // Shares the same counts: a species over its cap is both a lock and a
         // cull event, and neither costs an extra round trip.
         await checkEvents(ctx, client, players, log);
+
+        // Bounties read the same counts, and are deliberately checked after
+        // events so an endangered species can never have one posted on it.
+        await checkBounties(ctx, client, players, log);
 
         // And tell the people actually playing an endangered species, which a
         // server-wide announcement does not do.

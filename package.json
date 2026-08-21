@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty",
-    "test": "node test/rcon.test.mjs && node test/bridge.test.mjs && node test/population.test.mjs && node test/admins.test.mjs && node test/guides.test.mjs && node test/restarts.test.mjs && node test/cleanup.test.mjs && node test/points.test.mjs && node test/kills.test.mjs && node test/cooldown.test.mjs && node test/species.test.mjs && node test/capplan.test.mjs && node test/enforce.test.mjs && node test/events.test.mjs && node test/founders.test.mjs && node test/catalog.test.mjs && node test/mutations.test.mjs && node test/tiers.test.mjs && node test/skins.test.mjs && node test/shop.test.mjs && node test/skinsync.test.mjs",
+    "test": "node test/rcon.test.mjs && node test/bridge.test.mjs && node test/population.test.mjs && node test/admins.test.mjs && node test/guides.test.mjs && node test/restarts.test.mjs && node test/cleanup.test.mjs && node test/points.test.mjs && node test/kills.test.mjs && node test/cooldown.test.mjs && node test/species.test.mjs && node test/capplan.test.mjs && node test/enforce.test.mjs && node test/events.test.mjs && node test/bounties.test.mjs && node test/backup.test.mjs && node test/founders.test.mjs && node test/catalog.test.mjs && node test/mutations.test.mjs && node test/tiers.test.mjs && node test/skins.test.mjs && node test/shop.test.mjs && node test/skinsync.test.mjs",
     "verify": "pnpm typecheck && pnpm build && pnpm test",
     "start": "node --experimental-sqlite --env-file-if-exists=.env dist/index.js",
     "commands": "node --experimental-sqlite --env-file-if-exists=.env dist/deploy-commands.js",
@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "discord.js": "^14.16.3",
+    "mysql2": "^3.23.4",
     "ssh2-sftp-client": "^12.1.1"
   },
   "devDependencies": {
