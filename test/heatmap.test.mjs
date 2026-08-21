@@ -350,17 +350,23 @@ check('the grid is the size it says it is', (() => {
     h.effectiveBounds(fakeCtx(), island) === h.DEFAULT_BOUNDS);
   check('manual bounds always win', h.effectiveBounds(fakeCtx(true), tiny) === tiny);
 
-  check('the fallback is centred on the origin, where the world is',
-    h.DEFAULT_BOUNDS.minX < 0 && h.DEFAULT_BOUNDS.maxX > 0
-    && h.DEFAULT_BOUNDS.minY < 0 && h.DEFAULT_BOUNDS.maxY > 0);
+  // This used to assert the fallback was "centred on the origin, where the
+  // world is". It is not. The hexagon reads Lat 114 Long -41 and sits below
+  // the middle of the picture, so a square centred on nothing in particular
+  // was never going to line up - it is anchored on that measurement instead.
+  check('the fallback is anchored on the hexagon rather than the origin',
+    Math.abs(((h.DEFAULT_BOUNDS.minX + h.DEFAULT_BOUNDS.maxX) / 2)) > 1000
+    || Math.abs(((h.DEFAULT_BOUNDS.minY + h.DEFAULT_BOUNDS.maxY) / 2)) > 1000);
 
   const img = await import(pathToFileURL(path.join(root, 'dist/heatimage.js')).href);
   const live = img.toPixel({ x: -44465, y: -143643.5 }, h.DEFAULT_BOUNDS, 720);
-  const margin = 720 * 0.15;
-  check('a real live position lands well inside the picture',
-    live.px > margin && live.px < 720 - margin
-    && live.py > margin && live.py < 720 - margin,
-    JSON.stringify(live));
+  // Judged against the island's real coastline in the picture, not an
+  // arbitrary margin: the old 15% band assumed bounds that put this very
+  // position in the sea, and passed by being wrong in a tidy way.
+  check('a real live position lands on the island rather than the sea',
+    live.px > 720 * 0.0882 && live.px < 720 * 0.9344
+    && live.py > 720 * 0.1157 && live.py < 720 * 0.9089,
+    `${(live.px / 7.2).toFixed(0)}% across, ${(live.py / 7.2).toFixed(0)}% down`);
 }
 
 // The coordinates printed under the map are the REAL ones. They used to be
@@ -388,6 +394,52 @@ check('the grid is the size it says it is', (() => {
     group[0].count === 2 && group[0].lat === '2', JSON.stringify(group[0]));
   check('the busiest cluster is listed first', group[0].count >= group[1].count);
   check('an empty server has no hotspots', h.hotspots([], h.DEFAULT_BOUNDS).length === 0);
+}
+
+// ---- the fallback bounds --------------------------------------------------
+//
+// These were a square centred on the origin, 800,000 across. Both halves of
+// that were wrong: the world is not centred on the origin, and 800,000 was too
+// narrow, so positions well inside the island drew in the open sea below it.
+
+{
+  // Read off the HUD while standing in the hexagon, and where the hexagon sits
+  // in the map picture.
+  const DOME = { y: 114107.9, x: -40634.8, fx: 0.4138, fy: 0.6531 };
+  // The island's own extent in the picture, measured from the file.
+  const ISLAND = { north: 0.1157, south: 0.9089, west: 0.0882, east: 0.9344 };
+
+  const B = h.DEFAULT_BOUNDS;
+  const across = (x) => (x - B.minX) / (B.maxX - B.minX);
+  const down = (y) => 1 - ((y - B.minY) / (B.maxY - B.minY));
+
+  check('the hexagon draws where the hexagon actually is',
+    Math.abs(across(DOME.x) - DOME.fx) < 0.001
+    && Math.abs(down(DOME.y) - DOME.fy) < 0.001,
+    `${(across(DOME.x) * 100).toFixed(1)}% across, ${(down(DOME.y) * 100).toFixed(1)}% down`);
+
+  // Every position actually observed on the server. All were on land, so any
+  // of them landing outside the island's coastline means the bounds are wrong.
+  const seen = [
+    { x: -44465, y: -143644 }, { x: -78661, y: -137643 },
+    { x: -87505, y: -131239 }, { x: -40644, y: 113184 },
+  ];
+
+  const dry = seen.filter((p) =>
+    down(p.y) >= ISLAND.north && down(p.y) <= ISLAND.south
+    && across(p.x) >= ISLAND.west && across(p.x) <= ISLAND.east);
+
+  check('nobody ever seen in game is placed in the sea',
+    dry.length === seen.length,
+    seen.map((p) => `Lat ${Math.round(p.y / 1000)}->${(down(p.y) * 100).toFixed(0)}%`).join(' '));
+
+  // The specific failure: at 800,000 wide the southernmost real position sat
+  // below the island entirely and pinned itself to the bottom of the picture.
+  check('the southernmost position seen is not jammed against the bottom edge',
+    down(-143644) < 0.93, `${(down(-143644) * 100).toFixed(1)}% down`);
+
+  check('north is up', down(200000) < down(-200000));
+  check('east is right', across(200000) > across(-200000));
 }
 
 const failed = results.filter((r) => !r).length;

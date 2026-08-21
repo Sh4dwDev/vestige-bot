@@ -36,19 +36,11 @@ export declare function storedBounds(ctx: Ctx): Bounds | null;
 export declare function saveBounds(ctx: Ctx, bounds: Bounds): void;
 export declare function resetBounds(ctx: Ctx): void;
 /**
- * The island, near enough, until somebody measures it properly.
+ * The island, anchored on the hexagon and scaled by the estimate above.
  *
- * Nobody publishes the extent of Isle V3. What is known: positions read
- * negative and reach into the hundreds of thousands — a live reading here was
- * `x=-44465 y=-143643`, and a documented landmark sits at `-396757` — so the
- * world is centred on the origin and runs to roughly ±400,000 units, which is
- * ±400 in the Lat/Long the HUD shows.
- *
- * A guess, and said out loud as one. But it is a guess that puts somebody in
- * the south-west in the south-west, which is worth far more than bounds
- * "learned" from one player standing still — those collapse to a box a few
- * metres wide, and then that player IS the corner of it. That is what put a
- * lone dot in the bottom-left of the picture.
+ * Anchoring beats centring on the origin: the world is not centred on the
+ * origin, and assuming it was is what put the hexagon in the wrong place to
+ * begin with.
  */
 export declare const DEFAULT_BOUNDS: Bounds;
 /**

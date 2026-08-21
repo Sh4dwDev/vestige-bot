@@ -136,23 +136,55 @@ export function resetBounds(ctx: Ctx): void {
 }
 
 /**
- * The island, near enough, until somebody measures it properly.
+ * Where the hexagon stands, read off the HUD while standing in it.
  *
- * Nobody publishes the extent of Isle V3. What is known: positions read
- * negative and reach into the hundreds of thousands — a live reading here was
- * `x=-44465 y=-143643`, and a documented landmark sits at `-396757` — so the
- * world is centred on the origin and runs to roughly ±400,000 units, which is
- * ±400 in the Lat/Long the HUD shows.
+ * This is a measurement rather than a guess, and it is the one fixed point the
+ * whole picture hangs from. The fractions are where that structure sits in the
+ * supplied map image, found by scanning the file for it and confirmed by
+ * drawing a crosshair at the result.
+ */
+const DOME = {
+  y: 114_107.9,
+  x: -40_634.8,
+  fx: 0.4138,
+  /** Measured down from the top of the picture. */
+  fy: 0.6531,
+};
+
+/**
+ * How wide the picture is in world units, which is the part still estimated.
  *
- * A guess, and said out loud as one. But it is a guess that puts somebody in
- * the south-west in the south-west, which is worth far more than bounds
- * "learned" from one player standing still — those collapse to a box a few
- * metres wide, and then that player IS the corner of it. That is what put a
- * lone dot in the bottom-left of the picture.
+ * This was ±400,000 — a world 800,000 across — and that was too small, not
+ * merely imprecise. At that width the island runs from Lat -91 to 544, yet
+ * players were repeatedly seen at Lat -144: south of the island's own southern
+ * coast, so they drew in the open sea near the bottom edge. Every position far
+ * from the hexagon was displaced the same way, which is what made moving north
+ * look like moving south.
+ *
+ * The smallest width that puts every position seen so far back on land is
+ * 1,007,631. That is a floor rather than an answer — nobody was standing
+ * exactly on the southern tip when it was recorded — so there is margin on top.
+ * Too wide only bunches everybody toward the middle; too narrow pins them to
+ * an edge and hides the error, which is how this went unnoticed.
+ *
+ * Superseded the moment two landmarks are calibrated, which measures it.
+ */
+const ASSUMED_SPAN = 1_100_000;
+
+/**
+ * The island, anchored on the hexagon and scaled by the estimate above.
+ *
+ * Anchoring beats centring on the origin: the world is not centred on the
+ * origin, and assuming it was is what put the hexagon in the wrong place to
+ * begin with.
  */
 export const DEFAULT_BOUNDS: Bounds = {
-  minX: -400_000, maxX: 400_000,
-  minY: -400_000, maxY: 400_000,
+  minX: DOME.x - (DOME.fx * ASSUMED_SPAN),
+  maxX: DOME.x - (DOME.fx * ASSUMED_SPAN) + ASSUMED_SPAN,
+  // The picture measures down from the top, the world measures north from the
+  // bottom, so the fraction flips.
+  minY: DOME.y - ((1 - DOME.fy) * ASSUMED_SPAN),
+  maxY: DOME.y - ((1 - DOME.fy) * ASSUMED_SPAN) + ASSUMED_SPAN,
 };
 
 /**

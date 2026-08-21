@@ -26,6 +26,10 @@ const standOn = (mark) => ({
   y: mark.fy === undefined ? 0 : TRUTH.minY + ((1 - mark.fy) * (TRUTH.maxY - TRUTH.minY)),
 });
 
+const hm = await import(pathToFileURL(path.join(root, 'dist/heatmap.js')).href);
+// Whatever width the fallback assumes is what a single reading must carry over.
+const SPAN = hm.DEFAULT_BOUNDS.maxX - hm.DEFAULT_BOUNDS.minX;
+
 const dome = c.landmarkById('dome');
 const north = c.landmarkById('north');
 const south = c.landmarkById('south');
@@ -75,8 +79,9 @@ check('the tips are the right way round in the picture',
     `fx ${fx.toFixed(4)} vs ${dome.fx}, fy ${fy.toFixed(4)} vs ${dome.fy}`);
 
   check('and the assumed width is carried over unchanged',
-    Math.abs((bounds.maxX - bounds.minX) - 800_000) < 1
-    && Math.abs((bounds.maxY - bounds.minY) - 800_000) < 1);
+    Math.abs((bounds.maxX - bounds.minX) - SPAN) < 1
+    && Math.abs((bounds.maxY - bounds.minY) - SPAN) < 1,
+    `${(bounds.maxX - bounds.minX).toFixed(0)} vs ${SPAN}`);
 }
 
 {
