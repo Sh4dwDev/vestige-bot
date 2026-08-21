@@ -51,6 +51,19 @@ check('every landmark sits inside the picture',
 check('the dome pins both axes, being a place rather than an edge',
   dome.fx !== undefined && dome.fy !== undefined);
 
+check('there are two structures to stand on, not just one',
+  c.LANDMARKS.filter((m) => m.fx !== undefined && m.fy !== undefined).length >= 2);
+
+{
+  // A pair of structures has to be far enough apart to measure a width with.
+  // Two marks close together give a long lever on a short baseline, so a step
+  // in the wrong place throws the scale badly.
+  const pts = c.LANDMARKS.filter((m) => m.fx !== undefined && m.fy !== undefined);
+  const apart = Math.max(...pts.flatMap((a) => pts.map((b) =>
+    Math.hypot(a.fx - b.fx, a.fy - b.fy))));
+  check('and far enough apart to measure a scale from', apart > 0.3, apart.toFixed(3));
+}
+
 check('a coastal tip pins one axis only',
   north.fx === undefined && north.fy !== undefined
   && west.fy === undefined && west.fx !== undefined);

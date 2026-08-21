@@ -1,35 +1,53 @@
 import { DEFAULT_BOUNDS, saveBounds } from './heatmap.js';
+/**
+ * The coastal fractions here are the extremes of the **main island**, found by
+ * flood-filling out from the hexagon so the detached north-west islet cannot
+ * count. An earlier attempt took the first row holding a wide run of land,
+ * which is not the same thing at all: it missed the northern tip by 7% of the
+ * picture, around 77,000 world units, and would have calibrated in that error.
+ *
+ * Two structures beat four coastlines. The hexagon and the crater each pin both
+ * axes and are unmistakable on the ground, where "the northernmost point of the
+ * island" is a sandbar that looks like every other sandbar.
+ */
 export const LANDMARKS = [
     {
         id: 'dome',
-        label: 'The dome',
+        label: 'The hexagon',
         fx: 0.4138,
         fy: 0.6531,
         hint: 'Stand in the middle of the hexagonal structure.',
     },
     {
+        id: 'crater',
+        label: 'The crater',
+        fx: 0.6760,
+        fy: 0.2983,
+        hint: 'Stand in the middle of the bare rock crater in the north-east.',
+    },
+    {
         id: 'north',
         label: 'Northern tip',
-        fy: 0.1157,
-        hint: 'Walk to the water at the very north of the island.',
+        fy: 0.0481,
+        hint: 'The far north-east spit — walk north-east until the land runs out.',
     },
     {
         id: 'south',
         label: 'Southern tip',
-        fy: 0.9089,
-        hint: 'Walk to the water at the very south of the island.',
+        fy: 0.9468,
+        hint: 'The southern beach — walk south until the land runs out.',
     },
     {
         id: 'west',
         label: 'Western tip',
-        fx: 0.0882,
-        hint: 'Walk to the water at the very west of the island.',
+        fx: 0.0287,
+        hint: 'The far west beach — walk west until the land runs out.',
     },
     {
         id: 'east',
         label: 'Eastern tip',
-        fx: 0.9344,
-        hint: 'Walk to the water at the very east of the island.',
+        fx: 0.9713,
+        hint: 'The far east shore — walk east until the land runs out.',
     },
 ];
 export const landmarkById = (id) => LANDMARKS.find((l) => l.id === id);

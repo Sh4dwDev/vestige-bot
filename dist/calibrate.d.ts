@@ -27,6 +27,17 @@ export interface Landmark {
     fy?: number;
     hint: string;
 }
+/**
+ * The coastal fractions here are the extremes of the **main island**, found by
+ * flood-filling out from the hexagon so the detached north-west islet cannot
+ * count. An earlier attempt took the first row holding a wide run of land,
+ * which is not the same thing at all: it missed the northern tip by 7% of the
+ * picture, around 77,000 world units, and would have calibrated in that error.
+ *
+ * Two structures beat four coastlines. The hexagon and the crater each pin both
+ * axes and are unmistakable on the ground, where "the northernmost point of the
+ * island" is a sandbar that looks like every other sandbar.
+ */
 export declare const LANDMARKS: Landmark[];
 export declare const landmarkById: (id: string) => Landmark | undefined;
 /** A reading: where somebody stood, and which landmark they stood on. */
