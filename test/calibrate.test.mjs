@@ -58,22 +58,47 @@ check('the tips are the right way round in the picture',
 // ---- solving ---------------------------------------------------------------
 
 {
-  const { bounds, missing } = c.solve([standOn(dome)]);
-  check('one reading is never enough', bounds === null);
-  check('and it says both axes are still open', missing.length === 2);
+  // One reading cannot give the width of the world, but it must still move the
+  // map — a calibration that visibly changes nothing reads as broken.
+  const { bounds, exact, missing } = c.solve([standOn(dome)]);
+  check('one reading produces usable bounds', bounds !== null);
+  check('but is honest that nothing was measured', exact === false);
+  check('and both axes are still working from an assumed width',
+    missing.length === 2);
+
+  // The whole point: the place that was stood on lands where it belongs.
+  const here = standOn(dome);
+  const fx = (here.x - bounds.minX) / (bounds.maxX - bounds.minX);
+  const fy = 1 - ((here.y - bounds.minY) / (bounds.maxY - bounds.minY));
+  check('the pinned landmark draws exactly where it sits in the picture',
+    Math.abs(fx - dome.fx) < 1e-6 && Math.abs(fy - dome.fy) < 1e-6,
+    `fx ${fx.toFixed(4)} vs ${dome.fx}, fy ${fy.toFixed(4)} vs ${dome.fy}`);
+
+  check('and the assumed width is carried over unchanged',
+    Math.abs((bounds.maxX - bounds.minX) - 800_000) < 1
+    && Math.abs((bounds.maxY - bounds.minY) - 800_000) < 1);
 }
 
 {
-  const { bounds, missing } = c.solve([standOn(north), standOn(south)]);
-  check('two tips on the same axis settle that axis only', bounds === null);
-  check('and the other axis is named as the one still missing',
+  const { bounds, exact, missing } = c.solve([standOn(north), standOn(south)]);
+  check('two tips on the same axis settle that axis', bounds !== null);
+  check('but the map is not exact until the other axis is measured too',
+    exact === false);
+  check('and the other axis is named as the one still assumed',
     missing.length === 1 && missing[0] === 'east to west', JSON.stringify(missing));
+
+  // Latitude was measured from two real points, so it must be right even
+  // though longitude is still a guess.
+  check('the measured axis is recovered exactly',
+    Math.abs(bounds.minY - TRUTH.minY) < 1 && Math.abs(bounds.maxY - TRUTH.maxY) < 1,
+    JSON.stringify(bounds));
 }
 
 {
-  const { bounds } = c.solve([standOn(dome), standOn(north), standOn(west)]);
+  const { bounds, exact } = c.solve([standOn(dome), standOn(north), standOn(west)]);
   check('the dome and two tips recover the world exactly',
     bounds !== null && near(bounds), JSON.stringify(bounds));
+  check('and that is reported as measured, not assumed', exact === true);
 }
 
 {
@@ -99,9 +124,9 @@ check('the tips are the right way round in the picture',
 // ---- the awkward cases -----------------------------------------------------
 
 {
-  const { bounds, missing } = c.solve([standOn(north), standOn(north)]);
-  check('two visits to one tip is one constraint, not two', bounds === null);
-  check('so that axis is still reported as missing',
+  const { exact, missing } = c.solve([standOn(north), standOn(north)]);
+  check('two visits to one tip is one constraint, not two', exact === false);
+  check('so that axis is still reported as assumed',
     missing.includes('north to south'));
 }
 

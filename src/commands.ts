@@ -2472,17 +2472,28 @@ async function handleCalibrate(
     return;
   }
 
-  const { bounds, needed } = applyReading(ctx, { id, x: me.x, y: me.y });
+  const { bounds, exact, needed } = applyReading(ctx, { id, x: me.x, y: me.y });
   const hud = (v: number) => Math.round(v / 1000);
 
   if (!bounds) {
     await i.editReply({
-      embeds: [embed(COLORS.good, `Recorded: ${mark.label}`,
-        `Lat **${hud(me.y)}**, Long **${hud(me.x)}**.\n\n` +
-        'One more is needed before the map can be lined up. A coastal tip only ' +
-        'settles the axis it sits on — standing at the northern point says ' +
-        'everything about how far north the map reaches and nothing about ' +
-        'east to west.\n\n**Next, any of:**\n' +
+      embeds: [embed(COLORS.bad, 'Could not use that reading',
+        `You read as Lat **${hud(me.y)}**, Long **${hud(me.x)}**, but that ` +
+        'settled nothing. Run `/setup heatmap recalibrate` and start again.')],
+    });
+    return;
+  }
+
+  if (!exact) {
+    await i.editReply({
+      embeds: [embed(COLORS.good, `Pinned: ${mark.label}`,
+        `You read as Lat **${hud(me.y)}**, Long **${hud(me.x)}**.\n\n` +
+        `**${mark.label} will now draw in the right place** from the next ` +
+        'refresh. How wide the picture is remains a guess, though, so places ' +
+        'far from here are still off.\n\nOne more reading measures it properly. ' +
+        'A coastal tip only settles the axis it sits on — standing at the ' +
+        'northern point says everything about how far north the picture reaches ' +
+        'and nothing about east to west.\n\n**Next, any of:**\n' +
         needed.map((l) => `• **${l.label}** — ${l.hint}`).join('\n'))],
     });
     return;
@@ -2491,7 +2502,8 @@ async function handleCalibrate(
   await i.editReply({
     embeds: [embed(COLORS.good, 'Map lined up',
       `Recorded **${mark.label}** at Lat **${hud(me.y)}**, Long **${hud(me.x)}**.\n\n` +
-      'The picture now covers:\n' +
+      'Both directions are now measured rather than assumed. The picture ' +
+      'covers:\n' +
       `• Lat **${hud(bounds.minY)}** to **${hud(bounds.maxY)}** (bottom to top)\n` +
       `• Long **${hud(bounds.minX)}** to **${hud(bounds.maxX)}** (left to right)\n\n` +
       'Dots land in the right place from the next refresh, and the panel will ' +

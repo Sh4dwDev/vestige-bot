@@ -1,5 +1,5 @@
 import type { Ctx } from './commands.js';
-import { type Bounds, saveBounds } from './heatmap.js';
+import { type Bounds, DEFAULT_BOUNDS, saveBounds } from './heatmap.js';
 
 /**
  * Working out what world coordinates the map picture actually covers, by
@@ -74,15 +74,36 @@ export interface Reading {
   y: number;
 }
 
+interface Axis {
+  min: number;
+  max: number;
+  /** False when the width was assumed rather than measured. */
+  exact: boolean;
+}
+
 /**
  * Least squares through `world = a * fraction + b`.
  *
- * Two readings solve it exactly; more than two average out the fact that
- * nobody stands in precisely the same spot twice. Returns null below two,
- * because one point through an unknown gradient is not a line.
+ * Two readings settle an axis exactly; more than two average out the fact that
+ * nobody stands in precisely the same spot twice.
+ *
+ * **One reading still moves the map.** A single point cannot give the width of
+ * the world — a line needs a gradient — but it does say exactly where that one
+ * place sits, so the assumed width is slid until the point lands where it
+ * belongs. That is wrong about scale and right about position, which beats
+ * being wrong about both. Requiring two readings before anything visibly
+ * changed made calibrating feel broken.
  */
-function fit(samples: Array<{ f: number; world: number }>): { min: number; max: number } | null {
-  if (samples.length < 2) return null;
+function fit(samples: Array<{ f: number; world: number }>, span: number): Axis | null {
+  if (samples.length === 0) return null;
+
+  if (samples.length === 1 || allSameFraction(samples)) {
+    // Every reading in one spot is one constraint however many times it was
+    // taken, so it anchors the assumed width rather than measuring a new one.
+    const anchor = samples[0]!;
+    const min = anchor.world - (anchor.f * span);
+    return { min, max: min + span, exact: false };
+  }
 
   const n = samples.length;
   const sumF = samples.reduce((s, p) => s + p.f, 0);
@@ -91,19 +112,24 @@ function fit(samples: Array<{ f: number; world: number }>): { min: number; max: 
   const sumFW = samples.reduce((s, p) => s + (p.f * p.world), 0);
 
   const denom = (n * sumFF) - (sumF * sumF);
-  // Every reading at the same fraction: a vertical line, no gradient to find.
-  if (Math.abs(denom) < 1e-9) return null;
-
   const a = ((n * sumFW) - (sumF * sumW)) / denom;
   const b = (sumW - (a * sumF)) / n;
 
   // The picture spans fraction 0 to 1, so those are its edges in world units.
-  return { min: b, max: a + b };
+  return { min: b, max: a + b, exact: true };
+}
+
+/** Whether every sample sits at the same place, to within rounding. */
+function allSameFraction(samples: Array<{ f: number }>): boolean {
+  const first = samples[0]!.f;
+  return samples.every((s) => Math.abs(s.f - first) < 1e-9);
 }
 
 export interface Solved {
   bounds: Bounds | null;
-  /** Which axes still need another reading. */
+  /** True once both axes were measured rather than assumed. */
+  exact: boolean;
+  /** Which axes are still working from an assumed width. */
   missing: string[];
 }
 
@@ -127,17 +153,25 @@ export function solve(readings: Reading[]): Solved {
     if (mark.fy !== undefined) ys.push({ f: 1 - mark.fy, world: reading.y });
   }
 
-  const x = fit(xs);
-  const y = fit(ys);
+  // An axis nobody has stood on keeps the default it already had. Throwing the
+  // whole answer away because one direction is unmeasured would discard a
+  // perfectly good measurement of the other.
+  const x = fit(xs, DEFAULT_BOUNDS.maxX - DEFAULT_BOUNDS.minX)
+    ?? { min: DEFAULT_BOUNDS.minX, max: DEFAULT_BOUNDS.maxX, exact: false };
+  const y = fit(ys, DEFAULT_BOUNDS.maxY - DEFAULT_BOUNDS.minY)
+    ?? { min: DEFAULT_BOUNDS.minY, max: DEFAULT_BOUNDS.maxY, exact: false };
 
   const missing: string[] = [];
-  if (!x) missing.push('east to west');
-  if (!y) missing.push('north to south');
+  if (!x.exact) missing.push('east to west');
+  if (!y.exact) missing.push('north to south');
 
   return {
-    bounds: x && y
-      ? { minX: x.min, maxX: x.max, minY: y.min, maxY: y.max }
-      : null,
+    // Nothing recorded at all means nothing to say — the panel keeps whatever
+    // it was already using rather than being handed the defaults as a decision.
+    bounds: readings.length === 0
+      ? null
+      : { minX: x.min, maxX: x.max, minY: y.min, maxY: y.max },
+    exact: x.exact && y.exact,
     missing,
   };
 }
@@ -182,17 +216,18 @@ export function clearReadings(ctx: Ctx): void {
 export function applyReading(ctx: Ctx, reading: Reading): {
   readings: Reading[];
   bounds: Bounds | null;
+  exact: boolean;
   needed: Landmark[];
 } {
   const readings = recordReading(ctx, reading);
-  const { bounds } = solve(readings);
+  const { bounds, exact } = solve(readings);
 
   if (bounds) {
     saveBounds(ctx, bounds);
     ctx.db.setSetting('heatmap_manual', '1');
   }
 
-  return { readings, bounds, needed: stillNeeded(readings) };
+  return { readings, bounds, exact, needed: stillNeeded(readings) };
 }
 
 /** Which landmarks would finish the job, given what is already recorded. */

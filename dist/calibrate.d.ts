@@ -37,7 +37,9 @@ export interface Reading {
 }
 export interface Solved {
     bounds: Bounds | null;
-    /** Which axes still need another reading. */
+    /** True once both axes were measured rather than assumed. */
+    exact: boolean;
+    /** Which axes are still working from an assumed width. */
     missing: string[];
 }
 /**
@@ -61,6 +63,7 @@ export declare function clearReadings(ctx: Ctx): void;
 export declare function applyReading(ctx: Ctx, reading: Reading): {
     readings: Reading[];
     bounds: Bounds | null;
+    exact: boolean;
     needed: Landmark[];
 };
 /** Which landmarks would finish the job, given what is already recorded. */
