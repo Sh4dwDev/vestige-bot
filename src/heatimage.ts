@@ -21,8 +21,14 @@ import type { Bounds, Point } from './heatmap.js';
 
 export const SIZE = 720;
 
-/** How far one player's heat reaches, in pixels. Wide, so it reads as a haze. */
-const RADIUS = 78;
+/**
+ * How far one player's heat reaches, in pixels.
+ *
+ * Tighter than it was. The same heat spread over a wide disc is a faint wash
+ * nobody can pick out against terrain; concentrated, it is a mark you can find
+ * at a glance.
+ */
+const RADIUS = 52;
 
 /**
  * How much stacked heat counts as "hot".
@@ -37,18 +43,30 @@ const RADIUS = 78;
 const FULL_HEAT = 3.2;
 
 /**
- * Cold to hot: haze blue, through cyan, to green at the centre of a crowd.
+ * How hard the low end is lifted.
  *
- * Blended additively, so this is light being added to the map rather than paint
- * being laid over it. That is what makes overlapping groups glow instead of
- * turning into a flat sticker, and it keeps the map readable underneath.
+ * A flat floor was tried first and gave every blob a hard circular edge: if the
+ * faintest pixel in the radius paints at a third strength, the rim of the disc
+ * is a step rather than a fade. A power curve lifts the quiet values just as
+ * much but still passes through zero, so a lone player is easy to spot and the
+ * edge of the glow still melts into the map.
+ */
+const LIFT = 0.55;
+const MAX_WEIGHT = 0.88;
+
+/**
+ * Cold to hot: bright blue, through cyan, to green at the centre of a crowd.
+ *
+ * The cold end is **light**, not navy. It was navy, and mixed a third of the
+ * way over sunlit grass that is very nearly no change at all — the low end has
+ * to contrast with the map, not sink into it.
  */
 const RAMP: Array<{ at: number; rgb: [number, number, number] }> = [
-  { at: 0.00, rgb: [18, 34, 120] },
-  { at: 0.30, rgb: [30, 70, 210] },
-  { at: 0.55, rgb: [40, 140, 235] },
-  { at: 0.78, rgb: [50, 210, 200] },
-  { at: 1.00, rgb: [90, 245, 120] },
+  { at: 0.00, rgb: [90, 170, 255] },
+  { at: 0.30, rgb: [60, 200, 255] },
+  { at: 0.58, rgb: [50, 235, 225] },
+  { at: 0.80, rgb: [70, 250, 170] },
+  { at: 1.00, rgb: [150, 255, 110] },
 ];
 
 function colourFor(t: number): [number, number, number] {
@@ -159,7 +177,7 @@ export async function renderHeatmap(
     for (let y = 0; y < size; y += 1) {
       for (let x = 0; x < size; x += 1) {
         const value = density[(y * size) + x] ?? 0;
-        if (value <= 0.008) continue;
+        if (value <= 0.012) continue;
 
         // Saturating curve rather than a clamp. Clamping made a crowd render as
         // a flat green puck: everything past the ceiling came out identical, so
@@ -171,7 +189,7 @@ export async function renderHeatmap(
 
         // Never opaque: the map has to stay visible through it, which is the
         // difference between a heatmap and a sheet of coloured plastic.
-        const weight = 0.75 * t;
+        const weight = MAX_WEIGHT * (t ** LIFT);
 
         const existing = image.getPixelColor(x, y);
 

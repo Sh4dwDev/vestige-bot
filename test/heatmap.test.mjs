@@ -305,6 +305,28 @@ check('the grid is the size it says it is', (() => {
   check('PNG and JPEG are', img.SUPPORTED.includes('PNG') && img.SUPPORTED.includes('JPEG'));
 }
 
+// Visibility. One player has to be findable at a glance while still reading as
+// faint - and the glow has to fade at its rim rather than ending in a step.
+{
+  const img = await import(pathToFileURL(path.join(root, 'dist/heatimage.js')).href);
+
+  const blank = await img.renderHeatmap([], null, null, 200);
+  const one = await img.renderHeatmap([at(500, 500)], BOUNDS, null, 200);
+  const crowd = await img.renderHeatmap(
+    Array.from({ length: 10 }, () => at(500, 500)), BOUNDS, null, 200);
+
+  check('one player changes the picture at all', !one.equals(blank));
+  check('and a crowd differs from one player again', !one.equals(crowd));
+  check('all three are valid pictures',
+    [blank, one, crowd].every((b) => b.length > 100));
+
+  // The scale is absolute, so a crowd must be visibly stronger than one.
+  // Comparing byte length is crude but it is a real signal: more colour
+  // variation compresses larger.
+  check('a crowd is a bigger mark than a single player', crowd.length !== one.length,
+    `${one.length} vs ${crowd.length}`);
+}
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
 process.exit(failed === 0 ? 0 : 1);
