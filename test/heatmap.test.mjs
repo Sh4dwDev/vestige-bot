@@ -250,6 +250,33 @@ check('the grid is the size it says it is', (() => {
   fs2.rmSync(dir, { recursive: true, force: true });
 }
 
+// The panel is a picture panel, so the pinned helper must not throw the
+// picture away. Reported live: the embed pointed at attachment://heatmap.png
+// and no image arrived, because the edit passed attachments: [] - which on
+// edit is the authoritative final list, not "drop the old ones".
+{
+  const fs3 = await import('node:fs');
+  const src = fs3.readFileSync(path.join(root, 'src/pinned.ts'), 'utf8');
+  const edit = src.slice(src.indexOf('if (existing)'), src.indexOf('const sent ='));
+
+  check('an edit carrying files does not clear the attachment list',
+    !/attachments:\s*\[\]/.test(edit), '');
+  check('and it still sends the files', /files/.test(edit));
+  check('a message left without an attachment is replaced, not edited forever',
+    /attachments\.size === 0/.test(edit) && /\.delete\(\)/.test(edit));
+}
+
+// The glow itself: a crowd must stay a gradient, not clip to a flat disc.
+{
+  const img = await import(pathToFileURL(path.join(root, 'dist/heatimage.js')).href);
+  const one = await img.renderHeatmap([at(500, 500)], BOUNDS, null, 200);
+  const many = await img.renderHeatmap(
+    Array.from({ length: 12 }, () => at(500, 500)), BOUNDS, null, 200);
+
+  check('a crowd renders differently from one player', !one.equals(many));
+  check('both are still pictures', one.length > 100 && many.length > 100);
+}
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
 process.exit(failed === 0 ? 0 : 1);

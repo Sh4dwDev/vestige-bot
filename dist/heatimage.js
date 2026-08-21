@@ -15,16 +15,32 @@ import { Jimp, JimpMime } from 'jimp';
  * a plain grid so the panel still shows something.
  */
 export const SIZE = 720;
-/** How far one player's heat reaches, in pixels. */
-const RADIUS = 46;
-/** Cold to hot. Alpha rises with density so an empty map stays clean. */
+/** How far one player's heat reaches, in pixels. Wide, so it reads as a haze. */
+const RADIUS = 78;
+/**
+ * How much stacked heat counts as "hot".
+ *
+ * Deliberately an **absolute** scale rather than per-frame. Normalising against
+ * whoever happens to be on would paint a single player in a quiet hour the same
+ * colour as a warband at prime time, and the whole point of a heatmap is that
+ * the colours mean the same thing every time you look.
+ *
+ * Roughly: one player alone is faint blue, three or four stacked is green.
+ */
+const FULL_HEAT = 3.2;
+/**
+ * Cold to hot: haze blue, through cyan, to green at the centre of a crowd.
+ *
+ * Blended additively, so this is light being added to the map rather than paint
+ * being laid over it. That is what makes overlapping groups glow instead of
+ * turning into a flat sticker, and it keeps the map readable underneath.
+ */
 const RAMP = [
-    { at: 0.00, rgb: [56, 132, 255], alpha: 0 },
-    { at: 0.18, rgb: [56, 132, 255], alpha: 130 },
-    { at: 0.40, rgb: [64, 220, 170], alpha: 165 },
-    { at: 0.62, rgb: [245, 214, 74], alpha: 195 },
-    { at: 0.82, rgb: [245, 138, 48], alpha: 220 },
-    { at: 1.00, rgb: [232, 60, 48], alpha: 240 },
+    { at: 0.00, rgb: [18, 34, 120] },
+    { at: 0.30, rgb: [30, 70, 210] },
+    { at: 0.55, rgb: [40, 140, 235] },
+    { at: 0.78, rgb: [50, 210, 200] },
+    { at: 1.00, rgb: [90, 245, 120] },
 ];
 function colourFor(t) {
     const clamped = Math.max(0, Math.min(1, t));
@@ -35,14 +51,13 @@ function colourFor(t) {
             continue;
         const span = high.at - low.at || 1;
         const f = Math.max(0, Math.min(1, (clamped - low.at) / span));
-        return {
-            r: Math.round(low.rgb[0] + ((high.rgb[0] - low.rgb[0]) * f)),
-            g: Math.round(low.rgb[1] + ((high.rgb[1] - low.rgb[1]) * f)),
-            b: Math.round(low.rgb[2] + ((high.rgb[2] - low.rgb[2]) * f)),
-            a: Math.round(low.alpha + ((high.alpha - low.alpha) * f)),
-        };
+        return [
+            Math.round(low.rgb[0] + ((high.rgb[0] - low.rgb[0]) * f)),
+            Math.round(low.rgb[1] + ((high.rgb[1] - low.rgb[1]) * f)),
+            Math.round(low.rgb[2] + ((high.rgb[2] - low.rgb[2]) * f)),
+        ];
     }
-    return { r: 232, g: 60, b: 48, a: 240 };
+    return [90, 245, 120];
 }
 /** World coordinates to pixels. North is up, so Y is flipped. */
 export function toPixel(point, bounds, size = SIZE) {
@@ -93,9 +108,9 @@ export async function renderHeatmap(points, bounds, base, size = SIZE) {
         drawGrid(image, size);
     }
     if (points.length > 0 && bounds) {
-        // Accumulate first, colour second, so overlapping players compound.
+        // Accumulate first, colour second, so overlapping players compound into one
+        // brighter blob rather than stamping discs on top of each other.
         const density = new Float32Array(size * size);
-        let peak = 0;
         for (const point of points) {
             const { px, py } = toPixel(point, bounds, size);
             const x0 = Math.max(0, px - RADIUS);
@@ -106,36 +121,36 @@ export async function renderHeatmap(points, bounds, base, size = SIZE) {
                 for (let x = x0; x <= x1; x += 1) {
                     const dx = x - px;
                     const dy = y - py;
-                    const dist = Math.sqrt((dx * dx) + (dy * dy));
-                    if (dist > RADIUS)
+                    const d = Math.sqrt((dx * dx) + (dy * dy)) / RADIUS;
+                    if (d > 1)
                         continue;
-                    // Smooth falloff: a hard-edged disc reads as a sticker, not heat.
-                    const fall = (1 - (dist / RADIUS)) ** 2;
+                    // Gaussian rather than a linear cone: a bright core with a wide soft
+                    // skirt is what reads as a glow. A cone reads as a traffic sign.
                     const at = (y * size) + x;
-                    const next = (density[at] ?? 0) + fall;
-                    density[at] = next;
-                    if (next > peak)
-                        peak = next;
+                    density[at] = (density[at] ?? 0) + Math.exp(-4.5 * d * d);
                 }
             }
         }
-        if (peak > 0) {
-            for (let y = 0; y < size; y += 1) {
-                for (let x = 0; x < size; x += 1) {
-                    const value = density[(y * size) + x] ?? 0;
-                    if (value <= 0)
-                        continue;
-                    const { r, g, b, a } = colourFor(value / peak);
-                    if (a <= 0)
-                        continue;
-                    const existing = image.getPixelColor(x, y);
-                    const er = (existing >>> 24) & 0xff;
-                    const eg = (existing >>> 16) & 0xff;
-                    const eb = (existing >>> 8) & 0xff;
-                    const f = a / 255;
-                    const mix = (over, under) => Math.round((over * f) + (under * (1 - f)));
-                    image.setPixelColor((((mix(r, er) << 24) >>> 0) + (mix(g, eg) << 16) + (mix(b, eb) << 8) + 0xff) >>> 0, x, y);
-                }
+        for (let y = 0; y < size; y += 1) {
+            for (let x = 0; x < size; x += 1) {
+                const value = density[(y * size) + x] ?? 0;
+                if (value <= 0.008)
+                    continue;
+                // Saturating curve rather than a clamp. Clamping made a crowd render as
+                // a flat green puck: everything past the ceiling came out identical, so
+                // the gradient inside the blob disappeared. This approaches full heat
+                // without ever reaching it, so a cluster keeps a bright core and a soft
+                // edge however many people pile in.
+                const t = 1 - Math.exp(-value / FULL_HEAT);
+                const [r, g, b] = colourFor(t);
+                // Never opaque: the map has to stay visible through it, which is the
+                // difference between a heatmap and a sheet of coloured plastic.
+                const weight = 0.75 * t;
+                const existing = image.getPixelColor(x, y);
+                const add = (over, under) => Math.min(255, Math.round(under + (over * weight)));
+                image.setPixelColor((((add(r, (existing >>> 24) & 0xff) << 24) >>> 0)
+                    + (add(g, (existing >>> 16) & 0xff) << 16)
+                    + (add(b, (existing >>> 8) & 0xff) << 8) + 0xff) >>> 0, x, y);
             }
         }
     }
