@@ -122,25 +122,49 @@ check('turning events off stops every multiplier',
 db.close();
 fs.rmSync(path.dirname(file), { recursive: true, force: true });
 
-// The personal notice: the one player actually in an endangered event.
-// A server-wide announce says the species is endangered; it does not tell the
-// person playing it that this means them.
+// The personal notice. It goes through the mod as ClientShowNotification: the
+// only per-player channel that is legible. announce is server-wide, and
+// directmessage draws a banner over the game's own ANNOUNCEMENT label -
+// verified live 2026-08-21, and it was unreadable.
 {
-  const msg = ev.personalMessage('Ceratosaurus', 2, 'https://discord.gg/abc');
+  const msg = ev.personalMessage('Ceratosaurus', 2);
 
-  check('it addresses the player directly', /^You are playing as an Endangered/.test(msg), msg);
-  check('it names the species', /Ceratosaurus/.test(msg));
+  check('it names the species', /Ceratosaurus/.test(msg), msg);
+  check('it says it is endangered', /Endangered/.test(msg));
   check('it says what they earn', /2x/.test(msg));
   check('it says what earns it - staying alive, not killing',
     /stay alive/.test(msg) && !/kill/i.test(msg));
-  check('it asks for the thing the event exists for', /repopulate/i.test(msg));
-  check('it links Discord when there is an invite', /discord\.gg/.test(msg));
-  check('and reads fine without one',
-    !/Join Discord/.test(ev.personalMessage('Rex', 2, '')));
-  check('it is plain ASCII, like every in-game line',
-    /^[ -~]*$/.test(msg));
-  check('it fits in a chat line', msg.length < 240, String(msg.length));
+  check('it is plain ASCII, like every in-game line', /^[ -~]*$/.test(msg));
+
+  // One line on the HUD, and the mod truncates at 120. A message that gets cut
+  // in half is worse than a shorter one.
+  check('it fits on screen without being truncated', msg.length <= 120,
+    `${msg.length} characters`);
 }
+
+// Endangered needs a crowd to be scarce within. Reported live: playing alone
+// made the only player permanently endangered.
+{
+  const quiet = ev.eventsFor(caps, counts({ Dryosaurus: 1 }), 1, 10);
+  check('one person alone is not an endangered species', quiet.length === 0,
+    kinds(quiet));
+
+  const busy = ev.eventsFor(caps, counts({ Dryosaurus: 1 }), 30, 10);
+  check('the same count on a busy server is', kinds(busy) === 'Dryosaurus:rare');
+
+  check('exactly at the threshold counts',
+    ev.eventsFor(caps, counts({ Dryosaurus: 1 }), 10, 10).length === 1);
+  check('one below does not',
+    ev.eventsFor(caps, counts({ Dryosaurus: 1 }), 9, 10).length === 0);
+
+  // Culling is unaffected: being over a cap already implies the players exist.
+  check('a cull still fires on a quiet server',
+    kinds(ev.eventsFor(caps, counts({ Tyrannosaurus: 6 }), 1, 10)) === 'Tyrannosaurus:cull');
+
+  check('the default threshold is a real crowd', ev.DEFAULT_MIN_PLAYERS === 10,
+    String(ev.DEFAULT_MIN_PLAYERS));
+}
+
 
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);

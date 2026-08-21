@@ -129,6 +129,8 @@ import {
 import {
   eventSettings,
   eventsFor,
+  minPlayersForRare,
+  setMinPlayersForRare,
   setCullBonus,
   setEventsEnabled,
   setRareBonus,
@@ -543,6 +545,12 @@ export const commandData = [
             .addNumberOption((o) =>
               o.setName('endangered').setDescription('Playing a rare species, default 2')
                 .setMinValue(1).setMaxValue(10)))
+        .addSubcommand((c) =>
+          c.setName('minplayers')
+            .setDescription('How busy the server must be for endangered to count')
+            .addIntegerOption((o) =>
+              o.setName('players').setDescription('Default 10')
+                .setMinValue(0).setMaxValue(100).setRequired(true)))
         .addSubcommand((c) => c.setName('status').setDescription('What is running now')),
     )
     .addSubcommandGroup((g) =>
@@ -2563,6 +2571,23 @@ async function handleEvents(
     return;
   }
 
+  if (action === 'minplayers') {
+    const players = i.options.getInteger('players', true);
+    setMinPlayersForRare(ctx, players);
+    await i.reply({
+      embeds: [embed(COLORS.good, 'Endangered threshold set',
+        `A species only counts as endangered once **${players}** people are on ` +
+        'the server.\n\n' +
+        'On a quiet server every species is technically down to its last few, so ' +
+        'without this the person playing alone was permanently endangered. ' +
+        'Scarcity only means something when there is a population to be scarce ' +
+        'within.\n\nCull events are unaffected: being over a cap already ' +
+        'implies the players are there.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
   if (action === 'bonus') {
     const cull = i.options.getNumber('cull');
     const rare = i.options.getNumber('endangered');
@@ -2600,7 +2625,8 @@ async function handleEvents(
   try {
     const counts = new Map<string, number>();
     for (const row of tally(await ctx.mod.players())) counts.set(row.species, row.online);
-    const running = eventsFor(caps, counts);
+    const online = (await ctx.mod.players()).filter((p) => p.steam).length;
+    const running = eventsFor(caps, counts, online, minPlayersForRare(ctx));
     live = running.length === 0
       ? 'Nothing running right now.'
       : running.map((e) => e.kind === 'cull'

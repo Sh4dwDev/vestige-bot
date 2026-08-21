@@ -34,6 +34,26 @@ const RARE_BONUS = 'events_rare_bonus';
 /** Under this many alive, a capped species counts as endangered. */
 export const RARE_AT = 2;
 
+/**
+ * How many people have to be on before "endangered" means anything.
+ *
+ * On a quiet server every species is technically down to its last few, so a
+ * bare count made everything endangered all the time — including whoever
+ * happened to be the only person online. Scarcity is only interesting when
+ * there is a population for something to be scarce *within*.
+ */
+export const DEFAULT_MIN_PLAYERS = 10;
+const MIN_PLAYERS = 'events_min_players';
+
+export function minPlayersForRare(ctx: Ctx): number {
+  const raw = Number.parseInt(ctx.db.getSetting(MIN_PLAYERS) ?? '', 10);
+  return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_MIN_PLAYERS;
+}
+
+export function setMinPlayersForRare(ctx: Ctx, players: number): void {
+  ctx.db.setSetting(MIN_PLAYERS, String(players));
+}
+
 /** At this share of the cap or above, it is overpopulated. */
 export const CULL_AT = 1.0;
 
@@ -87,8 +107,14 @@ export function setRareBonus(ctx: Ctx, multiplier: number): void {
 export function eventsFor(
   caps: Array<{ species: string; cap: number }>,
   counts: Map<string, number>,
+  online = Number.POSITIVE_INFINITY,
+  minPlayers = 0,
 ): SpeciesEvent[] {
   const out: SpeciesEvent[] = [];
+
+  // Endangered needs a crowd to be scarce within. Culling does not: being over
+  // a cap already implies the players are there.
+  const rareAllowed = online >= minPlayers;
 
   for (const entry of caps) {
     if (entry.cap <= 0) continue;
@@ -96,7 +122,7 @@ export function eventsFor(
 
     if (count >= entry.cap * CULL_AT) {
       out.push({ species: entry.species, kind: 'cull', count, cap: entry.cap });
-    } else if (count > 0 && count <= RARE_AT) {
+    } else if (rareAllowed && count > 0 && count <= RARE_AT) {
       // Nobody playing it is not endangered, it is simply out of fashion. An
       // event with no participants has nobody to pay.
       out.push({ species: entry.species, kind: 'rare', count, cap: entry.cap });
@@ -189,22 +215,23 @@ export function overAnnounce(species: string, kind: EventKind): string {
 // ------------------------------------------------------- personal notices --
 
 /**
- * Telling the player who is actually in the event.
+ * Telling the one player on an endangered species that it means them.
  *
- * A server-wide announce says a species is endangered; it does not tell the one
- * person playing it that this means them. That person is the entire point of an
- * endangered event, so they get told directly with the reward spelled out.
+ * Goes through the mod as `ClientShowNotification` — the game's own persistent
+ * on-screen notice, the one prime conditions use. That is the only per-player
+ * channel that is actually legible:
  *
- * **Endangered only.** A cull event stays a server-wide announce because its
- * audience is everyone hunting, not the animal being hunted — messaging someone
- * to say a bounty is on them adds nothing they can act on.
+ * - `announce` lands in chat and stays, but is **server-wide**.
+ * - `directmessage` is per-player and draws a full-width banner straight over
+ *   the game's own ANNOUNCEMENT label. Verified live 2026-08-21: unreadable.
+ * - Lua cannot write chat at all; `UpdateChat` takes the server down.
  *
- * `directmessage` rather than an on-screen notice: it lands in local chat with
- * the server as the sender and stays there, so it can be read twice. ASCII,
- * like every other line the bot sends in game.
+ * So: per-player, on screen, short. It is one line on the HUD, and the mod
+ * truncates at 120 characters — a Discord link would eat most of that and is
+ * not clickable in game anyway, so the invite stays in the Discord embed.
  */
 
-/** Re-sent this often, so somebody who spawns mid-event still finds out. */
+/** Repeated this often while an event runs, so late arrivals still find out. */
 const REMIND_MS = 15 * 60_000;
 
 /** `steam|species` -> when they were last told. */
@@ -215,17 +242,15 @@ export function forgetTold(): void {
   told.clear();
 }
 
-export function personalMessage(species: string, bonus: number, invite: string): string {
-  return `You are playing as an Endangered species: ${species}! You earn ${bonus}x `
-    + 'points for every minute you stay alive on it. Help repopulate it.'
-    + (invite ? ` Join Discord: ${invite}` : '');
+export function personalMessage(species: string, bonus: number): string {
+  return `Endangered: ${species}. You earn ${bonus}x points per minute you stay alive.`;
 }
 
 /**
- * Messages the players in an endangered event right now.
+ * Notifies the players who are on an endangered species right now.
  *
  * Never throws: this sits on top of an announcement that already went out, and
- * a failed message must not take the population poll down with it.
+ * a failed notice must not take the population poll down with it.
  */
 export async function tellPlayersInEvents(
   ctx: Ctx,
@@ -248,13 +273,7 @@ export async function tellPlayersInEvents(
     if (now - (told.get(key) ?? 0) < REMIND_MS) continue;
     told.set(key, now);
 
-    await ctx.rcon
-      .directMessage(
-        player.steam,
-        personalMessage(player.species, settings.rareBonus, ctx.config.discordInvite),
-      )
-      .catch(() => undefined);
-
+    await ctx.mod.notify(player.steam, personalMessage(player.species, settings.rareBonus));
     log(`event: told ${player.steam} they are an endangered ${player.species}`);
   }
 }
@@ -280,7 +299,10 @@ export async function checkEvents(
   const counts = new Map<string, number>();
   for (const row of tally(players)) counts.set(row.species, row.online);
 
-  const now = new Map(eventsFor(caps, counts).map((e) => [e.species, e] as const));
+  const online = players.filter((p) => p.steam).length;
+  const now = new Map(
+    eventsFor(caps, counts, online, minPlayersForRare(ctx)).map((e) => [e.species, e] as const),
+  );
   const before = activeEvents(ctx);
 
   const started = [...now.values()].filter((e) => before.get(e.species) !== e.kind);

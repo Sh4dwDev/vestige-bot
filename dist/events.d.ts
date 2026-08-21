@@ -3,6 +3,17 @@ import type { Ctx } from './commands.js';
 import type { PlayerRow } from './population.js';
 /** Under this many alive, a capped species counts as endangered. */
 export declare const RARE_AT = 2;
+/**
+ * How many people have to be on before "endangered" means anything.
+ *
+ * On a quiet server every species is technically down to its last few, so a
+ * bare count made everything endangered all the time — including whoever
+ * happened to be the only person online. Scarcity is only interesting when
+ * there is a population for something to be scarce *within*.
+ */
+export declare const DEFAULT_MIN_PLAYERS = 10;
+export declare function minPlayersForRare(ctx: Ctx): number;
+export declare function setMinPlayersForRare(ctx: Ctx, players: number): void;
 /** At this share of the cap or above, it is overpopulated. */
 export declare const CULL_AT = 1;
 export declare const DEFAULT_CULL_BONUS = 2;
@@ -33,7 +44,7 @@ export declare function setRareBonus(ctx: Ctx, multiplier: number): void;
 export declare function eventsFor(caps: Array<{
     species: string;
     cap: number;
-}>, counts: Map<string, number>): SpeciesEvent[];
+}>, counts: Map<string, number>, online?: number, minPlayers?: number): SpeciesEvent[];
 /** The live set, stored so a bot restart does not re-announce what is running. */
 export declare function activeEvents(ctx: Ctx): Map<string, EventKind>;
 /** What a kill on this species is multiplied by right now. */
@@ -47,12 +58,12 @@ export declare function eventAnnounce(event: SpeciesEvent, bonus: number): strin
 export declare function overAnnounce(species: string, kind: EventKind): string;
 /** So the next event tells everybody again rather than staying quiet. */
 export declare function forgetTold(): void;
-export declare function personalMessage(species: string, bonus: number, invite: string): string;
+export declare function personalMessage(species: string, bonus: number): string;
 /**
- * Messages the players in an endangered event right now.
+ * Notifies the players who are on an endangered species right now.
  *
  * Never throws: this sits on top of an announcement that already went out, and
- * a failed message must not take the population poll down with it.
+ * a failed notice must not take the population poll down with it.
  */
 export declare function tellPlayersInEvents(ctx: Ctx, players: PlayerRow[], log: (m: string) => void): Promise<void>;
 /**
