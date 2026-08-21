@@ -36,6 +36,30 @@ export declare function storedBounds(ctx: Ctx): Bounds | null;
 export declare function saveBounds(ctx: Ctx, bounds: Bounds): void;
 export declare function resetBounds(ctx: Ctx): void;
 /**
+ * The island, near enough, until somebody measures it properly.
+ *
+ * Nobody publishes the extent of Isle V3. What is known: positions read
+ * negative and reach into the hundreds of thousands — a live reading here was
+ * `x=-44465 y=-143643`, and a documented landmark sits at `-396757` — so the
+ * world is centred on the origin and runs to roughly ±400,000 units, which is
+ * ±400 in the Lat/Long the HUD shows.
+ *
+ * A guess, and said out loud as one. But it is a guess that puts somebody in
+ * the south-west in the south-west, which is worth far more than bounds
+ * "learned" from one player standing still — those collapse to a box a few
+ * metres wide, and then that player IS the corner of it. That is what put a
+ * lone dot in the bottom-left of the picture.
+ */
+export declare const DEFAULT_BOUNDS: Bounds;
+/**
+ * The bounds actually used to draw.
+ *
+ * Manual always wins — somebody who lined the corners up to their own picture
+ * means it. Otherwise learned bounds are only trusted once they cover enough
+ * ground to be a map rather than a huddle.
+ */
+export declare function effectiveBounds(ctx: Ctx, learned: Bounds | null): Bounds;
+/**
  * Widens known bounds to include everything just seen.
  *
  * Only ever grows. Shrinking to fit whoever happens to be online would make the

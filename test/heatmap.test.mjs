@@ -327,6 +327,47 @@ check('the grid is the size it says it is', (() => {
     `${one.length} vs ${crowd.length}`);
 }
 
+// Which bounds actually get used. Reported live: a lone player was drawn in the
+// bottom-left corner, because bounds "learned" from one person standing still
+// collapse to a box a few metres wide - and then that player IS its corner.
+{
+  const ctx = { db: new Map(), };
+  const fakeCtx = (manual = false) => ({
+    db: {
+      getSetting: (k) => (k === 'heatmap_manual' && manual ? '1' : ''),
+      setSetting: () => {},
+    },
+  });
+
+  const huddle = { minX: -44000, maxX: -44400, minY: -143000, maxY: -143600 };
+  const tiny = { minX: 0, maxX: 500, minY: 0, maxY: 500 };
+  const real = { minX: -300000, maxX: 300000, minY: -300000, maxY: 300000 };
+
+  check('nothing learned falls back to the island',
+    h.effectiveBounds(fakeCtx(), null) === h.DEFAULT_BOUNDS);
+  check('a box a few metres wide is not treated as a map',
+    h.effectiveBounds(fakeCtx(), tiny) === h.DEFAULT_BOUNDS);
+  check('bounds covering real ground are used',
+    h.effectiveBounds(fakeCtx(), real) === real);
+  check('manual bounds always win, however small',
+    h.effectiveBounds(fakeCtx(true), tiny) === tiny);
+
+  check('the fallback is centred on the origin, where the world is',
+    h.DEFAULT_BOUNDS.minX < 0 && h.DEFAULT_BOUNDS.maxX > 0
+    && h.DEFAULT_BOUNDS.minY < 0 && h.DEFAULT_BOUNDS.maxY > 0);
+
+  // A real reading from the server: this must land ON the island, not in a
+  // corner. Corners are what the bug looked like.
+  const img = await import(pathToFileURL(path.join(root, 'dist/heatimage.js')).href);
+  const live = img.toPixel({ x: -44465, y: -143643.5 }, h.DEFAULT_BOUNDS, 720);
+  const margin = 720 * 0.15;
+  check('a real live position lands well inside the picture',
+    live.px > margin && live.px < 720 - margin
+    && live.py > margin && live.py < 720 - margin,
+    JSON.stringify(live));
+  void ctx;
+}
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
 process.exit(failed === 0 ? 0 : 1);

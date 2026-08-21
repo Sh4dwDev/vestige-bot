@@ -97,6 +97,45 @@ export function resetBounds(ctx) {
     ctx.db.setSetting('heatmap_manual', '');
 }
 /**
+ * The island, near enough, until somebody measures it properly.
+ *
+ * Nobody publishes the extent of Isle V3. What is known: positions read
+ * negative and reach into the hundreds of thousands — a live reading here was
+ * `x=-44465 y=-143643`, and a documented landmark sits at `-396757` — so the
+ * world is centred on the origin and runs to roughly ±400,000 units, which is
+ * ±400 in the Lat/Long the HUD shows.
+ *
+ * A guess, and said out loud as one. But it is a guess that puts somebody in
+ * the south-west in the south-west, which is worth far more than bounds
+ * "learned" from one player standing still — those collapse to a box a few
+ * metres wide, and then that player IS the corner of it. That is what put a
+ * lone dot in the bottom-left of the picture.
+ */
+export const DEFAULT_BOUNDS = {
+    minX: -400_000, maxX: 400_000,
+    minY: -400_000, maxY: 400_000,
+};
+/** Learned bounds narrower than this are noise, not a map. */
+const MIN_USEFUL_SPAN = 150_000;
+/**
+ * The bounds actually used to draw.
+ *
+ * Manual always wins — somebody who lined the corners up to their own picture
+ * means it. Otherwise learned bounds are only trusted once they cover enough
+ * ground to be a map rather than a huddle.
+ */
+export function effectiveBounds(ctx, learned) {
+    if (learned && boundsAreManual(ctx))
+        return learned;
+    if (learned) {
+        const spanX = learned.maxX - learned.minX;
+        const spanY = learned.maxY - learned.minY;
+        if (spanX >= MIN_USEFUL_SPAN && spanY >= MIN_USEFUL_SPAN)
+            return learned;
+    }
+    return DEFAULT_BOUNDS;
+}
+/**
  * Widens known bounds to include everything just seen.
  *
  * Only ever grows. Shrinking to fit whoever happens to be online would make the
@@ -244,14 +283,14 @@ export function startHeatmapPanel(ctx, client, log) {
                     bounds = widened;
                 }
             }
-            embed = buildHeatmapEmbed(points, bounds, { minutes: heatmapMinutes(ctx) });
+            embed = buildHeatmapEmbed(points, effectiveBounds(ctx, bounds), { minutes: heatmapMinutes(ctx) });
         }
         catch {
             // A panel that vanishes when the server hiccups looks broken.
             embed = buildHeatmapEmbed([], null, { unreachable: true });
         }
         try {
-            const picture = await renderHeatmap(points, bounds, await resolveMapImage(ctx));
+            const picture = await renderHeatmap(points, effectiveBounds(ctx, bounds), await resolveMapImage(ctx));
             await postOrEdit(ctx.db, client, channelId, HEATMAP_MESSAGE_KEY, [embed], [], [{ attachment: picture, name: 'heatmap.png' }]);
         }
         catch (err) {
