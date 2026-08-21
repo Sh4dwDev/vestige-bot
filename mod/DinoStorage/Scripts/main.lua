@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.22.0"
+local MOD_VERSION = "3.24.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1179,6 +1179,19 @@ end
 
 -- Read-only snapshot of who is playing what. Carries no names or positions —
 -- it exists to answer "what is on the server", not to track anyone.
+local function locationOf(pawn)
+    local loc
+    if not pcall(function() loc = pawn:K2_GetActorLocation() end) then return nil end
+    if loc == nil then return nil end
+
+    local x, y, z
+    local ok = pcall(function() x, y, z = loc.X, loc.Y, loc.Z end)
+    if not ok or type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then
+        return nil
+    end
+    return { X = x, Y = y, Z = z }
+end
+
 local function handlePlayers(cmd)
     local items = {}
 
@@ -1195,12 +1208,19 @@ local function handlePlayers(cmd)
                     if pe ~= nil and pe.bIsEligiblePrime == true then prime = true end
                 end)
 
+                -- Where they are, for the heatmap. Read here rather than by
+                -- asking per player: this loop already holds every live pawn,
+                -- and one round trip beats thirty. A pawn that will not give a
+                -- location still reports as playing, just without a position.
+                local at = locationOf(p.pawn)
+
                 -- steam travels with the row so the bot can pay points by what
                 -- someone is actually playing, not just that they are connected.
                 items[#items + 1] = string.format(
-                    '{"steam":"%s","species":"%s","growth":%.4f,"female":%s,"prime":%s}',
+                    '{"steam":"%s","species":"%s","growth":%.4f,"female":%s,"prime":%s%s}',
                     p.steam, jsonEscape(speciesOf(classPath)), growth,
-                    female and "true" or "false", prime and "true" or "false")
+                    female and "true" or "false", prime and "true" or "false",
+                    at ~= nil and string.format(',"x":%.1f,"y":%.1f', at.X, at.Y) or "")
             end
         end
     end
@@ -1325,18 +1345,6 @@ local TELEPORT_TOLERANCE = 2000.0
 -- inside it. Tight enough to mean "stayed put", loose enough not to misfire.
 local TELEPORT_MOVE_LIMIT = 500.0
 
-local function locationOf(pawn)
-    local loc
-    if not pcall(function() loc = pawn:K2_GetActorLocation() end) then return nil end
-    if loc == nil then return nil end
-
-    local x, y, z
-    local ok = pcall(function() x, y, z = loc.X, loc.Y, loc.Z end)
-    if not ok or type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then
-        return nil
-    end
-    return { X = x, Y = y, Z = z }
-end
 
 -- Where someone is right now, so the bot can tell whether they moved during
 -- the countdown. Read-only.
@@ -1694,6 +1702,73 @@ local function handleHeal(cmd)
             or "nothing could be restored")
 end
 
+-- ---------------------------------------------------------------------------
+-- Writing into a player's chat
+--
+-- UpdateChat is what puts a coloured, named line in the chat window:
+--
+--   UpdateChat(FText Sender, FText Text, FString SenderSteamId,
+--              EChatMode ChatMode, bool bIsDev, bool bIsAdmin)
+--
+-- Sender is the name shown, bIsAdmin is what makes it red, and ChatMode picks
+-- the tab: Spatial = 0 (Local), Global = 1, Admin = 2, Logging = 3.
+--
+-- **Upstream records this as taking the server down**, and the cause they give
+-- is an access violation inside the RPC's FText serialisation — UE4SS handing
+-- the native call an FText whose shared reference the serializer then
+-- dereferences and faults on.
+--
+-- That is the *same* fault that made ClientShowNotification look impossible
+-- here, and it was cured by building a real FText with the constructor instead
+-- of passing a Lua string. This takes two FTexts rather than one, so the same
+-- cure is a reasonable bet and not a certainty.
+--
+-- Treated accordingly: both FTexts are constructed or the call is refused, it
+-- runs from the inbox tick on a freshly-resolved controller like every other
+-- RPC here, and it is behind its own verb so nothing calls it by accident.
+-- ---------------------------------------------------------------------------
+
+local CHAT_MODES = { spatial = 0, local_ = 0, global = 1, admin = 2, logging = 3 }
+
+local function handleChat(cmd)
+    local args = cmd.args or {}
+    local message = safeString(args.message)
+    if message == nil or message == "" then
+        writeResult(cmd.id, "chat", cmd.steam, false, "no message given")
+        return
+    end
+
+    local sender = safeString(args.sender) or "SERVER"
+    local mode = CHAT_MODES[tostring(args.mode or "spatial"):lower()] or 0
+
+    -- Both of them, or nothing. Handing this a raw string is the exact call
+    -- upstream says kills the server.
+    local senderText = makeText(sender)
+    local bodyText = makeText(message)
+    if senderText == nil or bodyText == nil then
+        writeResult(cmd.id, "chat", cmd.steam, false,
+            "this build cannot build an FText, and a raw string crashes the server")
+        return
+    end
+
+    local ctrl, err = resolveController(cmd.steam)
+    if ctrl == nil then
+        writeResult(cmd.id, "chat", cmd.steam, false, err)
+        return
+    end
+
+    local sent = false
+    safeCall("chat", function()
+        -- SenderSteamId is a plain FString, and is what the client uses to
+        -- resolve the sender. "0" reads as the server rather than a player.
+        ctrl:UpdateChat(senderText, bodyText, "0", mode, false, true)
+        sent = true
+    end)
+
+    writeResult(cmd.id, "chat", cmd.steam, sent,
+        sent and "sent" or "the message was refused")
+end
+
 local function dispatch(cmd)
     if type(cmd) ~= "table" then return end
 
@@ -1725,6 +1800,7 @@ local function dispatch(cmd)
     elseif verb == "skinmany" then handleSkinMany(cmd)
     elseif verb == "pattern" then handlePattern(cmd)
     elseif verb == "notify" then handleNotify(cmd)
+    elseif verb == "chat" then handleChat(cmd)
     elseif verb == "heal" then handleHeal(cmd)
     else writeResult(cmd.id, verb, cmd.steam, false, "unknown command: " .. verb) end
 end

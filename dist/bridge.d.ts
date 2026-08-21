@@ -29,6 +29,12 @@ export interface PlayerRow {
     growth: number;
     female: boolean;
     prime: boolean;
+    /**
+     * Where they are, from mod v3.24.0 on. Optional because a pawn that will not
+     * give a location still counts as playing - it just cannot be plotted.
+     */
+    x?: number;
+    y?: number;
 }
 export interface Result {
     id: string;

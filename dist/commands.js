@@ -20,6 +20,7 @@ import { buildBalanceEmbed, buildLeaderboardEmbed, display, ratePerHour, setRate
 import { nextRestart, restartNow, restartSettings, setRestartAnnounce, setRestartInterval, setRestartsEnabled, WARNINGS, } from './restarts.js';
 import { cleanupSettings, clearAI, nextCleanup, setCleanupAI, setCleanupEnabled, setCleanupHours, wipeNow, } from './cleanup.js';
 import { backupConfig, lastBackup, listSnapshots, markBackup, restoreSnapshot, runBackup, } from './backup.js';
+import { buildHeatmapEmbed, HEATMAP_MESSAGE_KEY, heatmapMinutes, pointsFrom, resetBounds, saveBounds, setHeatmapChannel, setHeatmapMinutes, storedBounds, widen, } from './heatmap.js';
 import { applyCaps, planCaps } from './capplan.js';
 import { enforcementEnabled, enforcementFault, restoreAllPlayables, setEnforcement, syncPlayables, } from './enforce.js';
 import { handleInGame, handleModeration } from './moderation.js';
@@ -128,14 +129,6 @@ export const commandData = [
         .addChannelOption((o) => o.setName('channel').setDescription('Where it should live')
         .addChannelTypes(ChannelType.GuildText).setRequired(true)))
         .addSubcommand((s) => s.setName('off').setDescription('Stop updating the panel')))
-        .addSubcommandGroup((g) => g.setName('guide').setDescription('The storage guide')
-        .addSubcommand((s) => s.setName('channel').setDescription('Post the storage guide in a channel')
-        .addChannelOption((o) => o.setName('channel').setDescription('Where it should live')
-        .addChannelTypes(ChannelType.GuildText).setRequired(true))))
-        .addSubcommandGroup((g) => g.setName('commands').setDescription('The command reference')
-        .addSubcommand((s) => s.setName('channel').setDescription('Post the command list in a channel')
-        .addChannelOption((o) => o.setName('channel').setDescription('Where it should live')
-        .addChannelTypes(ChannelType.GuildText).setRequired(true))))
         .addSubcommandGroup((g) => g.setName('give').setDescription('Put a dinosaur into someone’s archive')
         .addSubcommand((s) => s.setName('dino').setDescription('Add a dinosaur to a player’s storage')
         .addUserOption((o) => o.setName('user').setDescription('Who gets it').setRequired(true))
@@ -170,10 +163,6 @@ export const commandData = [
         .addSubcommand((s) => s.setName('panel').setDescription('Put the shop panel in a channel')
         .addChannelOption((o) => o.setName('channel').setDescription('Where the shop panel lives')
         .addChannelTypes(ChannelType.GuildText).setRequired(true))))
-        .addSubcommandGroup((g) => g.setName('joinrole').setDescription('Role given to new members')
-        .addSubcommand((s) => s.setName('set').setDescription('Give this role to everyone who joins')
-        .addRoleOption((o) => o.setName('role').setDescription('The role to give').setRequired(true)))
-        .addSubcommand((s) => s.setName('off').setDescription('Stop giving a role on join')))
         .addSubcommandGroup((g) => g.setName('skin').setDescription('Recolour a player’s dinosaur')
         .addSubcommand((s) => s.setName('set').setDescription('Set one part’s colour')
         .addUserOption((o) => o.setName('user').setDescription('Whose dinosaur').setRequired(true))
@@ -243,25 +232,6 @@ export const commandData = [
         .setRequired(true)))
         .addSubcommand((s) => s.setName('off').setDescription('Stop cleaning up automatically'))
         .addSubcommand((s) => s.setName('status').setDescription('What cleanup is configured')))
-        .addSubcommandGroup((g) => g.setName('founders').setDescription('Founder skins for the first members')
-        .addSubcommand((c) => c.setName('panel').setDescription('Post the founder skin panel in a channel')
-        .addChannelOption((o) => o.setName('channel').setDescription('Where the panel goes')
-        .addChannelTypes(ChannelType.GuildText).setRequired(true)))
-        .addSubcommand((c) => c.setName('limit').setDescription('How many people can claim one')
-        .addIntegerOption((o) => o.setName('count').setDescription('Default 50')
-        .setMinValue(0).setMaxValue(1000).setRequired(true)))
-        .addSubcommand((c) => c.setName('list').setDescription('Who has claimed one'))
-        .addSubcommand((c) => c.setName('release').setDescription('Free someone up to claim again')
-        .addUserOption((o) => o.setName('user').setDescription('Whose claim to release').setRequired(true))))
-        .addSubcommandGroup((g) => g.setName('backup').setDescription('Database backups')
-        .addSubcommand((c) => c.setName('now').setDescription('Take a snapshot right now'))
-        .addSubcommand((c) => c.setName('status').setDescription('When the last one ran'))
-        .addSubcommand((c) => c.setName('list').setDescription('Every snapshot held'))
-        .addSubcommand((c) => c.setName('restore').setDescription('Replace the live database with a snapshot')
-        .addStringOption((o) => o.setName('snapshot').setDescription('Which one, from /admin backup list')
-        .setRequired(true))
-        .addStringOption((o) => o.setName('confirm').setDescription('Type REPLACE to confirm')
-        .setRequired(true))))
         .addSubcommandGroup((g) => g.setName('bounties').setDescription('Bounties on overpopulated species')
         .addSubcommand((c) => c.setName('on').setDescription('Post bounties automatically'))
         .addSubcommand((c) => c.setName('off').setDescription('Stop posting bounties'))
@@ -341,15 +311,6 @@ export const commandData = [
         .addSubcommand((s) => s.setName('cooldown').setDescription('Minutes players must wait between slays')
         .addIntegerOption((o) => o.setName('minutes').setDescription('0 disables the limit')
         .setMinValue(0).setMaxValue(1440).setRequired(true))))
-        .addSubcommandGroup((g) => g.setName('panel').setDescription('The main player panel')
-        .addSubcommand((s) => s.setName('channel').setDescription('Post the player panel in a channel')
-        .addChannelOption((o) => o.setName('channel').setDescription('Where it should live')
-        .addChannelTypes(ChannelType.GuildText).setRequired(true))))
-        .addSubcommandGroup((g) => g.setName('status').setDescription('The live server status panel')
-        .addSubcommand((s) => s.setName('channel').setDescription('Put the status panel in a channel')
-        .addChannelOption((o) => o.setName('channel').setDescription('Where it should live')
-        .addChannelTypes(ChannelType.GuildText).setRequired(true)))
-        .addSubcommand((s) => s.setName('off').setDescription('Stop updating the panel')))
         .addSubcommandGroup((g) => g.setName('restarts').setDescription('Scheduled server restarts')
         .addSubcommand((s) => s.setName('on').setDescription('Turn scheduled restarts on'))
         .addSubcommand((s) => s.setName('off').setDescription('Turn scheduled restarts off'))
@@ -382,6 +343,59 @@ export const commandData = [
         .addSubcommand((s) => s.setName('rate').setDescription('Points earned per hour played')
         .addNumberOption((o) => o.setName('per_hour').setDescription('Points per hour')
         .setMinValue(0).setMaxValue(10_000).setRequired(true)))),
+    new SlashCommandBuilder()
+        .setName('setup')
+        .setDescription('One-time configuration: panels, channels and integrations')
+        .addSubcommandGroup((g) => g.setName('guide').setDescription('The storage guide')
+        .addSubcommand((s) => s.setName('channel').setDescription('Post the storage guide in a channel')
+        .addChannelOption((o) => o.setName('channel').setDescription('Where it should live')
+        .addChannelTypes(ChannelType.GuildText).setRequired(true))))
+        .addSubcommandGroup((g) => g.setName('commands').setDescription('The command reference')
+        .addSubcommand((s) => s.setName('channel').setDescription('Post the command list in a channel')
+        .addChannelOption((o) => o.setName('channel').setDescription('Where it should live')
+        .addChannelTypes(ChannelType.GuildText).setRequired(true))))
+        .addSubcommandGroup((g) => g.setName('joinrole').setDescription('Role given to new members')
+        .addSubcommand((s) => s.setName('set').setDescription('Give this role to everyone who joins')
+        .addRoleOption((o) => o.setName('role').setDescription('The role to give').setRequired(true)))
+        .addSubcommand((s) => s.setName('off').setDescription('Stop giving a role on join')))
+        .addSubcommandGroup((g) => g.setName('founders').setDescription('Founder skins for the first members')
+        .addSubcommand((c) => c.setName('panel').setDescription('Post the founder skin panel in a channel')
+        .addChannelOption((o) => o.setName('channel').setDescription('Where the panel goes')
+        .addChannelTypes(ChannelType.GuildText).setRequired(true)))
+        .addSubcommand((c) => c.setName('limit').setDescription('How many people can claim one')
+        .addIntegerOption((o) => o.setName('count').setDescription('Default 50')
+        .setMinValue(0).setMaxValue(1000).setRequired(true)))
+        .addSubcommand((c) => c.setName('list').setDescription('Who has claimed one'))
+        .addSubcommand((c) => c.setName('release').setDescription('Free someone up to claim again')
+        .addUserOption((o) => o.setName('user').setDescription('Whose claim to release').setRequired(true))))
+        .addSubcommandGroup((g) => g.setName('heatmap').setDescription('Where everyone is, as a panel')
+        .addSubcommand((c) => c.setName('panel').setDescription('Put the heatmap in a channel')
+        .addChannelOption((o) => o.setName('channel').setDescription('Where it lives')
+        .addChannelTypes(ChannelType.GuildText).setRequired(true)))
+        .addSubcommand((c) => c.setName('every').setDescription('How often it refreshes')
+        .addIntegerOption((o) => o.setName('minutes').setDescription('Default 5')
+        .setMinValue(1).setMaxValue(120).setRequired(true)))
+        .addSubcommand((c) => c.setName('recalibrate')
+        .setDescription('Forget the learned map bounds and start again'))
+        .addSubcommand((c) => c.setName('off').setDescription('Take the panel down')))
+        .addSubcommandGroup((g) => g.setName('backup').setDescription('Database backups')
+        .addSubcommand((c) => c.setName('now').setDescription('Take a snapshot right now'))
+        .addSubcommand((c) => c.setName('status').setDescription('When the last one ran'))
+        .addSubcommand((c) => c.setName('list').setDescription('Every snapshot held'))
+        .addSubcommand((c) => c.setName('restore').setDescription('Replace the live database with a snapshot')
+        .addStringOption((o) => o.setName('snapshot').setDescription('Which one, from /admin backup list')
+        .setRequired(true))
+        .addStringOption((o) => o.setName('confirm').setDescription('Type REPLACE to confirm')
+        .setRequired(true))))
+        .addSubcommandGroup((g) => g.setName('panel').setDescription('The main player panel')
+        .addSubcommand((s) => s.setName('channel').setDescription('Post the player panel in a channel')
+        .addChannelOption((o) => o.setName('channel').setDescription('Where it should live')
+        .addChannelTypes(ChannelType.GuildText).setRequired(true))))
+        .addSubcommandGroup((g) => g.setName('status').setDescription('The live server status panel')
+        .addSubcommand((s) => s.setName('channel').setDescription('Put the status panel in a channel')
+        .addChannelOption((o) => o.setName('channel').setDescription('Where it should live')
+        .addChannelTypes(ChannelType.GuildText).setRequired(true)))
+        .addSubcommand((s) => s.setName('off').setDescription('Stop updating the panel'))),
 ].map((b) => b.toJSON());
 export async function handleCommand(ctx, i) {
     switch (i.commandName) {
@@ -394,7 +408,10 @@ export async function handleCommand(ctx, i) {
         case 'kills': return handleKills(ctx, i);
         case 'teleport': return handleTeleport(ctx, i);
         case 'shop': return handleShop(ctx, i);
-        case 'admin': return handleAdmin(ctx, i);
+        // Same handler and the same permission gate: /setup exists only because
+        // Discord allows 25 subcommand groups per command and /admin outgrew it.
+        case 'admin':
+        case 'setup': return handleAdmin(ctx, i);
         default:
             await i.reply({ content: 'Unknown command.', flags: MessageFlags.Ephemeral });
     }
@@ -1648,6 +1665,68 @@ async function handleSpecies(ctx, i, action) {
                         '`/admin species enforce on` makes it a real wall.'))],
     });
 }
+// -------------------------------------------------------------- heatmap --
+async function handleHeatmap(ctx, i, action) {
+    if (action === 'every') {
+        const minutes = i.options.getInteger('minutes', true);
+        setHeatmapMinutes(ctx, minutes);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Heatmap interval set', `It refreshes every **${minutes} minutes**.\n\n` +
+                    'It edits one pinned message rather than posting a new one, so a short ' +
+                    'interval clutters nothing - it only spends Discord rate limit.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'off') {
+        setHeatmapChannel(ctx, null);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Heatmap off', 'It will stop refreshing. The last message stays where it is - delete ' +
+                    'it yourself if you want it gone.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'recalibrate') {
+        const had = storedBounds(ctx);
+        resetBounds(ctx);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Bounds forgotten', (had
+                    ? `Was Lat \`${(had.minY / 1000).toFixed(0)}\` to \`${(had.maxY / 1000).toFixed(0)}\`, ` +
+                        `Long \`${(had.minX / 1000).toFixed(0)}\` to \`${(had.maxX / 1000).toFixed(0)}\`.\n\n`
+                    : 'Nothing had been learned yet.\n\n') +
+                    'The panel learns the map from where people actually go, and only ever ' +
+                    'widens. Reset it if something once put a player somewhere impossible ' +
+                    'and stretched the grid.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    const channel = i.options.getChannel('channel', true);
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    setHeatmapChannel(ctx, channel.id);
+    try {
+        const points = pointsFrom(await ctx.mod.players().catch(() => []));
+        const bounds = widen(storedBounds(ctx), points);
+        if (bounds)
+            saveBounds(ctx, bounds);
+        await postOrEdit(ctx.db, i.client, channel.id, HEATMAP_MESSAGE_KEY, [buildHeatmapEmbed(points, bounds, { minutes: heatmapMinutes(ctx) })]);
+        await i.editReply({
+            embeds: [embed(COLORS.good, 'Heatmap is live', `It is in <#${channel.id}>, refreshing every **${heatmapMinutes(ctx)} minutes**.\n\n` +
+                    (bounds
+                        ? 'It learns the shape of the map from where people go, so it will ' +
+                            'look rough tonight and settle over a few busy evenings.'
+                        : 'Nobody is on right now, so it has nothing to learn from yet. It ' +
+                            'will fill in once people are playing.'))],
+        });
+    }
+    catch (err) {
+        await i.editReply({
+            embeds: [embed(COLORS.bad, 'Could not post there', `${describeError(err)}\n\nCheck the bot can **View Channel**, ` +
+                    '**Send Messages** and **Embed Links** there.')],
+        });
+    }
+}
 // --------------------------------------------------------------- backup --
 async function handleBackup(ctx, i, action) {
     await i.deferReply({ flags: MessageFlags.Ephemeral });
@@ -2006,6 +2085,8 @@ async function handleAdmin(ctx, i) {
         return handleBounties(ctx, i, action);
     if (group === 'backup')
         return handleBackup(ctx, i, action);
+    if (group === 'heatmap')
+        return handleHeatmap(ctx, i, action);
     if (group === 'teleport') {
         if (action === 'delay') {
             const seconds = i.options.getInteger('seconds', true);

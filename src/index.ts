@@ -20,6 +20,7 @@ import {
 import { loadConfig } from './config.js';
 import { Database } from './db.js';
 import { startPopulationPanel } from './livepanel.js';
+import { startHeatmapPanel } from './heatmap.js';
 import { handleFounderInteraction } from './founders.js';
 import { handleHubInteraction } from './hub.js';
 import { buildKillEmbed, killfeedChannel, type KillEvent } from './kills.js';
@@ -109,6 +110,7 @@ async function main(): Promise<void> {
       startChatWatcher(ctx, ready);
       startServerPoll(ctx, ready);
       startPopulationPanel(ctx, ready, log);
+      startHeatmapPanel(ctx, ready, log);
       startRestartScheduler(ctx, ready, log);
     startCleanupScheduler(ctx, log);
 
