@@ -13,6 +13,9 @@ const check = (name, ok, detail = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
 };
 
+// minY is the NORTHERN edge, because Lat grows southward - so y=0 here is the
+// top of the picture and y=1000 the bottom. This file used to assume the
+// opposite, and passed while drawing the island upside down.
 const BOUNDS = { minX: 0, maxX: 1000, minY: 0, maxY: 1000 };
 const at = (x, y) => ({ x, y });
 
@@ -40,20 +43,20 @@ check('nothing is learned from nobody', h.widen(null, []) === null);
 // ---- placing people on the grid -------------------------------------------
 
 {
-  const cells = h.grid([at(0, 0)], BOUNDS);
+  const cells = h.grid([at(0, 1000)], BOUNDS);
   check('the far south-west corner is bottom left',
     cells[h.ROWS - 1][0] === 1, JSON.stringify(cells[h.ROWS - 1].slice(0, 3)));
 }
 {
-  const cells = h.grid([at(1000, 1000)], BOUNDS);
+  const cells = h.grid([at(1000, 0)], BOUNDS);
   check('the far north-east corner is top right',
     cells[0][h.COLS - 1] === 1);
 }
 {
   // North being up is the whole reason the row is flipped: getting it wrong
   // mirrors the island and every hotspot is reported in the wrong place.
-  const north = h.grid([at(500, 900)], BOUNDS);
-  const south = h.grid([at(500, 100)], BOUNDS);
+  const north = h.grid([at(500, 100)], BOUNDS);
+  const south = h.grid([at(500, 900)], BOUNDS);
   const rowOf = (cells) => cells.findIndex((row) => row.some((n) => n > 0));
   check('north is nearer the top than south', rowOf(north) < rowOf(south),
     `north row ${rowOf(north)}, south row ${rowOf(south)}`);
@@ -176,8 +179,8 @@ check('the grid is the size it says it is', (() => {
   check('and it differs from the empty one', !busy.equals(empty));
 
   // North up, and west left: getting either wrong mirrors the island.
-  const nw = img.toPixel(at(0, 1000), BOUNDS);
-  const se = img.toPixel(at(1000, 0), BOUNDS);
+  const nw = img.toPixel(at(0, 0), BOUNDS);
+  const se = img.toPixel(at(1000, 1000), BOUNDS);
   check('north-west is the top left corner', nw.px === 0 && nw.py === 0, JSON.stringify(nw));
   check('south-east is the bottom right', se.px === img.SIZE - 1 && se.py === img.SIZE - 1,
     JSON.stringify(se));
@@ -411,7 +414,7 @@ check('the grid is the size it says it is', (() => {
 
   const B = h.DEFAULT_BOUNDS;
   const across = (x) => (x - B.minX) / (B.maxX - B.minX);
-  const down = (y) => 1 - ((y - B.minY) / (B.maxY - B.minY));
+  const down = (y) => (y - B.minY) / (B.maxY - B.minY);
 
   check('the hexagon draws where the hexagon actually is',
     Math.abs(across(DOME.x) - DOME.fx) < 0.001
@@ -433,12 +436,22 @@ check('the grid is the size it says it is', (() => {
     dry.length === seen.length,
     seen.map((p) => `Lat ${Math.round(p.y / 1000)}->${(down(p.y) * 100).toFixed(0)}%`).join(' '));
 
-  // The specific failure: at 800,000 wide the southernmost real position sat
-  // below the island entirely and pinned itself to the bottom of the picture.
-  check('the southernmost position seen is not jammed against the bottom edge',
-    down(-143644) < 0.93, `${(down(-143644) * 100).toFixed(1)}% down`);
+  // The bug that outlived every other fix. The hexagon reads Lat 114 and the
+  // highlands, which are north of it, read Lat -143 - so a SMALLER Lat must
+  // draw HIGHER up. Every earlier version had this backwards, which is why
+  // walking north moved the dot south.
+  const HEXAGON_LAT = 114107.9, HIGHLANDS_LAT = -142980.5;
+  check('a smaller Lat draws further north, because Lat grows southward',
+    down(HIGHLANDS_LAT) < down(HEXAGON_LAT),
+    `highlands ${(down(HIGHLANDS_LAT) * 100).toFixed(0)}% vs `
+    + `hexagon ${(down(HEXAGON_LAT) * 100).toFixed(0)}% down`);
 
-  check('north is up', down(200000) < down(-200000));
+  // Not merely "above the hexagon" - the highlands sit near the crater, so a
+  // scale that is wildly off would still pass the comparison above.
+  check('the highlands land near the crater, which is where they are',
+    Math.abs(down(HIGHLANDS_LAT) - 0.2983) < 0.08,
+    `${(down(HIGHLANDS_LAT) * 100).toFixed(1)}% down vs crater at 29.8%`);
+
   check('east is right', across(200000) > across(-200000));
 }
 

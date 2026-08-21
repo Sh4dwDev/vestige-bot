@@ -14,7 +14,27 @@ import type { Bounds, Point } from './heatmap.js';
  * a plain grid so the panel still shows something.
  */
 export declare const SIZE = 720;
-/** World coordinates to pixels. North is up, so Y is flipped. */
+/**
+ * Where a world position sits in the picture, as fractions from the top left.
+ *
+ * **The world's Y grows southward.** The hexagon reads Lat 114, and the
+ * highlands north of it read Lat -143. So a larger Lat is further DOWN the
+ * picture, not up.
+ *
+ * That sign was wrong from the first version and outlived every other fix,
+ * because it is invisible while everyone stands in one place. Walking north
+ * moved the dot south, and the symptom kept getting blamed on the bounds. Every
+ * conversion goes through here now, so there is exactly one place for it to be
+ * right or wrong.
+ *
+ * `minY` is therefore the NORTHERN edge of the picture - the smallest Lat - and
+ * `maxY` the southern. The rectangle stays an ordinary one, min below max.
+ */
+export declare function toFraction(point: Point, bounds: Bounds): {
+    fx: number;
+    fy: number;
+};
+/** World coordinates to pixels, measured from the top left. */
 export declare function toPixel(point: Point, bounds: Bounds, size?: number): {
     px: number;
     py: number;

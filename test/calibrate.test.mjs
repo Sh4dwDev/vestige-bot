@@ -19,11 +19,17 @@ const check = (name, ok, detail = '') => {
 // A world to check against: the picture covers -400k..400k in both directions.
 const TRUTH = { minX: -400_000, maxX: 400_000, minY: -400_000, maxY: 400_000 };
 
-/** Where somebody standing on `mark` would be, if TRUTH were the real world. */
+/**
+ * Where somebody standing on `mark` would be, if TRUTH were the real world.
+ *
+ * No flip on y: Lat grows southward, so the fraction down the picture and the
+ * fraction along the Lat axis are the same number. TRUTH.minY is the northern
+ * edge.
+ */
 const standOn = (mark) => ({
   id: mark.id,
   x: mark.fx === undefined ? 0 : TRUTH.minX + (mark.fx * (TRUTH.maxX - TRUTH.minX)),
-  y: mark.fy === undefined ? 0 : TRUTH.minY + ((1 - mark.fy) * (TRUTH.maxY - TRUTH.minY)),
+  y: mark.fy === undefined ? 0 : TRUTH.minY + (mark.fy * (TRUTH.maxY - TRUTH.minY)),
 });
 
 const hm = await import(pathToFileURL(path.join(root, 'dist/heatmap.js')).href);
@@ -86,7 +92,7 @@ check('the tips are the right way round in the picture',
   // The whole point: the place that was stood on lands where it belongs.
   const here = standOn(dome);
   const fx = (here.x - bounds.minX) / (bounds.maxX - bounds.minX);
-  const fy = 1 - ((here.y - bounds.minY) / (bounds.maxY - bounds.minY));
+  const fy = (here.y - bounds.minY) / (bounds.maxY - bounds.minY);
   check('the pinned landmark draws exactly where it sits in the picture',
     Math.abs(fx - dome.fx) < 1e-6 && Math.abs(fy - dome.fy) < 1e-6,
     `fx ${fx.toFixed(4)} vs ${dome.fx}, fy ${fy.toFixed(4)} vs ${dome.fy}`);
@@ -127,16 +133,21 @@ check('the tips are the right way round in the picture',
 
 {
   const { bounds } = c.solve([standOn(dome), standOn(north), standOn(west)]);
-  check('north ends up above south', bounds.maxY > bounds.minY);
+  check('north ends up above south', standOn(north).y < standOn(south).y);
   check('west ends up left of east', bounds.maxX > bounds.minX);
 }
 
 {
-  // Standing at the northern tip is further north than the southern tip. If
-  // the top-to-bottom flip were dropped this would still solve, but inverted.
-  const flipped = { minX: -400_000, maxX: 400_000, minY: 400_000, maxY: -400_000 };
+  // The bug that outlived every other fix. A reading at the northern tip has a
+  // SMALLER Lat than one at the southern tip, because Lat grows southward. If
+  // a flip creeps back in, this solves cleanly but upside down.
   const { bounds } = c.solve([standOn(dome), standOn(north), standOn(west)]);
-  check('and the picture is not solved upside down', !near(bounds, flipped, 1000));
+  const fyOf = (y) => (y - bounds.minY) / (bounds.maxY - bounds.minY);
+  check('the northern tip draws above the southern one',
+    fyOf(standOn(north).y) < fyOf(standOn(south).y),
+    `north ${fyOf(standOn(north).y).toFixed(3)} vs south ${fyOf(standOn(south).y).toFixed(3)}`);
+  check('and the northern tip really is the smaller Lat',
+    standOn(north).y < standOn(south).y);
 }
 
 // ---- the awkward cases -----------------------------------------------------

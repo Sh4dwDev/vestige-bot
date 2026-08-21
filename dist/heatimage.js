@@ -76,17 +76,39 @@ function colourFor(t) {
     }
     return [90, 245, 120];
 }
-/** World coordinates to pixels. North is up, so Y is flipped. */
-export function toPixel(point, bounds, size = SIZE) {
+/**
+ * Where a world position sits in the picture, as fractions from the top left.
+ *
+ * **The world's Y grows southward.** The hexagon reads Lat 114, and the
+ * highlands north of it read Lat -143. So a larger Lat is further DOWN the
+ * picture, not up.
+ *
+ * That sign was wrong from the first version and outlived every other fix,
+ * because it is invisible while everyone stands in one place. Walking north
+ * moved the dot south, and the symptom kept getting blamed on the bounds. Every
+ * conversion goes through here now, so there is exactly one place for it to be
+ * right or wrong.
+ *
+ * `minY` is therefore the NORTHERN edge of the picture - the smallest Lat - and
+ * `maxY` the southern. The rectangle stays an ordinary one, min below max.
+ */
+export function toFraction(point, bounds) {
     const spanX = bounds.maxX - bounds.minX;
     const spanY = bounds.maxY - bounds.minY;
     // Everybody on one spot gives a zero span; dividing by it is NaN, and a NaN
     // pixel index silently draws nothing at all.
-    const fx = spanX > 0 ? (point.x - bounds.minX) / spanX : 0.5;
-    const fy = spanY > 0 ? (point.y - bounds.minY) / spanY : 0.5;
     return {
-        px: Math.round(Math.max(0, Math.min(1, fx)) * (size - 1)),
-        py: Math.round((1 - Math.max(0, Math.min(1, fy))) * (size - 1)),
+        fx: spanX !== 0 ? (point.x - bounds.minX) / spanX : 0.5,
+        fy: spanY !== 0 ? (point.y - bounds.minY) / spanY : 0.5,
+    };
+}
+/** World coordinates to pixels, measured from the top left. */
+export function toPixel(point, bounds, size = SIZE) {
+    const { fx, fy } = toFraction(point, bounds);
+    const clamp = (f) => Math.max(0, Math.min(1, f));
+    return {
+        px: Math.round(clamp(fx) * (size - 1)),
+        py: Math.round(clamp(fy) * (size - 1)),
     };
 }
 /** A faint grid, so an empty map is not an unreadable dark square. */

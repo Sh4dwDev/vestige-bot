@@ -1,6 +1,6 @@
 import { EmbedBuilder } from 'discord.js';
 import { SERVER, SIGNATURE } from './brand.js';
-import { baseImage, decodes, forgetBaseImage, renderHeatmap } from './heatimage.js';
+import { baseImage, decodes, forgetBaseImage, renderHeatmap, toFraction, } from './heatimage.js';
 import { postOrEdit } from './pinned.js';
 /**
  * Where everybody is, as a panel.
@@ -119,22 +119,18 @@ const DOME = {
 /**
  * How wide the picture is in world units, which is the part still estimated.
  *
- * This was ±400,000 — a world 800,000 across — and that was too small, not
- * merely imprecise. At that width the island runs from Lat -91 to 544, yet
- * players were repeatedly seen at Lat -144: south of the island's own southern
- * coast, so they drew in the open sea near the bottom edge. Every position far
- * from the hexagon was displaced the same way, which is what made moving north
- * look like moving south.
+ * Briefly widened to 1,100,000 to stop players drawing in the sea below the
+ * island. That was treating a symptom. They were not too far south because the
+ * picture was too narrow — they were mirrored, because Lat grows southward and
+ * every conversion assumed it grew northward. Widening the picture to fit a
+ * mirrored position is fitting the wrong curve, so it is back at 800,000 now
+ * the direction is right.
  *
- * The smallest width that puts every position seen so far back on land is
- * 1,007,631. That is a floor rather than an answer — nobody was standing
- * exactly on the southern tip when it was recorded — so there is margin on top.
- * Too wide only bunches everybody toward the middle; too narrow pins them to
- * an edge and hides the error, which is how this went unnoticed.
- *
- * Superseded the moment two landmarks are calibrated, which measures it.
+ * Still an estimate. It puts the highlands at 33% down against a crater
+ * measured at 30%, which is close enough to be believable and not close enough
+ * to call measured. Superseded the moment two landmarks are calibrated.
  */
-const ASSUMED_SPAN = 1_100_000;
+const ASSUMED_SPAN = 800_000;
 /**
  * The island, anchored on the hexagon and scaled by the estimate above.
  *
@@ -145,10 +141,10 @@ const ASSUMED_SPAN = 1_100_000;
 export const DEFAULT_BOUNDS = {
     minX: DOME.x - (DOME.fx * ASSUMED_SPAN),
     maxX: DOME.x - (DOME.fx * ASSUMED_SPAN) + ASSUMED_SPAN,
-    // The picture measures down from the top, the world measures north from the
-    // bottom, so the fraction flips.
-    minY: DOME.y - ((1 - DOME.fy) * ASSUMED_SPAN),
-    maxY: DOME.y - ((1 - DOME.fy) * ASSUMED_SPAN) + ASSUMED_SPAN,
+    // No flip: the picture grows downward and so does Lat, so the fraction from
+    // the top is used as it stands. minY is the NORTHERN edge.
+    minY: DOME.y - (DOME.fy * ASSUMED_SPAN),
+    maxY: DOME.y - (DOME.fy * ASSUMED_SPAN) + ASSUMED_SPAN,
 };
 /**
  * The bounds actually used to draw.
@@ -196,16 +192,12 @@ export function widen(bounds, points) {
 /** Counts per cell, row 0 being the top of the rendered grid. */
 export function grid(points, bounds) {
     const cells = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
-    // A single point, or everybody stood on one spot, gives a zero-width range.
-    // Dividing by that is a NaN column, so it collapses to the middle instead.
-    const spanX = bounds.maxX - bounds.minX;
-    const spanY = bounds.maxY - bounds.minY;
     for (const point of points) {
-        const fx = spanX > 0 ? (point.x - bounds.minX) / spanX : 0.5;
-        const fy = spanY > 0 ? (point.y - bounds.minY) / spanY : 0.5;
+        // Shared with the drawn map, so the grid and the picture cannot disagree
+        // about which way is north.
+        const { fx, fy } = toFraction(point, bounds);
         const col = Math.min(COLS - 1, Math.max(0, Math.floor(fx * COLS)));
-        // Y grows north, and the top row of the grid is north, so it is flipped.
-        const row = Math.min(ROWS - 1, Math.max(0, Math.floor((1 - fy) * ROWS)));
+        const row = Math.min(ROWS - 1, Math.max(0, Math.floor(fy * ROWS)));
         cells[row][col] = (cells[row][col] ?? 0) + 1;
     }
     return cells;

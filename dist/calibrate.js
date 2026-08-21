@@ -105,10 +105,11 @@ export function solve(readings) {
             continue;
         if (mark.fx !== undefined)
             xs.push({ f: mark.fx, world: reading.x });
-        // The picture measures down from the top; the world measures north from the
-        // bottom. Flipping here is what keeps north up.
+        // No flip: the picture is measured down from its top and Lat grows
+        // southward, so the two already agree. Flipping here is exactly what put
+        // north at the bottom for as long as this feature existed.
         if (mark.fy !== undefined)
-            ys.push({ f: 1 - mark.fy, world: reading.y });
+            ys.push({ f: mark.fy, world: reading.y });
     }
     // An axis nobody has stood on keeps the default it already had. Throwing the
     // whole answer away because one direction is unmeasured would discard a
