@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.29.0"
+local MOD_VERSION = "3.30.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -2136,13 +2136,35 @@ local function speciesOfPawn(pawn)
     return speciesOf(classPath)
 end
 
+-- why not speciesOfPawn: that one insists on /Dinosaurs/ in the class path, so
+-- a deer or a boar comes back as an empty string. Wildlife still has a class
+-- worth naming, and "died" told a player nothing about what had just eaten them.
+local function creatureNameOf(pawn)
+    if pawn == nil then return "" end
+    local classPath
+    pcall(function() classPath = stripClassPrefix(pawn:GetClass():GetFullName()) end)
+    if classPath == nil or classPath == "" then return "" end
+    local name = speciesOf(classPath)
+    return name ~= "Unknown" and name or ""
+end
+
 local function onApplyDamage(selfParam, targetParam)
     local attackerPawn = unwrap(selfParam)
     local attacker = steamIdOfPawn(attackerPawn)
     local victim = steamIdOfPawn(unwrap(targetParam))
 
-    -- Self-damage and anything involving AI carries no Steam ID on one side.
-    if attacker == "" or victim == "" or attacker == victim then return end
+    if victim == "" or attacker == victim then return end
+
+    -- An attacker with no Steam ID is AI. Recorded rather than discarded: this
+    -- used to return here, so every death to wildlife reached the killfeed as a
+    -- bare "died" with nothing to say what did it.
+    if attacker == "" then
+        local name = creatureNameOf(attackerPawn)
+        if name == "" then return end
+        lastHit[victim] = { by = "", at = os.time(), bySpecies = "", byAI = name }
+        pruneHits()
+        return
+    end
 
     -- The attacker's species is only readable here, while we hold their pawn.
     -- By the time the victim dies they may have moved on, and caching the pawn
@@ -2161,22 +2183,27 @@ local function emitDeath(steam, pawn, cause)
     -- Attribution is best-effort by design: only a direct player attack leaves
     -- a hit, so anything else — bleed, starvation, drowning, AI, a fall — dies
     -- unattributed. That is a real gap, not a bug to paper over.
-    local killer, killerSpecies = "", ""
+    local killer, killerSpecies, killerAI = "", "", ""
     local hit = lastHit[steam]
     if hit ~= nil and (os.time() - hit.at) <= HIT_WINDOW_SEC then
         killer = hit.by
         killerSpecies = hit.bySpecies or ""
+        killerAI = hit.byAI or ""
     end
     lastHit[steam] = nil
 
     log(killer ~= ""
         and string.format("kill: %s (%s) killed %s (%s)", killer, killerSpecies, steam, species)
-        or string.format("death: %s (%s, %s)", steam, species, cause))
+        or (killerAI ~= ""
+            and string.format("death: %s (%s) killed by AI %s", steam, species, killerAI)
+            or string.format("death: %s (%s, %s)", steam, species, cause)))
 
     writeResult("kill-" .. steam .. "-" .. tostring(os.time()), "kill", steam, true, species,
         string.format(
-            '{"killer":"%s","killerSpecies":"%s","victim":"%s","species":"%s","cause":"%s"}',
-            killer, jsonEscape(killerSpecies), steam, jsonEscape(species), cause))
+            '{"killer":"%s","killerSpecies":"%s","killerAI":"%s",'
+            .. '"victim":"%s","species":"%s","cause":"%s"}',
+            killer, jsonEscape(killerSpecies), jsonEscape(killerAI),
+            steam, jsonEscape(species), cause))
 end
 
 -- why polling: Evrima fires no death event a server can hook, so health

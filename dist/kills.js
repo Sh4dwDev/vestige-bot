@@ -33,6 +33,15 @@ export function buildKillEmbed(event, nameFor) {
             .setDescription(`⚔️  ${withSpecies(event.killer, event.killerSpecies)}  **killed**  ${victim}`)
             .setTimestamp();
     }
+    // Killed by wildlife. Grey rather than red: it is not a player kill, and the
+    // colour is what tells the channel apart at a glance. Naming the animal is
+    // the whole point — "died" told somebody nothing about what ate them.
+    if (event.killerAI) {
+        return new EmbedBuilder()
+            .setColor(0x4f545c)
+            .setDescription(`💀  ${victim}  was killed by a  **${event.killerAI}**`)
+            .setTimestamp();
+    }
     return new EmbedBuilder()
         .setColor(0x4f545c)
         .setDescription(`💀  ${victim} ${CAUSE_TEXT[event.cause] ?? 'died'}`)

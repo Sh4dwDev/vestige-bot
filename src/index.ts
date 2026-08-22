@@ -335,11 +335,14 @@ async function handleChatEvent(
 
   if (event.verb === 'kill') {
     const raw = (event.data ?? {}) as Partial<KillEvent>;
+    const killerAI = String(raw.killerAI ?? '');
     const kill: KillEvent = {
       killer: String(raw.killer ?? ''),
       killerSpecies: String(raw.killerSpecies ?? ''),
       victim: String(raw.victim ?? event.steam),
       species: String(raw.species ?? event.text),
+      // Omitted rather than set empty, so the embed can simply test for it.
+      ...(killerAI ? { killerAI } : {}),
       cause: String(raw.cause ?? 'health'),
     };
 

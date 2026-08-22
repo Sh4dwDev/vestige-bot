@@ -8,6 +8,8 @@ export interface KillEvent {
     killerSpecies: string;
     victim: string;
     species: string;
+    /** The creature that did it, when the attacker was AI rather than a player. */
+    killerAI?: string;
     cause: string;
 }
 export declare function buildKillEmbed(event: KillEvent, nameFor: (steamId: string) => string): EmbedBuilder;

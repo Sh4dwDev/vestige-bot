@@ -295,11 +295,14 @@ async function handleChatEvent(ctx, event, lastReply, client) {
     }
     if (event.verb === 'kill') {
         const raw = (event.data ?? {});
+        const killerAI = String(raw.killerAI ?? '');
         const kill = {
             killer: String(raw.killer ?? ''),
             killerSpecies: String(raw.killerSpecies ?? ''),
             victim: String(raw.victim ?? event.steam),
             species: String(raw.species ?? event.text),
+            // Omitted rather than set empty, so the embed can simply test for it.
+            ...(killerAI ? { killerAI } : {}),
             cause: String(raw.cause ?? 'health'),
         };
         ctx.db.recordKill(kill.killer, kill.victim, kill.species, kill.cause);
