@@ -22,12 +22,17 @@ import type { Ctx } from './commands.js';
  *
  * The three passives — 7, 8 and 10 — are the only ones true by default, and
  * that is exactly the pattern observed. 7 and 8 were true on every animal;
- * 10 only on the Beipi. Three independent confirmations of the ordering.
+ * 10 only on the Beipi.
  *
- * The seven active conditions follow from the same list. They are not
- * individually confirmed, because confirming one means actually visiting a
- * Sanctuary or raising a nest — so if a player reports one of those reading
- * wrongly, believe them over this table.
+ * **Condition 1 was then confirmed directly**: a player walked into a Sanctuary
+ * as a juvenile and flag 1 flipped false to true while nothing else moved. That
+ * is the strongest kind of evidence here — a deliberate change to one input
+ * producing one change in the output.
+ *
+ * The remaining six active conditions follow from the same list and the same
+ * ordering, but have not been individually watched, because confirming one
+ * means raising a nest or crossing four Patrol zones. If a player reports one
+ * of those reading wrongly, believe them over this table.
  */
 export interface Condition {
     index: number;
