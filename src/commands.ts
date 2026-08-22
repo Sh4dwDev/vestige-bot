@@ -32,6 +32,7 @@ import { refreshPopulationPanel, setPopulationChannel } from './livepanel.js';
 import { mutationList, speciesList, suggest } from './catalog.js';
 import { isRemoved, mutationChoices } from './mutations.js';
 import { setRestartAlertRole } from './alertrole.js';
+import { backfillEarlyRole, earlyRole, holders, setEarlyRole } from './earlymember.js';
 import { setJoinRole } from './joinrole.js';
 import {
   buildCatalogue,
@@ -760,7 +761,15 @@ export const commandData = [
         .addSubcommand((s) => s.setName('off').setDescription('Turn the button off')),
     )
     .addSubcommandGroup((g) =>
-      g.setName('founders').setDescription('Founder skins for the first members')
+      g.setName('founders').setDescription('Early Member skins and role')
+        .addSubcommand((c) =>
+          c.setName('role').setDescription('The role that unlocks the skins')
+            .addRoleOption((o) =>
+              o.setName('role').setDescription('Given automatically until the cap is hit')
+                .setRequired(true)))
+        .addSubcommand((c) =>
+          c.setName('backfill')
+            .setDescription('Give the role to existing members, oldest first'))
         .addSubcommand((c) =>
           c.setName('panel').setDescription('Post the founder skin panel in a channel')
             .addChannelOption((o) =>
@@ -3287,6 +3296,63 @@ async function handleFounders(
   i: ChatInputCommandInteraction,
   action: string,
 ): Promise<void> {
+  if (action === 'role') {
+    const role = i.options.getRole('role', true);
+    setEarlyRole(ctx, role.id);
+
+    const me = i.guild?.members.me;
+    const problems: string[] = [];
+    if (me && !me.permissions.has(PermissionFlagsBits.ManageRoles)) {
+      problems.push('the bot does not have **Manage Roles**');
+    }
+    if (me && 'comparePositionTo' in role && me.roles.highest.comparePositionTo(role) <= 0) {
+      problems.push(`the bot's own role sits **below** ${role}, so it cannot hand it out`);
+    }
+
+    const held = i.guild ? holders(i.guild, role.id) : 0;
+    await i.reply({
+      embeds: [problems.length
+        ? embed(COLORS.warn, 'Set, but it will not work yet',
+            `New members are meant to get ${role}, but ${problems.join(', and ')}.`)
+        : embed(COLORS.good, 'Early Member role set',
+            `${role} is given automatically to anyone who joins, until ` +
+            `**${founderLimit(ctx)}** people hold it. **${held}** do now.\n\n` +
+            'Anyone with it can wear all three skins, and can change between ' +
+            'them freely. Take the role away and they lose them.\n\n' +
+            'Run `/setup founders backfill` to give it to people who are ' +
+            'already here.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (action === 'backfill') {
+    if (!i.guild) return;
+    if (!earlyRole(ctx)) {
+      await i.reply({
+        embeds: [embed(COLORS.warn, 'No role chosen',
+          'Pick one with `/setup founders role` first.')],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Fetching every member and adding roles one at a time is slow enough to
+    // blow the three second interaction window on any real server.
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    const result = await backfillEarlyRole(ctx, i.guild, founderLimit(ctx), () => undefined);
+
+    await i.editReply({
+      embeds: [embed(COLORS.good, 'Backfill done',
+        `**${result.given}** given the role, **${result.already}** already had it.` +
+        (result.skipped > 0 ? ` **${result.skipped}** could not be given it.` : '') +
+        '\n\nOldest members first — that is the only ordering that matches what ' +
+        '"early member" claims to mean.' +
+        (result.full ? `\n\n⚠️ The cap of **${founderLimit(ctx)}** is now full.` : ''))],
+    });
+    return;
+  }
+
   if (action === 'limit') {
     const count = i.options.getInteger('count', true);
     setFounderLimit(ctx, count);

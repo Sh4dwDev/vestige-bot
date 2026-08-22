@@ -14,6 +14,8 @@ import { handleHubInteraction } from './hub.js';
 import { buildKillEmbed, killfeedChannel } from './kills.js';
 import { awardOnline, payLinkBonus } from './points.js';
 import { giveJoinRole } from './joinrole.js';
+import { grantEarlyRole } from './earlymember.js';
+import { founderLimit } from './founders.js';
 import { cacheInvites, collectPayouts, noteJoin, noteLink, tellInviter, } from './referrals.js';
 import { skinNeedsReapply } from './skinsync.js';
 import { clearRequest, requestFor, runAccepted } from './teleport.js';
@@ -129,6 +131,8 @@ async function main() {
         c.on(Events.GuildMemberAdd, (member) => {
             void giveJoinRole(ctx, member, log);
             void noteJoin(ctx, member, log);
+            // Capped, so this quietly stops giving it once the seats are gone.
+            void grantEarlyRole(ctx, member, founderLimit(ctx), log);
         });
     };
     wire(client);

@@ -9,6 +9,7 @@ import {
 
 import { SERVER, SIGNATURE } from './brand.js';
 import { describeError, type Ctx } from './commands.js';
+import { earlyRole, hasEarlyRole } from './earlymember.js';
 import { encodeColours, hexToInt, type Look } from './skins.js';
 
 /**
@@ -123,34 +124,29 @@ export function setFounderLimit(ctx: Ctx, limit: number): void {
 // ------------------------------------------------------------------- panel --
 
 export function buildFounderPanel(ctx: Ctx): EmbedBuilder {
-  const taken = ctx.db.founderCount();
   const limit = founderLimit(ctx);
-  const left = Math.max(0, limit - taken);
 
   return new EmbedBuilder()
     .setColor(COLORS.info)
-    .setTitle('✨  Founder skins')
+    .setTitle('✨  Early Member skins')
     .setDescription(
-      `The first **${limit}** people to claim get one of three looks that will ` +
-      `never be handed out again on ${SERVER}.\n\n` +
-      (left > 0
-        ? `**${left}** of ${limit} still unclaimed.`
-        : '**All claimed.** These are closed for good.') +
-      '\n\nYou get **one**, and it cannot be changed afterwards. Pick the one ' +
-      'you want to be wearing a year from now.',
+      `Three looks for the first **${limit}** members of ${SERVER}, and nobody ` +
+      'after.\n\n' +
+      '**All three are yours** if you have the Early Member role — wear whichever ' +
+      'suits the dinosaur you are on, and change your mind as often as you like.',
     )
     .addFields(
       ...FOUNDER_SKINS.map((skin) => ({
         name: `${skin.emoji}  ${skin.name}`,
-        value: `${skin.blurb}\n\`${skin.colours['BodyColor']}\` · pattern ` +
+        value: `${skin.blurb}
+\`${skin.colours['BodyColor']}\` · pattern ` +
           `**${String.fromCharCode(65 + (skin.pattern ?? 0))}**`,
         inline: false,
       })),
       {
-        name: '🎨  Wearing it',
-        value: 'Claim once, then press **Apply** whenever you want it on the ' +
-          'dinosaur you are playing. Colours are lost when a dinosaur dies, so ' +
-          'apply again on the next one.',
+        name: '🎨  Wearing one',
+        value: 'Press a skin while you are on a dinosaur. Colours are lost when ' +
+          'a dinosaur dies, so press it again on the next one.',
         inline: false,
       },
     )
@@ -159,24 +155,17 @@ export function buildFounderPanel(ctx: Ctx): EmbedBuilder {
 }
 
 export function founderRows(ctx: Ctx): ActionRowBuilder<ButtonBuilder>[] {
-  const closed = ctx.db.founderCount() >= founderLimit(ctx);
-
+  void ctx;
   return [
+    // One button per skin. There is no claiming any more: the role is the
+    // entitlement, and it already says who is allowed.
     new ActionRowBuilder<ButtonBuilder>().addComponents(
       ...FOUNDER_SKINS.map((skin) =>
         new ButtonBuilder()
-          .setCustomId(`fs:claim:${skin.id}`)
+          .setCustomId(`fs:wear:${skin.id}`)
           .setLabel(skin.name)
           .setEmoji(skin.emoji)
-          .setStyle(ButtonStyle.Primary)
-          .setDisabled(closed)),
-    ),
-    new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId('fs:apply')
-        .setLabel('Apply my skin')
-        .setEmoji('🎨')
-        .setStyle(ButtonStyle.Secondary),
+          .setStyle(ButtonStyle.Primary)),
     ),
   ];
 }
@@ -202,52 +191,36 @@ export async function handleFounderInteraction(
     return true;
   }
 
-  if (id === 'fs:apply') {
-    await applyFounderSkin(ctx, interaction, link.steamId);
+  if (!interaction.inCachedGuild()) return true;
+
+  const roleId = earlyRole(ctx);
+  if (!roleId) {
+    await interaction.reply({
+      embeds: [new EmbedBuilder().setColor(COLORS.warn).setTitle('Not set up yet')
+        .setDescription('An admin needs to choose the Early Member role with '
+          + '`/setup founders role` before these can be worn.')],
+      flags: MessageFlags.Ephemeral,
+    });
     return true;
   }
 
-  const skin = skinById(id.slice('fs:claim:'.length));
+  // The role is the entitlement. Checked on every press rather than recorded
+  // once, so losing the role loses the skins — which is what a role is for.
+  if (!hasEarlyRole(interaction.member, roleId)) {
+    await interaction.reply({
+      embeds: [new EmbedBuilder().setColor(COLORS.warn).setTitle('Early Members only')
+        .setDescription(`These belong to the first ${founderLimit(ctx)} members `
+          + `of ${SERVER}. The role is given automatically while there is room, `
+          + 'and it is full now.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return true;
+  }
+
+  const skin = skinById(id.slice('fs:wear:'.length));
   if (!skin) return true;
 
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-  const existing = ctx.db.founderSkin(interaction.user.id);
-  if (existing) {
-    const already = skinById(existing);
-    await interaction.editReply({
-      embeds: [new EmbedBuilder().setColor(COLORS.warn).setTitle('You already have one')
-        .setDescription(`You claimed **${already?.name ?? existing}**. Founder ` +
-          'skins cannot be swapped — that is what makes the choice mean ' +
-          'something.\n\nUse **Apply my skin** to put it on.')],
-    });
-    return true;
-  }
-
-  // The count and the insert have to be one decision, or two people clicking
-  // together both pass the check and claim slot fifty-one.
-  const claimed = ctx.db.claimFounder(interaction.user.id, skin.id, founderLimit(ctx));
-  if (!claimed) {
-    await interaction.editReply({
-      embeds: [new EmbedBuilder().setColor(COLORS.bad).setTitle('All claimed')
-        .setDescription('The last one went before yours landed. Nothing has ' +
-          'been taken from you.')],
-    });
-    return true;
-  }
-
-  await interaction.editReply({
-    embeds: [new EmbedBuilder()
-      .setColor(hexToInt(skin.colours['BodyColor'] ?? '') ?? COLORS.good)
-      .setTitle(`${skin.emoji}  ${skin.name} is yours`)
-      .setDescription(`${skin.blurb}\n\nYou are founder **#${ctx.db.founderCount()}** ` +
-        `of ${founderLimit(ctx)}.\n\nPress **Apply my skin** while you are on a ` +
-        'dinosaur to wear it.')
-      .setFooter({ text: SIGNATURE })],
-  });
-
-  // The panel shows how many are left, so it is now out of date.
-  await refreshFounderPanel(ctx, interaction).catch(() => undefined);
+  await applyFounderSkin(ctx, interaction, link.steamId, skin);
   return true;
 }
 
@@ -255,14 +228,12 @@ async function applyFounderSkin(
   ctx: Ctx,
   interaction: ButtonInteraction,
   steamId: string,
+  skin: FounderSkin | undefined,
 ): Promise<void> {
-  const owned = ctx.db.founderSkin(interaction.user.id);
-  const skin = owned ? skinById(owned) : undefined;
-
   if (!skin) {
     await interaction.reply({
-      embeds: [new EmbedBuilder().setColor(COLORS.warn).setTitle('You have not claimed one')
-        .setDescription('Pick one of the three above first.')],
+      embeds: [new EmbedBuilder().setColor(COLORS.warn).setTitle('No such skin')
+        .setDescription('Pick one of the three above.')],
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -312,12 +283,4 @@ async function applyFounderSkin(
         .setDescription(describeError(err))],
     });
   }
-}
-
-async function refreshFounderPanel(ctx: Ctx, interaction: ButtonInteraction): Promise<void> {
-  if (!interaction.message.editable) return;
-  await interaction.message.edit({
-    embeds: [buildFounderPanel(ctx)],
-    components: founderRows(ctx),
-  });
 }

@@ -86,8 +86,16 @@ check('the limit can be raised', f.founderLimit(ctx) === 100);
 // ---- the panel ------------------------------------------------------------
 {
   const panel = f.buildFounderPanel(ctx).toJSON();
-  check('the panel says how many are left', /of \*{0,2}100\*{0,2} still unclaimed/.test(panel.description ?? ''),
-    (panel.description ?? '').slice(0, 60));
+  // The panel used to count down unclaimed slots. Entitlement is the Early
+  // Member role now, so the count lives on the role and the panel just says
+  // who these are for - a number that could disagree with the role would be
+  // the misleading half.
+  check('the panel names the cap it is reserved for',
+    (panel.description ?? '').includes('100'), (panel.description ?? '').slice(0, 60));
+  check('and says the role is what unlocks them',
+    /Early Member role/.test(panel.description ?? ''));
+  check('all three are offered rather than one being claimed',
+    /All three/.test(panel.description ?? ''));
   check('it lists all three skins',
     f.FOUNDER_SKINS.every((s) => (panel.fields ?? []).some((x) => x.name.includes(s.name))));
   check('it stays within Discord limits',
@@ -95,16 +103,20 @@ check('the limit can be raised', f.founderLimit(ctx) === 100);
     && (panel.fields ?? []).every((x) => x.value.length < 1024));
 
   const rows = f.founderRows(ctx).map((r) => r.toJSON());
-  check('there is a button per skin plus apply',
-    rows[0].components.length === 3 && rows[1].components.length === 1);
-  check('the claim buttons are open while slots remain',
-    rows[0].components.every((c) => !c.disabled));
+
+  // One button per skin, and no separate apply. Claiming is gone: the Early
+  // Member role is the entitlement, so a holder wears any of the three and can
+  // change their mind. There is nothing left to disable at a limit either -
+  // the cap is enforced when the role is handed out, not on the panel.
+  check('there is a button per skin', rows[0].components.length === 3);
+  check('and no claim-then-apply second step', rows.length === 1);
+  check('every skin is reachable',
+    f.FOUNDER_SKINS.every((s) => rows[0].components.some((c) => c.label === s.name)));
+  check('none of them are disabled', rows[0].components.every((c) => !c.disabled));
 
   f.setFounderLimit(ctx, 1);
-  check('and closed once the limit is reached',
-    f.founderRows(ctx)[0].toJSON().components.every((c) => c.disabled));
-  check('but applying stays available to people who already claimed',
-    f.founderRows(ctx)[1].toJSON().components.every((c) => !c.disabled));
+  check('and lowering the cap does not disable the panel',
+    f.founderRows(ctx)[0].toJSON().components.every((c) => !c.disabled));
 }
 
 db.close();
