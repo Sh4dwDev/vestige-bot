@@ -50,24 +50,18 @@ export async function postOrEdit(
         files.length > 0 ? { embeds, components, files } : { embeds, components },
       );
 
-      // Self-heal, once and only once per message.
+      // There was a self-heal here that deleted and reposted the message when
+      // an edit left it with no attachments. It was wrong.
       //
-      // If an edit leaves no attachment the panel is an empty frame forever, so
-      // it is worth starting a fresh one. But a repost on every refresh is
-      // exactly the duplicate-spam this whole function exists to prevent, so a
-      // message that has already been replaced is never replaced again — and
-      // the check reads the message from the API rather than the cache, because
-      // a stale cached copy would make a healthy panel look broken.
-      if (files.length > 0 && db.getSetting(`${messageKey}_healed`) !== existing.id) {
-        const after = await text.messages.fetch({ message: existing.id, force: true })
-          .catch(() => null);
-        if (after && after.attachments.size === 0) {
-          await existing.delete().catch(() => undefined);
-          const replacement = await text.send({ embeds, components, files });
-          db.setSetting(messageKey, replacement.id);
-          db.setSetting(`${messageKey}_healed`, replacement.id);
-        }
-      }
+      // An edited message legitimately reports `attachments: []` while its
+      // embed points at a CDN upload made in that same edit — confirmed by
+      // reading a live panel back from the API. So the trigger was true every
+      // time, and every picture panel got one spurious delete-and-repost, which
+      // is precisely the duplicate this function exists to prevent.
+      //
+      // Nothing replaces it. A panel that occasionally loses its picture is a
+      // visible, reportable problem; a panel that reposts itself is noise in
+      // somebody's channel forever.
       return;
     }
   }

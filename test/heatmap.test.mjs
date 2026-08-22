@@ -267,13 +267,25 @@ check('the grid is the size it says it is', (() => {
 {
   const fs3 = await import('node:fs');
   const src = fs3.readFileSync(path.join(root, 'src/pinned.ts'), 'utf8');
-  const edit = src.slice(src.indexOf('if (existing)'), src.indexOf('const sent ='));
+  // Comments describe the traps rather than falling into them, so they are
+  // stripped before the code is checked — the first version of this test failed
+  // on a comment that merely named the field it was warning about.
+  const edit = src
+    .slice(src.indexOf('if (existing)'), src.indexOf('const sent ='))
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('//'))
+    .join('\n');
 
   check('an edit carrying files does not clear the attachment list',
     !/attachments:\s*\[\]/.test(edit), '');
   check('and it still sends the files', /files/.test(edit));
-  check('a message left without an attachment is replaced, not edited forever',
-    /attachments\.size === 0/.test(edit) && /\.delete\(\)/.test(edit));
+
+  // The opposite of what this asserted before. An edited message reports an
+  // empty attachment list while its embed points at an upload from that same
+  // edit, so "no attachments" was true every time and every picture panel
+  // reposted itself once. Editing in place is the whole job.
+  check('a picture panel is never deleted and reposted',
+    !/\.delete\(\)/.test(edit) && !/text\.send\(/.test(edit));
 }
 
 // The glow itself: a crowd must stay a gradient, not clip to a flat disc.

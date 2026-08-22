@@ -26,6 +26,7 @@ import { applyReading, clearReadings, landmarkById, LANDMARKS, storedReadings, }
 import { ANCHORS, boundsAreManual, buildHeatmapEmbed, effectiveBounds, HEATMAP_MESSAGE_KEY, heatmapMinutes, pointsFrom, resetBounds, resolveMapImage, saveBounds, setHeatmapChannel, setHeatmapImage, setHeatmapMinutes, setManualBounds, storedBounds, widen, } from './heatmap.js';
 import { applyCaps, planCaps } from './capplan.js';
 import { postPeak, REFRESH_MINUTES, setPeaksChannel } from './peaks.js';
+import { buildReferralEmbed, referralMinutes, referralReward, referralWeeklyCap, referralWelcome, setReferralAmounts, setReferralsEnabled, } from './referrals.js';
 import { enforcementEnabled, enforcementFault, restoreAllPlayables, setEnforcement, syncPlayables, } from './enforce.js';
 import { handleInGame, handleModeration } from './moderation.js';
 import { buildFounderPanel, founderLimit, FOUNDER_MESSAGE_KEY, founderRows, setFounderChannel, setFounderLimit, skinById, } from './founders.js';
@@ -405,6 +406,19 @@ export const commandData = [
         .addSubcommand((c) => c.setName('recalibrate')
         .setDescription('Forget the learned map bounds and start again'))
         .addSubcommand((c) => c.setName('off').setDescription('Take the panel down')))
+        .addSubcommandGroup((g) => g.setName('referrals').setDescription('Points for bringing players who stay')
+        .addSubcommand((c) => c.setName('on').setDescription('Start crediting people for invites'))
+        .addSubcommand((c) => c.setName('off').setDescription('Stop crediting invites'))
+        .addSubcommand((c) => c.setName('status').setDescription('Settings and totals'))
+        .addSubcommand((c) => c.setName('set').setDescription('What a referral is worth')
+        .addIntegerOption((o) => o.setName('reward').setDescription('Points to the inviter')
+        .setMinValue(0).setMaxValue(100_000))
+        .addIntegerOption((o) => o.setName('welcome').setDescription('Points to the person invited')
+        .setMinValue(0).setMaxValue(100_000))
+        .addIntegerOption((o) => o.setName('minutes').setDescription('Playtime before it pays. Default 60')
+        .setMinValue(1).setMaxValue(10_000))
+        .addIntegerOption((o) => o.setName('weekly').setDescription('Most one person can be paid a week. 0 is no cap')
+        .setMinValue(0).setMaxValue(100))))
         .addSubcommandGroup((g) => g.setName('peaks').setDescription('How busy the server has been')
         .addSubcommand((c) => c.setName('channel').setDescription('Put both peak panels in a channel')
         .addChannelOption((o) => o.setName('channel').setDescription('Where they live')
@@ -1771,6 +1785,67 @@ async function handleSpecies(ctx, i, action) {
                         '`/admin species enforce on` makes it a real wall.'))],
     });
 }
+// ------------------------------------------------------------ referrals --
+async function handleReferrals(ctx, i, action) {
+    if (action === 'on' || action === 'off') {
+        const on = action === 'on';
+        setReferralsEnabled(ctx, on);
+        // Checked when switching on rather than left for the first join to
+        // discover: without it nobody can ever be credited, and it fails silently.
+        const me = i.guild?.members.me;
+        const canRead = me?.permissions.has(PermissionFlagsBits.ManageGuild) ?? false;
+        await i.reply({
+            embeds: [on
+                    ? embed(canRead ? COLORS.good : COLORS.warn, 'Referrals on', `**${display(referralReward(ctx)).toLocaleString()}** points to the ` +
+                        'inviter once the person they invited links **and** plays ' +
+                        `**${referralMinutes(ctx)} minutes**, plus ` +
+                        `**${display(referralWelcome(ctx)).toLocaleString()}** to the newcomer.` +
+                        (canRead
+                            ? '\n\nJoining alone pays nothing, so inviting strangers who never ' +
+                                'log in earns nothing either.'
+                            : '\n\n⚠️ The bot cannot read invites without **Manage Server**, so ' +
+                                'nobody can be credited. Grant it in Server Settings → Roles.'))
+                    : embed(COLORS.good, 'Referrals off', 'Invites are no longer credited. Anything already earned is kept, and ' +
+                        'referrals recorded but not yet paid stay pending in case you turn ' +
+                        'this back on.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'set') {
+        const reward = i.options.getInteger('reward');
+        const welcome = i.options.getInteger('welcome');
+        const minutes = i.options.getInteger('minutes');
+        const weekly = i.options.getInteger('weekly');
+        if (reward === null && welcome === null && minutes === null && weekly === null) {
+            await i.reply({
+                embeds: [embed(COLORS.warn, 'Nothing to change', 'Give at least one of `reward`, `welcome`, `minutes` or `weekly`.')],
+                flags: MessageFlags.Ephemeral,
+            });
+            return;
+        }
+        setReferralAmounts(ctx, {
+            ...(reward !== null ? { reward } : {}),
+            ...(welcome !== null ? { welcome } : {}),
+            ...(minutes !== null ? { minutes } : {}),
+            ...(weekly !== null ? { weekly } : {}),
+        });
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Referrals updated', `• Inviter gets **${display(referralReward(ctx)).toLocaleString()}**\n` +
+                    `• Newcomer gets **${display(referralWelcome(ctx)).toLocaleString()}**\n` +
+                    `• After **${referralMinutes(ctx)} minutes** played\n` +
+                    `• At most **${referralWeeklyCap(ctx)}** paid per person per week` +
+                    (referralWeeklyCap(ctx) === 0 ? ' _(no cap)_' : '') +
+                    '\n\nThese apply from now on; anything already paid stands.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    await i.reply({
+        embeds: [buildReferralEmbed(ctx, ctx.db.referralCounts(), ctx.db.referralLeaderboard(5))],
+        flags: MessageFlags.Ephemeral,
+    });
+}
 // ---------------------------------------------------------------- peaks --
 async function handlePeaks(ctx, i, action) {
     if (action === 'off') {
@@ -2492,6 +2567,8 @@ async function handleAdmin(ctx, i) {
         return handleBounties(ctx, i, action);
     if (group === 'backup')
         return handleBackup(ctx, i, action);
+    if (group === 'referrals')
+        return handleReferrals(ctx, i, action);
     if (group === 'peaks')
         return handlePeaks(ctx, i, action);
     if (group === 'heatmap')

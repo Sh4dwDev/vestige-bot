@@ -30,6 +30,13 @@ import { handleHubInteraction } from './hub.js';
 import { buildKillEmbed, killfeedChannel, type KillEvent } from './kills.js';
 import { awardOnline } from './points.js';
 import { giveJoinRole } from './joinrole.js';
+import {
+  cacheInvites,
+  collectPayouts,
+  noteJoin,
+  noteLink,
+  tellInviter,
+} from './referrals.js';
 import { skinNeedsReapply } from './skinsync.js';
 import { clearRequest, requestFor, runAccepted } from './teleport.js';
 import { bountyPaidAnnounce, claimBounty } from './bounties.js';
@@ -116,6 +123,9 @@ async function main(): Promise<void> {
       startPopulationPanel(ctx, ready, log);
       startHeatmapPanel(ctx, ready, log);
       startPeakPanels(ctx, ready, log);
+      // The invite counts have to be read before anybody joins, or the first
+      // join of each boot cannot be attributed to anyone.
+      void cacheInvites(ready, log);
       // Static text, so redrawing it on boot is how a change to the wording
       // reaches the people actually reading it.
       void refreshGuides(ctx, ready, log);
@@ -148,6 +158,7 @@ async function main(): Promise<void> {
 
     c.on(Events.GuildMemberAdd, (member) => {
       void giveJoinRole(ctx, member, log);
+      void noteJoin(ctx, member, log);
     });
   };
 
@@ -434,6 +445,14 @@ async function handleChatEvent(
   ctx.db.clearPending(pending.discordId);
   log(`link: ${pending.discordId} <- ${pending.steamId}`);
 
+  // Checked here rather than at join: the Steam account is what a referral is
+  // owed against, and this is the first moment it is known. The outcome is
+  // logged, because "why was I not credited" is otherwise unanswerable.
+  const outcome = noteLink(ctx, pending.discordId, pending.steamId);
+  if (outcome !== 'not-referred') {
+    log(`referrals: ${pending.discordId} link -> ${outcome}`);
+  }
+
   // Turns their own "/link" reply into a confirmation, in the channel they are
   // already looking at and visible only to them.
   await announceLinked(pending.discordId);
@@ -499,6 +518,17 @@ function startServerPoll(ctx: Ctx, client: Client<true>): void {
     } else {
       // Do not bank time while the server is unreachable — nobody is playing.
       lastAward = Date.now();
+    }
+
+    // Referrals are paid on playtime, which only exists after the award above.
+    try {
+      for (const payout of collectPayouts(ctx)) {
+        log(`referrals: paid ${payout.reward} to ${payout.inviterDiscord} `
+          + `for ${payout.inviteeDiscord}`);
+        void tellInviter(client, payout);
+      }
+    } catch (err) {
+      log(`referrals: payout failed: ${describeError(err)}`);
     }
 
     // Before the status, because reading Game.ini is also what refreshes the

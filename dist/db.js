@@ -143,7 +143,33 @@ CREATE TABLE IF NOT EXISTS player_counts (
   online INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS player_counts_at ON player_counts (at);
+
+-- Who brought whom. One row per invited Discord account, written the moment
+-- they join and paid only once they have linked and played.
+CREATE TABLE IF NOT EXISTS referrals (
+  invitee_discord TEXT PRIMARY KEY,
+  inviter_discord TEXT NOT NULL,
+  joined_at       TEXT NOT NULL,
+  invitee_steam   TEXT,
+  paid_at         TEXT,
+  reward          REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS referrals_inviter ON referrals (inviter_discord);
+
+-- A Steam account can be referred once, ever. Enforced here rather than only in
+-- code: leaving and rejoining on a new Discord account is the obvious way to
+-- farm this, and the database is the one place that cannot be talked round.
+CREATE UNIQUE INDEX IF NOT EXISTS referrals_steam
+  ON referrals (invitee_steam) WHERE invitee_steam IS NOT NULL;
 `;
+const toReferral = (row) => ({
+    inviteeDiscord: String(row['invitee_discord']),
+    inviterDiscord: String(row['inviter_discord']),
+    joinedAt: String(row['joined_at']),
+    inviteeSteam: row['invitee_steam'] === null ? null : String(row['invitee_steam']),
+    paidAt: row['paid_at'] === null ? null : String(row['paid_at']),
+    reward: Number(row['reward'] ?? 0),
+});
 export class Database {
     #db;
     /** Absolute path, and whether the file already existed. Logged at boot. */
@@ -231,6 +257,79 @@ export class Database {
             .prepare('DELETE FROM player_counts WHERE at < ?')
             .run(before.toISOString());
         return Number(result.changes ?? 0);
+    }
+    // ------------------------------------------------------------- referrals --
+    /** First invite wins. Someone who leaves and rejoins keeps their original. */
+    recordReferral(inviteeDiscord, inviterDiscord) {
+        this.#db
+            .prepare(`INSERT INTO referrals (invitee_discord, inviter_discord, joined_at)
+         VALUES (?, ?, ?) ON CONFLICT (invitee_discord) DO NOTHING`)
+            .run(inviteeDiscord, inviterDiscord, new Date().toISOString());
+    }
+    referralFor(inviteeDiscord) {
+        const row = this.#db
+            .prepare('SELECT * FROM referrals WHERE invitee_discord = ?')
+            .get(inviteeDiscord);
+        return row ? toReferral(row) : null;
+    }
+    /**
+     * Ties a Steam account to a referral when the invitee links.
+     *
+     * Returns false when that Steam account has already been referred — the
+     * unique index rejects it, which is the point: the account, not the Discord
+     * user, is what a reward is owed against.
+     */
+    attachReferralSteam(inviteeDiscord, steamId) {
+        try {
+            const result = this.#db
+                .prepare(`UPDATE referrals SET invitee_steam = ?
+           WHERE invitee_discord = ? AND invitee_steam IS NULL`)
+                .run(steamId, inviteeDiscord);
+            return Number(result.changes ?? 0) > 0;
+        }
+        catch {
+            return false;
+        }
+    }
+    /** Linked, played, not yet paid — the queue the payout check walks. */
+    pendingReferrals() {
+        return this.#db
+            .prepare(`SELECT * FROM referrals
+         WHERE invitee_steam IS NOT NULL AND paid_at IS NULL
+         ORDER BY joined_at ASC`)
+            .all().map(toReferral);
+    }
+    markReferralPaid(inviteeDiscord, reward) {
+        this.#db
+            .prepare('UPDATE referrals SET paid_at = ?, reward = ? WHERE invitee_discord = ?')
+            .run(new Date().toISOString(), reward, inviteeDiscord);
+    }
+    /** How many this inviter has been paid for since a moment, for the cap. */
+    paidReferralsSince(inviterDiscord, since) {
+        const row = this.#db
+            .prepare(`SELECT COUNT(*) AS n FROM referrals
+         WHERE inviter_discord = ? AND paid_at IS NOT NULL AND paid_at >= ?`)
+            .get(inviterDiscord, since.toISOString());
+        return Number(row?.['n'] ?? 0);
+    }
+    referralLeaderboard(limit) {
+        return this.#db
+            .prepare(`SELECT inviter_discord, COUNT(*) AS n FROM referrals
+         WHERE paid_at IS NOT NULL
+         GROUP BY inviter_discord ORDER BY n DESC LIMIT ?`)
+            .all(limit)
+            .map((r) => ({ inviterDiscord: String(r['inviter_discord']), count: Number(r['n']) }));
+    }
+    referralCounts() {
+        const one = (sql) => {
+            const row = this.#db.prepare(sql).get();
+            return Number(row?.['n'] ?? 0);
+        };
+        return {
+            total: one('SELECT COUNT(*) AS n FROM referrals'),
+            paid: one('SELECT COUNT(*) AS n FROM referrals WHERE paid_at IS NOT NULL'),
+            pending: one('SELECT COUNT(*) AS n FROM referrals WHERE paid_at IS NULL AND invitee_steam IS NOT NULL'),
+        };
     }
     close() {
         this.#db.close();

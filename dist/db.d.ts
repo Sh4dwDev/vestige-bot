@@ -2,6 +2,14 @@ export interface Link {
     discordId: string;
     steamId: string;
 }
+export interface Referral {
+    inviteeDiscord: string;
+    inviterDiscord: string;
+    joinedAt: string;
+    inviteeSteam: string | null;
+    paidAt: string | null;
+    reward: number;
+}
 export interface Pending {
     steamId: string;
     code: string;
@@ -48,6 +56,31 @@ export declare class Database {
     }>;
     /** Keeps the table from growing forever; nothing asks beyond a month. */
     pruneCounts(before: Date): number;
+    /** First invite wins. Someone who leaves and rejoins keeps their original. */
+    recordReferral(inviteeDiscord: string, inviterDiscord: string): void;
+    referralFor(inviteeDiscord: string): Referral | null;
+    /**
+     * Ties a Steam account to a referral when the invitee links.
+     *
+     * Returns false when that Steam account has already been referred — the
+     * unique index rejects it, which is the point: the account, not the Discord
+     * user, is what a reward is owed against.
+     */
+    attachReferralSteam(inviteeDiscord: string, steamId: string): boolean;
+    /** Linked, played, not yet paid — the queue the payout check walks. */
+    pendingReferrals(): Referral[];
+    markReferralPaid(inviteeDiscord: string, reward: number): void;
+    /** How many this inviter has been paid for since a moment, for the cap. */
+    paidReferralsSince(inviterDiscord: string, since: Date): number;
+    referralLeaderboard(limit: number): Array<{
+        inviterDiscord: string;
+        count: number;
+    }>;
+    referralCounts(): {
+        total: number;
+        paid: number;
+        pending: number;
+    };
     close(): void;
     linkFor(discordId: string): Link | null;
     linkBySteam(steamId: string): Link | null;
