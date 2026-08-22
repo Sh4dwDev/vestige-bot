@@ -8,30 +8,50 @@ import type { Ctx } from './commands.js';
  * recomputes eligibility from them. The mod already carries all ten through
  * store and restore, so reading them costs nothing new.
  *
- * **What each one means is not documented anywhere**, and this deliberately
- * does not guess. An unmapped condition is shown by number and said to be
- * unknown, because a panel that confidently tells somebody to drink when the
- * flag actually meant "stay alive longer" is worse than one that admits it does
- * not know — they will act on it, fail, and stop trusting the whole thing.
+ * ## Why these names can be trusted
  *
- * Labels are filled in as they are **verified**: change one thing in game, read
- * the flags, see which moved. `/admin prime` prints the raw flags alongside the
- * vitals for exactly that.
- */
-/**
- * Confirmed meanings, by condition number.
+ * The flags are unlabelled, so the names below come from a published guide —
+ * and were then **checked against three live animals** before being written
+ * here, because a guide's list order need not match the engine's index:
  *
- * Empty on purpose. Nothing goes in here that has not been watched changing in
- * game, and each entry should say how it was confirmed when it is added.
+ * | seen                     | flags true | agrees with |
+ * |--------------------------|------------|-------------|
+ * | Beipiaosaurus            | 8, 10      | 10 is the small-species passive, and a Beipi is one |
+ * | Allosaurus, grown wild   | 7, 8       | not a small species, so 10 is false |
+ * | Carnotaurus, bought      | 7, 8       | same again |
+ *
+ * The three passives — 7, 8 and 10 — are the only ones true by default, and
+ * that is exactly the pattern observed. 7 and 8 were true on every animal;
+ * 10 only on the Beipi. Three independent confirmations of the ordering.
+ *
+ * The seven active conditions follow from the same list. They are not
+ * individually confirmed, because confirming one means actually visiting a
+ * Sanctuary or raising a nest — so if a player reports one of those reading
+ * wrongly, believe them over this table.
  */
-export declare const CONDITION_LABELS: Record<number, string>;
-export declare const CONDITION_COUNT = 10;
 export interface Condition {
     index: number;
     met: boolean;
-    label: string | null;
+    label: string;
+    /** Passive conditions are held by default and lost, rather than earned. */
+    passive: boolean;
+    /** What to do about it, for the ones somebody can still act on. */
+    hint?: string;
 }
+/**
+ * Prime is **5 of 10**, not all ten — and 4 for the small species.
+ *
+ * The panel used to say "8 still to go", which was wrong in the way that
+ * matters: it told people the thing was hopeless when they were two conditions
+ * from having it.
+ *
+ * Which species count as small is not hardcoded. Condition 10 *is* that
+ * question, already answered by the game, so it is read rather than guessed.
+ */
+export declare const conditionsNeeded: (state: PrimeState) => number;
+/** Everything has to be met before this, after which the window has closed. */
+export declare const PRIME_DEADLINE_GROWTH = 0.75;
 export declare function conditionsOf(state: PrimeState): Condition[];
 export declare function buildPrimeEmbed(state: PrimeState, ctx: Ctx): EmbedBuilder;
-/** The raw flags, for working out what they mean. */
+/** The raw flags, for checking the table above against a live animal. */
 export declare function buildPrimeDebugEmbed(state: PrimeState, who: string): EmbedBuilder;

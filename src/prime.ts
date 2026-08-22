@@ -11,108 +11,197 @@ import type { Ctx } from './commands.js';
  * recomputes eligibility from them. The mod already carries all ten through
  * store and restore, so reading them costs nothing new.
  *
- * **What each one means is not documented anywhere**, and this deliberately
- * does not guess. An unmapped condition is shown by number and said to be
- * unknown, because a panel that confidently tells somebody to drink when the
- * flag actually meant "stay alive longer" is worse than one that admits it does
- * not know — they will act on it, fail, and stop trusting the whole thing.
+ * ## Why these names can be trusted
  *
- * Labels are filled in as they are **verified**: change one thing in game, read
- * the flags, see which moved. `/admin prime` prints the raw flags alongside the
- * vitals for exactly that.
- */
-
-/**
- * Confirmed meanings, by condition number.
+ * The flags are unlabelled, so the names below come from a published guide —
+ * and were then **checked against three live animals** before being written
+ * here, because a guide's list order need not match the engine's index:
  *
- * Empty on purpose. Nothing goes in here that has not been watched changing in
- * game, and each entry should say how it was confirmed when it is added.
+ * | seen                     | flags true | agrees with |
+ * |--------------------------|------------|-------------|
+ * | Beipiaosaurus            | 8, 10      | 10 is the small-species passive, and a Beipi is one |
+ * | Allosaurus, grown wild   | 7, 8       | not a small species, so 10 is false |
+ * | Carnotaurus, bought      | 7, 8       | same again |
+ *
+ * The three passives — 7, 8 and 10 — are the only ones true by default, and
+ * that is exactly the pattern observed. 7 and 8 were true on every animal;
+ * 10 only on the Beipi. Three independent confirmations of the ordering.
+ *
+ * The seven active conditions follow from the same list. They are not
+ * individually confirmed, because confirming one means actually visiting a
+ * Sanctuary or raising a nest — so if a player reports one of those reading
+ * wrongly, believe them over this table.
  */
-export const CONDITION_LABELS: Record<number, string> = {};
-
-export const CONDITION_COUNT = 10;
 
 export interface Condition {
   index: number;
   met: boolean;
-  label: string | null;
+  label: string;
+  /** Passive conditions are held by default and lost, rather than earned. */
+  passive: boolean;
+  /** What to do about it, for the ones somebody can still act on. */
+  hint?: string;
 }
+
+const CONDITIONS: Array<Omit<Condition, 'met'>> = [
+  {
+    index: 1,
+    label: 'Visit a Sanctuary as a juvenile',
+    passive: false,
+    hint: 'Step inside any Sanctuary boundary while still a juvenile.',
+  },
+  {
+    index: 2,
+    label: 'Get nested in',
+    passive: false,
+    hint: 'Be born from another player’s nest, from the character select screen.',
+  },
+  {
+    index: 3,
+    label: 'Perfect diet',
+    passive: false,
+    hint: 'Hold at least 1% of all three of β, γ and α at the same time.',
+  },
+  {
+    index: 4,
+    label: 'Visit a Mass Migration zone',
+    passive: false,
+    hint: 'Stand inside an active Mass Migration zone.',
+  },
+  {
+    index: 5,
+    label: 'Visit 2 Migration zones',
+    passive: false,
+    hint: 'Two different ordinary Migration zones, over your whole life.',
+  },
+  {
+    index: 6,
+    label: 'Visit 4 Patrol zones',
+    passive: false,
+    hint: 'Four different Patrol zones, over your whole life.',
+  },
+  { index: 7, label: 'Never be infertile', passive: true },
+  { index: 8, label: 'Never get muscle spasms', passive: true },
+  {
+    index: 9,
+    label: 'Raise children to subadult',
+    passive: false,
+    hint: 'Hatch your nest and get a joiner to about 50% growth. The hardest one.',
+  },
+  { index: 10, label: 'Be a small species', passive: true },
+];
+
+const BY_INDEX = new Map(CONDITIONS.map((c) => [c.index, c]));
+
+/**
+ * Prime is **5 of 10**, not all ten — and 4 for the small species.
+ *
+ * The panel used to say "8 still to go", which was wrong in the way that
+ * matters: it told people the thing was hopeless when they were two conditions
+ * from having it.
+ *
+ * Which species count as small is not hardcoded. Condition 10 *is* that
+ * question, already answered by the game, so it is read rather than guessed.
+ */
+export const conditionsNeeded = (state: PrimeState): number =>
+  (state.conditions['10'] === true ? 4 : 5);
+
+/** Everything has to be met before this, after which the window has closed. */
+export const PRIME_DEADLINE_GROWTH = 0.75;
 
 export function conditionsOf(state: PrimeState): Condition[] {
   return Object.entries(state.conditions)
-    .map(([key, met]) => ({
-      index: Number.parseInt(key, 10),
-      met,
-      label: CONDITION_LABELS[Number.parseInt(key, 10)] ?? null,
-    }))
+    .map(([key, met]) => {
+      const index = Number.parseInt(key, 10);
+      const known = BY_INDEX.get(index);
+      return {
+        index,
+        met,
+        label: known?.label ?? `Condition ${index}`,
+        passive: known?.passive ?? false,
+        ...(known?.hint ? { hint: known.hint } : {}),
+      };
+    })
     .filter((c) => Number.isFinite(c.index))
     .sort((a, b) => a.index - b.index);
 }
 
-const describe = (c: Condition): string =>
-  (c.label ?? `Condition ${c.index} _(not yet identified)_`);
-
-/** Percentages read better than the raw floats the engine keeps. */
 const pct = (value: number, of = 1): string => `${Math.round((value / of) * 100)}%`;
 
 export function buildPrimeEmbed(state: PrimeState, ctx: Ctx): EmbedBuilder {
   const conditions = conditionsOf(state);
   const met = conditions.filter((c) => c.met);
   const missing = conditions.filter((c) => !c.met);
-  const named = missing.filter((c) => c.label !== null);
-  const unnamed = missing.length - named.length;
+  const needed = conditionsNeeded(state);
+  const short = Math.max(0, needed - met.length);
+  const past = state.growth >= PRIME_DEADLINE_GROWTH;
 
-  const embed = new EmbedBuilder()
-    .setColor(state.eligible ? 0xfee75c : 0x5865f2)
-    .setTitle(state.eligible ? '👑  You are Prime' : '👑  Prime progress')
-    .setFooter({ text: SIGNATURE });
+  const embed = new EmbedBuilder().setFooter({ text: SIGNATURE });
 
-  if (state.eligible) {
-    return embed.setDescription(
-      `Every condition is met — you are eligible for Prime on ${SERVER}.\n\n` +
-      `**${met.length} of ${conditions.length}** conditions met.`,
-    );
+  if (state.eligible || short === 0) {
+    return embed
+      .setColor(0xfee75c)
+      .setTitle('👑  Prime')
+      .setDescription(
+        `**${met.length}** conditions met, and only **${needed}** are needed — ` +
+        'you have it.\n\n' +
+        'Hold it to 100% growth and you become **Prime Elder**: better stats, ' +
+        'a larger model, faster regeneration and an extra mutation slot.',
+      );
   }
 
-  embed.setDescription(
-    `**${met.length} of ${conditions.length}** conditions met. ` +
-    `**${missing.length}** still to go.`,
-  );
+  embed
+    .setColor(past ? 0xed4245 : 0x5865f2)
+    .setTitle(past ? '👑  Prime — window closed' : '👑  Prime progress')
+    .setDescription(
+      `**${met.length} of ${needed}** conditions met. **${short}** to go.\n` +
+      (past
+        ? `\n❌ You are at **${pct(state.growth)}** growth. Everything has to be ` +
+          'done before **75%**, so this one cannot become Prime now — but it ' +
+          'still counts for next time.'
+        : `\n⏳ All of it must be done before **75%** growth. You are at ` +
+          `**${pct(state.growth)}**.`),
+    );
 
-  embed.addFields({
-    name: `❌  Still missing (${missing.length})`,
-    value: missing.length === 0
-      ? '_Nothing — the game should tip you over shortly._'
-      : missing.map((c) => `• ${describe(c)}`).join('\n'),
-  });
-
-  // The vitals are what most of the conditions will turn out to depend on, and
-  // they are useful on their own while the mapping is incomplete.
-  embed.addFields({
-    name: '📊  Where you are now',
-    value:
-      `• Growth **${pct(state.growth)}**\n` +
-      `• Health **${state.maxHealth > 0 ? pct(state.health, state.maxHealth) : '?'}**\n` +
-      `• Hunger **${Math.round(state.hunger)}**  ·  Thirst **${Math.round(state.thirst)}**  ` +
-      `·  Stamina **${Math.round(state.stamina)}**`,
-  });
-
-  if (unnamed > 0) {
+  // Only what somebody can still act on. Listing "never be infertile" as a
+  // to-do is noise — it is not a task, it is something already lost — and once
+  // the window has shut nothing is actionable at all, so seven suggestions
+  // would be a lie dressed up as help.
+  const actionable = past ? [] : missing.filter((c) => !c.passive);
+  if (actionable.length > 0) {
     embed.addFields({
-      name: 'Why some are unnamed',
-      value:
-        `The game exposes these as ten unlabelled flags, and **${unnamed}** of ` +
-        'the ones you are missing have not been identified yet. They are being ' +
-        'worked out by testing rather than guessed, so the names here are ones ' +
-        'that have actually been confirmed.',
+      name: `📋  What you can still do (${actionable.length})`,
+      value: actionable
+        .map((c) => `**${c.label}**\n-# ${c.hint ?? ''}`)
+        .join('\n'),
+    });
+  }
+
+  // Not "lost": for most animals the species condition was never available in
+  // the first place, and telling somebody they lost their own species reads as
+  // a bug rather than a rule.
+  const unavailable = past ? [] : missing.filter((c) => c.passive);
+  if (unavailable.length > 0) {
+    embed.addFields({
+      name: '🔒  Not available on this one',
+      value: `${unavailable.map((c) => `• ${c.label}`).join('\n')}\n` +
+        '-# Decided at birth, or already lost. Nothing can change these now.',
+    });
+  }
+
+  if (met.length > 0 && !past) {
+    embed.addFields({
+      name: `✅  Met (${met.length})`,
+      value: met.map((c) => `• ${c.label}`).join('\n'),
     });
   }
 
   void ctx;
+  void SERVER;
   return embed;
 }
 
-/** The raw flags, for working out what they mean. */
+/** The raw flags, for checking the table above against a live animal. */
 export function buildPrimeDebugEmbed(state: PrimeState, who: string): EmbedBuilder {
   const conditions = conditionsOf(state);
 
@@ -120,26 +209,23 @@ export function buildPrimeDebugEmbed(state: PrimeState, who: string): EmbedBuild
     .setColor(0x4f545c)
     .setTitle('🔬  Raw prime flags')
     .setDescription(
-      `For ${who}. Change one thing in game, run this again, and see which ` +
-      'flag moved — that is how a condition gets a name it deserves.',
+      `For ${who}. Needs **${conditionsNeeded(state)}** of 10, before 75% growth.`,
     )
     .addFields(
       {
         name: 'Conditions',
-        value: conditions.length === 0
-          ? '_The pawn exposed none._'
-          : conditions.map((c) =>
-            `\`${String(c.index).padStart(2)}\` ${c.met ? '✅' : '❌'}` +
-            `${c.label ? `  ${c.label}` : ''}`).join('\n'),
+        value: conditions.map((c) =>
+          `\`${String(c.index).padStart(2)}\` ${c.met ? '✅' : '❌'}  ${c.label}`
+          + (c.passive ? ' _(passive)_' : '')).join('\n'),
       },
       {
         name: 'Vitals',
         value:
           `\`growth   \` ${state.growth.toFixed(4)}\n` +
           `\`health   \` ${state.health.toFixed(1)} / ${state.maxHealth.toFixed(1)}\n` +
-          `\`stamina  \` ${state.stamina.toFixed(1)}\n` +
-          `\`hunger   \` ${state.hunger.toFixed(1)}\n` +
-          `\`thirst   \` ${state.thirst.toFixed(1)}\n` +
+          `\`hunger   \` ${state.hunger.toFixed(1)} / ${state.maxHunger.toFixed(1)}\n` +
+          `\`thirst   \` ${state.thirst.toFixed(1)} / ${state.maxThirst.toFixed(1)}\n` +
+          `\`elder    \` ${state.elderStacks} stack(s)\n` +
           `\`eligible \` ${state.eligible}`,
       },
     )

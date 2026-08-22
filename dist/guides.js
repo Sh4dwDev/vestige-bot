@@ -125,8 +125,8 @@ export function buildCommandsEmbed() {
         name: '👑  `/prime`',
         value: 'What you still need before your dinosaur can go Prime, read off the '
             + 'one you are playing right now.\n'
-            + 'The game exposes these as unlabelled flags, so any condition not yet '
-            + 'identified is shown as such rather than guessed at.',
+            + 'You need **5 of the 10** conditions — **4** on a small species — and '
+            + 'every one of them before **75% growth**.',
     }, {
         name: '🦕  `/population`',
         value: `What is roaming ${SERVER} right now: species, adults, gender split and ` +

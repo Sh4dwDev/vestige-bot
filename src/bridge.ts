@@ -50,6 +50,8 @@ export interface PrimeState {
   maxHunger: number;
   thirst: number;
   maxThirst: number;
+  /** How many Elder stacks the pawn carries; this alone decides Elder tier. */
+  elderStacks: number;
   /** Per-nutrient values, plus `bMalnutrition`. Empty if the pawn withheld them. */
   nutrients?: Record<string, number | boolean>;
 }
