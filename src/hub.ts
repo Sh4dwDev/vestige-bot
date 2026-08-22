@@ -76,6 +76,12 @@ export function buildHubEmbed(): EmbedBuilder {
         value: 'Population, points and the kill leaderboard.',
       },
       {
+        name: '👑  Prime',
+        value:
+          'Run `/prime` in game to see which conditions you still need. Any the '
+          + 'game does not label are shown as unidentified rather than guessed.',
+      },
+      {
         name: '✅  Verify (required)',
         value: 'Link your Steam account. Nothing that touches your dinosaur works until you do.',
       },

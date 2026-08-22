@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.26.0"
+local MOD_VERSION = "3.27.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -711,11 +711,43 @@ local function applyVerified(pawn, setter, getter, value, results)
     results[#results + 1] = how .. note
 end
 
+-- why: a gifted dinosaur was never alive, so it has no vitals to remember. The
+-- slot is written with empty tables, and nothing then filled them -- a bought
+-- adult arrived starving, because a hatchling's hunger against an adult's much
+-- larger maximum reads as empty.
+--
+-- Filled from the pawn's OWN maxima at restore time rather than from a number
+-- guessed when the gift was written: the maxima depend on growth and species,
+-- neither of which is known at that point.
+local function fillVitalsToFull(pawn)
+    local filled = 0
+    local function fill(setter, maxGetter)
+        local max
+        pcall(function() max = pawn[maxGetter](pawn) end)
+        if type(max) ~= "number" or max <= 0 then return end
+        if pcall(function() pawn[setter](pawn, max) end) then filled = filled + 1 end
+    end
+
+    fill("SetHealth", "GetMaxHealth")
+    fill("SetStamina", "GetMaxStamina")
+    fill("SetHunger", "GetMaxHunger")
+    fill("SetThirst", "GetMaxThirst")
+    return filled
+end
+
 local function applyVitals(pawn, state, label)
     local results = {}
     -- Maxes before currents: a current above its max gets clamped.
     for _, m in ipairs(MAXES) do applyVerified(pawn, m[3], m[2], state.maxVitals[m[1]], results) end
     for _, v in ipairs(VITALS) do applyVerified(pawn, v[3], v[2], state.vitals[v[1]], results) end
+
+    -- Nothing recorded means a gift rather than a stored dinosaur. Top it up
+    -- instead of leaving whatever the hatchling spawned with.
+    if next(state.vitals) == nil then
+        local filled = fillVitalsToFull(pawn)
+        results[#results + 1] = string.format("gift-full:%d", filled)
+    end
+
     log(string.format("  restore[%s]: %s", label, table.concat(results, " ")))
 end
 

@@ -351,3 +351,27 @@ target first.
   game build, not the host OS.
 - Some hosts **block `.dll` uploads entirely** (LOW.MS does), which makes UE4SS
   impossible there. Test with a junk `.dll` before committing to a host.
+
+## Mutations are captured on store but not written back
+
+`MutationsRequirementsData.UnlockRequiredMutations` is read into
+`state.unlockRequiredMutations` when a dinosaur is stored, and **nothing ever
+writes it back**. The capture even carries a comment explaining that it is
+pawn-local and lost on respawn, so the asymmetry looks like an unfinished
+thought rather than a decision.
+
+A gifted dinosaur is worse: the gift builder sets it to an empty array, because
+no pawn exists at that point to read it from.
+
+**The symptom**, reported live on a shop-bought fully grown dinosaur with four
+mutations: the game keeps flashing "mutation available" while the picker offers
+nothing selectable. That fits a pawn whose slots are filled but whose unlock
+requirements are empty or stale.
+
+**Not yet fixed, deliberately.** Writing it back needs the setter for that
+struct, and the way to write a `TArray` on it from UE4SS Lua is not established
+here. `ReplicatedMutationsData` has `SetReplicatedMutationsData`, so a matching
+setter is plausible — but plausible is how invented API names get shipped, and
+this file exists because that has cost hours before. Confirm against
+`diplomatic-tendencies/evrima-dev-knowledge`, or read the struct off a naturally
+grown dinosaur and compare, before touching the restore path.
