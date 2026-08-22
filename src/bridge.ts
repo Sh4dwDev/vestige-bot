@@ -19,7 +19,7 @@ import type { Config } from './config.js';
 export type Verb =
   | 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players'
   | 'give' | 'teleport' | 'where' | 'skinget' | 'skinmany' | 'pattern'
-  | 'notify' | 'heal';
+  | 'notify' | 'heal' | 'prime';
 
 export interface StoredSlot {
   slot: string;
@@ -35,6 +35,19 @@ export interface StoredSlot {
  * together. It lives here because this is where the mod's contract lives.
  */
 export const MAX_SLOTS = 3;
+
+/** What the mod reports for one player's prime progress. */
+export interface PrimeState {
+  eligible: boolean;
+  /** Keyed "1" to "10". Absent keys are conditions the pawn did not expose. */
+  conditions: Record<string, boolean>;
+  growth: number;
+  health: number;
+  maxHealth: number;
+  stamina: number;
+  hunger: number;
+  thirst: number;
+}
 
 export interface PlayerRow {
   /** Present from mod v3.2.0 on; older payloads omit it. */
@@ -58,7 +71,7 @@ export interface Result {
   ok: boolean;
   msg: string;
   /** Shape depends on the verb: slots for `list`, players for `players`. */
-  data?: StoredSlot[] | PlayerRow[];
+  data?: StoredSlot[] | PlayerRow[] | PrimeState;
 }
 
 /** store and restore run multi-stage pipelines; list and delete are immediate. */
@@ -342,6 +355,19 @@ export class ModBridge {
     const result = await this.run('players', '0');
     if (!result.ok) throw new Error(result.msg);
     return (result.data ?? []) as PlayerRow[];
+  }
+
+  /**
+   * The ten prime condition flags for one player, with their vitals.
+   *
+   * Reported by number. What each condition actually means is not documented
+   * anywhere, so the vitals ride along: the mapping is worked out by changing
+   * one thing in game and seeing which flag moves.
+   */
+  async prime(steamId: string): Promise<PrimeState> {
+    const result = await this.run('prime', steamId);
+    if (!result.ok) throw new Error(result.msg);
+    return result.data as PrimeState;
   }
 
   async close(): Promise<void> {

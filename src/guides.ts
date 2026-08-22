@@ -155,6 +155,14 @@ export function buildCommandsEmbed(): EmbedBuilder {
           'cannot be used to reroll your spawn.',
       },
       {
+        name: '👑  `/prime`',
+        value:
+          'What you still need before your dinosaur can go Prime, read off the '
+          + 'one you are playing right now.\n'
+          + 'The game exposes these as unlabelled flags, so any condition not yet '
+          + 'identified is shown as such rather than guessed at.',
+      },
+      {
         name: '🦕  `/population`',
         value:
           `What is roaming ${SERVER} right now: species, adults, gender split and ` +

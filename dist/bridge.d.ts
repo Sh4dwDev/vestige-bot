@@ -8,7 +8,7 @@ import type { Config } from './config.js';
  *   inbox.ndjson     commands in
  *   results.ndjson   results out, append-only
  */
-export type Verb = 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players' | 'give' | 'teleport' | 'where' | 'skinget' | 'skinmany' | 'pattern' | 'notify' | 'heal';
+export type Verb = 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players' | 'give' | 'teleport' | 'where' | 'skinget' | 'skinmany' | 'pattern' | 'notify' | 'heal' | 'prime';
 export interface StoredSlot {
     slot: string;
     species: string;
@@ -22,6 +22,18 @@ export interface StoredSlot {
  * together. It lives here because this is where the mod's contract lives.
  */
 export declare const MAX_SLOTS = 3;
+/** What the mod reports for one player's prime progress. */
+export interface PrimeState {
+    eligible: boolean;
+    /** Keyed "1" to "10". Absent keys are conditions the pawn did not expose. */
+    conditions: Record<string, boolean>;
+    growth: number;
+    health: number;
+    maxHealth: number;
+    stamina: number;
+    hunger: number;
+    thirst: number;
+}
 export interface PlayerRow {
     /** Present from mod v3.2.0 on; older payloads omit it. */
     steam?: string;
@@ -43,7 +55,7 @@ export interface Result {
     ok: boolean;
     msg: string;
     /** Shape depends on the verb: slots for `list`, players for `players`. */
-    data?: StoredSlot[] | PlayerRow[];
+    data?: StoredSlot[] | PlayerRow[] | PrimeState;
 }
 /**
  * Notifications must be plain ASCII.
@@ -112,5 +124,13 @@ export declare class ModBridge {
     findFile(match: RegExp): Promise<Buffer | null>;
     /** Who is playing what, right now. */
     players(): Promise<PlayerRow[]>;
+    /**
+     * The ten prime condition flags for one player, with their vitals.
+     *
+     * Reported by number. What each condition actually means is not documented
+     * anywhere, so the vitals ride along: the mapping is worked out by changing
+     * one thing in game and seeing which flag moves.
+     */
+    prime(steamId: string): Promise<PrimeState>;
     close(): Promise<void>;
 }

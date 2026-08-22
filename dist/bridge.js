@@ -264,6 +264,19 @@ export class ModBridge {
             throw new Error(result.msg);
         return (result.data ?? []);
     }
+    /**
+     * The ten prime condition flags for one player, with their vitals.
+     *
+     * Reported by number. What each condition actually means is not documented
+     * anywhere, so the vitals ride along: the mapping is worked out by changing
+     * one thing in game and seeing which flag moves.
+     */
+    async prime(steamId) {
+        const result = await this.run('prime', steamId);
+        if (!result.ok)
+            throw new Error(result.msg);
+        return result.data;
+    }
     async close() {
         const client = this.#client;
         this.#client = null;

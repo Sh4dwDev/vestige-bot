@@ -26,6 +26,7 @@ import { applyReading, clearReadings, landmarkById, LANDMARKS, storedReadings, }
 import { ANCHORS, boundsAreManual, buildHeatmapEmbed, effectiveBounds, HEATMAP_MESSAGE_KEY, heatmapMinutes, pointsFrom, resetBounds, resolveMapImage, saveBounds, setHeatmapChannel, setHeatmapImage, setHeatmapMinutes, setManualBounds, storedBounds, widen, } from './heatmap.js';
 import { applyCaps, planCaps } from './capplan.js';
 import { postPeak, REFRESH_MINUTES, setPeaksChannel } from './peaks.js';
+import { buildPrimeDebugEmbed, buildPrimeEmbed } from './prime.js';
 import { buildReferralEmbed, referralMinutes, referralReward, referralWeeklyCap, referralWelcome, setReferralAmounts, setReferralsEnabled, } from './referrals.js';
 import { enforcementEnabled, enforcementFault, restoreAllPlayables, setEnforcement, syncPlayables, } from './enforce.js';
 import { handleInGame, handleModeration } from './moderation.js';
@@ -86,6 +87,9 @@ export const commandData = [
     new SlashCommandBuilder()
         .setName('population')
         .setDescription(`What is roaming ${SERVER} right now`),
+    new SlashCommandBuilder()
+        .setName('prime')
+        .setDescription('What you still need for Prime'),
     new SlashCommandBuilder()
         .setName('points')
         .setDescription('Points you have earned by playing')
@@ -406,6 +410,9 @@ export const commandData = [
         .addSubcommand((c) => c.setName('recalibrate')
         .setDescription('Forget the learned map bounds and start again'))
         .addSubcommand((c) => c.setName('off').setDescription('Take the panel down')))
+        .addSubcommandGroup((g) => g.setName('prime').setDescription('The raw prime condition flags')
+        .addSubcommand((c) => c.setName('read').setDescription('Every flag for a player, with their vitals')
+        .addUserOption((o) => o.setName('player').setDescription('Defaults to you'))))
         .addSubcommandGroup((g) => g.setName('referrals').setDescription('Points for bringing players who stay')
         .addSubcommand((c) => c.setName('on').setDescription('Start crediting people for invites'))
         .addSubcommand((c) => c.setName('off').setDescription('Stop crediting invites'))
@@ -450,6 +457,7 @@ export async function handleCommand(ctx, i) {
         case 'slay': return handleSlay(ctx, i);
         case 'storage': return handleStorage(ctx, i);
         case 'population': return handlePopulation(ctx, i);
+        case 'prime': return handlePrime(ctx, i);
         case 'points': return handlePoints(ctx, i);
         case 'kills': return handleKills(ctx, i);
         case 'teleport': return handleTeleport(ctx, i);
@@ -1785,6 +1793,47 @@ async function handleSpecies(ctx, i, action) {
                         '`/admin species enforce on` makes it a real wall.'))],
     });
 }
+// ---------------------------------------------------------------- prime --
+/** Shared by both commands: everything needed to read somebody's flags. */
+async function readPrime(ctx, i, discordId) {
+    const link = ctx.db.linkFor(discordId);
+    if (!link) {
+        return {
+            error: embed(COLORS.warn, 'Not linked', discordId === i.user.id
+                ? 'Prime is read off your live dinosaur, so the bot needs to know which '
+                    + 'account is yours. Press **Verify** on the panel.'
+                : 'That person has not linked a Steam account.'),
+        };
+    }
+    try {
+        return { state: await ctx.mod.prime(link.steamId) };
+    }
+    catch (err) {
+        return {
+            error: embed(COLORS.warn, 'Could not read it', `${describeError(err)}
+
+This reads the dinosaur you are playing right `
+                + 'now, so you have to be in game.'),
+        };
+    }
+}
+async function handlePrime(ctx, i) {
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    const read = await readPrime(ctx, i, i.user.id);
+    await i.editReply({
+        embeds: ['error' in read ? read.error : buildPrimeEmbed(read.state, ctx)],
+    });
+}
+async function handlePrimeDebug(ctx, i) {
+    const user = i.options.getUser('player') ?? i.user;
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    const read = await readPrime(ctx, i, user.id);
+    await i.editReply({
+        embeds: ['error' in read
+                ? read.error
+                : buildPrimeDebugEmbed(read.state, `<@${user.id}>`)],
+    });
+}
 // ------------------------------------------------------------ referrals --
 async function handleReferrals(ctx, i, action) {
     if (action === 'on' || action === 'off') {
@@ -2567,6 +2616,8 @@ async function handleAdmin(ctx, i) {
         return handleBounties(ctx, i, action);
     if (group === 'backup')
         return handleBackup(ctx, i, action);
+    if (group === 'prime')
+        return handlePrimeDebug(ctx, i);
     if (group === 'referrals')
         return handleReferrals(ctx, i, action);
     if (group === 'peaks')

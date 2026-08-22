@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.25.0"
+local MOD_VERSION = "3.26.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1230,6 +1230,60 @@ local function handlePlayers(cmd)
 end
 
 -- ---------------------------------------------------------------------------
+-- Prime
+--
+-- why: the ten condition flags already travel through store and restore, so
+-- reading them costs nothing new. What they each MEAN is not written down
+-- anywhere, and this reports them by number rather than inventing labels for
+-- them -- a panel that confidently names the wrong condition is worse than one
+-- that admits it does not know, because somebody will act on it.
+--
+-- The vitals ride along so the mapping can be worked out by watching: change
+-- one thing in game, call this, see which flag moved.
+local function handlePrime(cmd)
+    local pawn, err = resolvePlayer(cmd.steam)
+    if pawn == nil then
+        writeResult(cmd.id, "prime", cmd.steam, false, err)
+        return
+    end
+
+    local conditions = {}
+    local eligible = false
+    local ok = pcall(function()
+        local pe = pawn:GetEligiblePrimeElderData()
+        if pe == nil then return end
+        for i = 1, 10 do
+            local field = string.format("bPrimeCondition%d", i)
+            local v = pe[field]
+            if type(v) == "boolean" then
+                conditions[#conditions + 1] = string.format('"%d":%s', i, v and "true" or "false")
+            end
+        end
+        if pe.bIsEligiblePrime == true then eligible = true end
+    end)
+
+    if not ok or #conditions == 0 then
+        writeResult(cmd.id, "prime", cmd.steam, false,
+            "could not read your prime conditions")
+        return
+    end
+
+    local growth = callNumber(pawn, "GetGrowth") or 0
+    local health = callNumber(pawn, "GetHealth") or 0
+    local maxHealth = callNumber(pawn, "GetMaxHealth") or 0
+    local stamina = callNumber(pawn, "GetStamina") or 0
+    local hunger = callNumber(pawn, "GetHunger") or 0
+    local thirst = callNumber(pawn, "GetThirst") or 0
+
+    writeResult(cmd.id, "prime", cmd.steam, true, "read", string.format(
+        '{"eligible":%s,"conditions":{%s},'
+        .. '"growth":%.4f,"health":%.1f,"maxHealth":%.1f,'
+        .. '"stamina":%.1f,"hunger":%.1f,"thirst":%.1f}',
+        eligible and "true" or "false", table.concat(conditions, ","),
+        growth, health, maxHealth, stamina, hunger, thirst))
+end
+
+-- ---------------------------------------------------------------------------
 -- Gift
 --
 -- why this works without a live pawn: restore compares only `species` against
@@ -1815,6 +1869,7 @@ local function dispatch(cmd)
     elseif verb == "give" then handleGive(cmd)
     elseif verb == "teleport" then handleTeleport(cmd)
     elseif verb == "where" then handleWhere(cmd)
+    elseif verb == "prime" then handlePrime(cmd)
     elseif verb == "skinget" then handleSkinGet(cmd)
     elseif verb == "skinmany" then handleSkinMany(cmd)
     elseif verb == "pattern" then handlePattern(cmd)
