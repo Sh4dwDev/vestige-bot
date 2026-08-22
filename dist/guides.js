@@ -1,15 +1,32 @@
 import { EmbedBuilder } from 'discord.js';
 import { ARCHIVE_CAP, SERVER, SIGNATURE } from './brand.js';
+import { MAX_SLOTS } from './bridge.js';
 /**
  * The two reference embeds that live permanently in a channel: how storage
  * works, and what Vesta can do.
  *
  * Both are written to be read by someone who has never used the bot, in the
- * order they will need it — link, then store, then get it back. The awkward
+ * order they will need it — verify, then store, then get it back. The awkward
  * parts (your dinosaur dies; you must be fully grown) are stated early rather
  * than buried, because finding them out by surprise costs someone a dinosaur.
+ *
+ * **Buttons first, commands second.** Everything here is reachable from the
+ * panel, and that is how most people will actually use it — a guide that opens
+ * with slash commands describes a bot nobody is running any more. The commands
+ * still work and are still listed, because they are faster once you know them.
+ *
+ * The vault count comes from `MAX_SLOTS` rather than the word "three", so it
+ * cannot quietly disagree with the panel that enforces it.
  */
 const ACCENT = 0x5865f2;
+/**
+ * Small numbers as words, because "You get 3 vaults" reads like a system
+ * message and "three vaults" reads like a sentence. Falls back to the digit,
+ * so raising the cap can never produce "You get eleven vaults" by accident.
+ */
+function spell(n) {
+    return ['zero', 'one', 'two', 'three', 'four', 'five'][n] ?? String(n);
+}
 export function buildStorageGuideEmbed() {
     return new EmbedBuilder()
         .setColor(ACCENT)
@@ -17,36 +34,42 @@ export function buildStorageGuideEmbed() {
         .setDescription(`${ARCHIVE_CAP} holds your dinosaurs while you are away. Put one in, come ` +
         'back another day, and it returns exactly as you left it — growth, ' +
         'condition, mutations and all.\n\n' +
-        '**You get three vaults.** Nothing else about your dinosaur is changed.')
+        `**You get ${spell(MAX_SLOTS)} vaults.** Nothing else about your dinosaur is changed.\n` +
+        `💡 It all runs from the **${SERVER} Panel** — the buttons below do the same ` +
+        'as the commands, so you never have to remember one.')
         .addFields({
-        name: '1️⃣  Link your account — once, ever',
-        value: 'Run `/link` with your Steam64 ID while you are **in game**, then type ' +
-            'the code it gives you in **game chat**.\n' +
-            'Typing it in game is what proves the account is yours.',
+        name: '1️⃣  Verify your account — once, ever',
+        value: 'Press **✅ Verify** on the panel, paste your **Steam64 ID** into the ' +
+            'box, then type the code it gives you in **game chat** while you are ' +
+            'in game.\n' +
+            'Typing it in game is what proves the account is yours. `/link` opens ' +
+            'the same box.',
     }, {
         name: '2️⃣  Store a dinosaur',
-        value: 'Run `/storage`, press **Store**, and give it a name you will recognise.\n' +
+        value: 'Press **🏛️ Archive**, then **Store**, and give it a name you will ' +
+            'recognise.\n' +
             '⚠️ **Your dinosaur dies when you store it.** That is how it leaves the ' +
             'world — it is the mechanism, not a bug. It is shrunk first, so nobody ' +
             'gets a free meal from the body.',
     }, {
         name: '3️⃣  Get it back',
-        value: 'Run `/storage`, pick a vault, press **Release**.\n' +
+        value: 'Press **🏛️ Archive**, pick a vault, press **Release**.\n' +
             'You must be playing the **same species** — spawn as one, then release. ' +
             'Your new dinosaur becomes the one you stored.',
     }, {
         name: '📏  The rules',
         value: '• Only **fully grown** dinosaurs can be stored\n' +
-            '• **Three vaults** per player\n' +
+            `• **${spell(MAX_SLOTS)} vaults** per player\n` +
             '• Releasing **empties** that vault\n' +
             '• Same species to release\n' +
-            '• Unlinking keeps everything — it is yours again when you link back',
+            '• Dinosaurs bought in the shop land in a vault too, so keep one free\n' +
+            '• Unlinking keeps everything — it is yours again when you verify again',
     }, {
         name: '❓  If something goes wrong',
         value: 'The panel tells you why. The usual answers are *not fully grown*, ' +
-            '*all three vaults full*, or *the server is restarting* — wait and try ' +
-            'again. Nothing is destroyed by a failed store: if it cannot be saved, ' +
-            'it is not killed.',
+            '*every vault full*, *not verified yet*, or *the server is restarting* ' +
+            '— wait and try again. Nothing is destroyed by a failed store: if it ' +
+            'cannot be saved, it is not killed.',
     })
         .setFooter({ text: SIGNATURE });
 }
@@ -69,14 +92,26 @@ export function buildCommandsEmbed() {
     return new EmbedBuilder()
         .setColor(ACCENT)
         .setTitle('📖  Vesta’s commands')
-        .setDescription(`Everything ${SERVER} answers to. All replies are private — only you see them.`)
+        .setDescription(`Everything ${SERVER} answers to. All replies are private — only you see ` +
+        'them.\n\n' +
+        `💡 **You do not need any of these.** The ${SERVER} Panel and the shop ` +
+        'panel reach the same things with buttons. Commands are just quicker once ' +
+        'you know them.')
         .addFields({
+        name: '🦕  The panel',
+        value: '**Archive** — store, release, rename, discard\n' +
+            '**In-game actions** — archive, travel to a friend, slay\n' +
+            '**Stats** — population, points, kills\n' +
+            '**Verify** — link your Steam account',
+    }, {
         name: '🏛️  `/storage`',
         value: 'Open your archive. Store, release, rename and discard, all from buttons.\n' +
             'Updates itself while it is open, so it never shows you a stale vault.',
     }, {
         name: '🔗  `/link`',
-        value: 'Connect your Steam account. Needed once, before anything else works.',
+        value: 'Connect your Steam account — opens a box to paste your Steam64 ID into.\n' +
+            'Needed once, before anything that touches your dinosaur works. The ' +
+            '**Verify** button does the same thing.',
     }, {
         name: '🚪  `/unlink`',
         value: 'Disconnect. Anything stored stays yours and returns if you link again.',
@@ -96,14 +131,22 @@ export function buildCommandsEmbed() {
             'instantly. There is a wait between travels.',
     }, {
         name: '🛒  `/shop`',
-        value: '`/shop browse` for what is for sale, `/shop buy` to spend your points.\n' +
+        value: '`/shop browse` for what is for sale, `/shop buy` to spend your points — ' +
+            'or use the shop panel, which has the same three buttons.\n' +
             'You get a **fully grown** dinosaur in your archive — collect it by ' +
             'spawning that species and pressing **Release**. Uses a vault, and ' +
             'purchases are not refundable.',
     }, {
         name: '🪙  `/points`',
-        value: 'What you have earned by playing, and `/points top` for the leaderboard.\n' +
+        value: '`/points balance` for what you have earned, `/points top` for the ' +
+            'leaderboard.\n' +
             'Higher tiers earn faster, and kills pay too. Spend them in `/shop`.',
+    }, {
+        name: '💰  Bounties',
+        value: 'When a species outgrows the island, a bounty is posted on it — points ' +
+            'per kill, for as many payouts as are on offer.\n' +
+            'Nothing to sign up for: kill the species while it is posted and you ' +
+            'are paid.',
     }, {
         name: '⚔️  `/kills`',
         value: '`/kills top` for the deadliest players, `/kills me` for your own record.\n' +

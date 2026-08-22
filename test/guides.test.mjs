@@ -107,6 +107,51 @@ check('both embeds are signed', /Vesta/.test(guide.footer?.text ?? '') &&
     option.min_length === 17 && option.max_length === 17);
 }
 
+// ---- the guide has to describe the bot people actually use ----------------
+//
+// The panels came after the guide was written, and it went on telling people to
+// run slash commands long after buttons became the normal route. Drift like
+// that is worse than no guide, because people trust it.
+
+{
+  const { MAX_SLOTS } = await load('bridge.js');
+  const storage = buildStorageGuideEmbed().toJSON();
+  const commands = buildCommandsEmbed().toJSON();
+  const allText = (e) => [e.description ?? '', ...(e.fields ?? [])
+    .flatMap((f) => [f.name, f.value])].join('\n');
+  const storageText = allText(storage);
+  const commandsText = allText(commands);
+
+  check('the storage guide sends people to the panel, not just commands',
+    /Panel/.test(storageText) && /Verify/.test(storageText));
+
+  check('and it points at the buttons that actually exist',
+    /Archive/.test(storageText) && /Release/.test(storageText) && /Store/.test(storageText));
+
+  // It used to say "run /link with your Steam64 ID", which stopped being true
+  // when linking moved into a form.
+  check('linking is described as a box to paste into, not an argument',
+    !storageText.includes('/link` with your Steam64'),
+    storageText.match(/.{0,40}Steam64.{0,40}/)?.[0] ?? '');
+
+  check('the vault count follows MAX_SLOTS rather than a hardcoded word',
+    storageText.includes(`${MAX_SLOTS === 3 ? 'three' : MAX_SLOTS} vaults`),
+    `MAX_SLOTS is ${MAX_SLOTS}`);
+
+  check('the commands panel says the buttons reach the same things',
+    /Panel/.test(commandsText) && /buttons/.test(commandsText));
+
+  check('bounties are explained, since they pay points and nothing else mentions them',
+    /[Bb]ount/.test(commandsText));
+
+  // Every player-facing command should appear, or the panel is lying by omission.
+  const playerCommands = commandData
+    .filter((c) => !STAFF_COMMANDS.has(c.name))
+    .map((c) => c.name);
+  const missing = playerCommands.filter((n) => !commandsText.includes(`/${n}`));
+  check('every player command is listed', missing.length === 0, missing.join(', '));
+}
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
 process.exit(failed === 0 ? 0 : 1);
