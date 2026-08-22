@@ -12,6 +12,7 @@ const load = (f) => import(pathToFileURL(path.join(root, 'dist', f)).href);
 const {
   priceOf, mutationPrice, totalPrice, setSpeciesPrice, setTierPrice,
   setPending, takePending, buildCatalogue, buildReceipt, MAX_SLOTS,
+  sellable, maxShopTier, setMaxShopTier,
 } = await load('shop.js');
 const { setTier } = await load('tiers.js');
 const { Database } = await load('db.js');
@@ -205,6 +206,55 @@ fs.rmSync(path.dirname(file), { recursive: true, force: true });
     /Release/.test(receipt.description ?? ''));
 
   fresh.close();
+}
+
+// ---- apexes are not for sale ----------------------------------------------
+//
+// Buying one skips the grow on the dinosaur the grow is most of the point of,
+// which reads as pay-to-win however it is priced.
+
+{
+  // The shared db is closed by this point, so this block keeps its own.
+  const apexDb = new Database(
+    path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'vesta-')), 'apex.sqlite'));
+  const ctx = { db: apexDb };
+
+  check('the shop stops below apex by default', maxShopTier(ctx) === 3,
+    String(maxShopTier(ctx)));
+
+  setTier(ctx, 'Tyrannosaurus', 4);
+  setTier(ctx, 'Deinosuchus', 4);
+  setTier(ctx, 'Carnotaurus', 2);
+
+  check('an apex is not sellable', !sellable(ctx, 'Tyrannosaurus'));
+  check('everything below apex still is', sellable(ctx, 'Carnotaurus'));
+
+  const listed = buildCatalogue(ctx,
+    ['Tyrannosaurus', 'Deinosuchus', 'Carnotaurus'], 5000).toJSON();
+  const text = [listed.description ?? '',
+    ...(listed.fields ?? []).flatMap((f) => [f.name, f.value])].join('\n');
+
+  // Priced entries look like "Name — **1800**". An apex must not have one.
+  const priced = (name) => text.includes(`${name} — **`);
+  check('an apex is never priced in the catalogue',
+    !priced('Tyrannosaurus') && !priced('Deinosuchus'));
+  check('but a sellable species still is', priced('Carnotaurus'));
+
+  // Absence alone is a secret, not a rule: the species names are public.
+  check('and the catalogue says why they are missing',
+    text.includes('not sold') && text.includes('Tyrannosaurus'));
+
+  // The policy is a server decision, not a fact about the game.
+  setMaxShopTier(ctx, 4);
+  check('raising the limit puts apexes back', sellable(ctx, 'Tyrannosaurus'));
+  const all = buildCatalogue(ctx, ['Tyrannosaurus', 'Carnotaurus'], 5000).toJSON();
+  check('and the catalogue stops explaining an absence that is gone',
+    !(all.description ?? '').includes('not sold'));
+
+  setMaxShopTier(ctx, 3);
+  check('and lowering it takes them away again', !sellable(ctx, 'Tyrannosaurus'));
+
+  apexDb.close();
 }
 
 const failed = results.filter((r) => !r).length;

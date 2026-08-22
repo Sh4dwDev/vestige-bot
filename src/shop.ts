@@ -24,6 +24,39 @@ import { MAX_SLOTS } from './bridge.js';
 
 export { MAX_SLOTS };
 
+/**
+ * The highest tier the shop will sell.
+ *
+ * Apexes are off the shelf. Buying one skips the grow on the dinosaur the grow
+ * is most of the point of, and a server where the strongest thing on the island
+ * is a purchase rather than an evening reads as pay-to-win however carefully it
+ * is priced. Tiers 1 to 3 still sell, so the shop keeps its reason to exist.
+ *
+ * A server policy rather than a fact, so it is overridable: setting it to 4
+ * puts apexes back without a code change.
+ */
+const DEFAULT_MAX_SHOP_TIER = 3;
+
+export function maxShopTier(ctx: Ctx): number {
+  const stored = Number.parseInt(ctx.db.getSetting('shop_max_tier') ?? '', 10);
+  return Number.isFinite(stored) && stored >= 1 ? stored : DEFAULT_MAX_SHOP_TIER;
+}
+
+export function setMaxShopTier(ctx: Ctx, tier: number): void {
+  ctx.db.setSetting('shop_max_tier', String(tier));
+}
+
+/**
+ * Whether the shop will sell this at all.
+ *
+ * Checked when buying, not only when listing. Hiding a species from the
+ * catalogue while `/shop buy` still accepts it by name is not a restriction,
+ * it is a secret — and the species names are public in `/population`.
+ */
+export function sellable(ctx: Ctx, species: string): boolean {
+  return tierOf(ctx, species) <= maxShopTier(ctx);
+}
+
 export function priceOf(ctx: Ctx, species: string): number {
   const override = Number.parseFloat(ctx.db.getSetting(`shop_price:${species}`) ?? '');
   if (Number.isFinite(override) && override >= 0) return override;
@@ -105,10 +138,15 @@ export function takePending(discordId: string): Pending | null {
 
 export function buildCatalogue(ctx: Ctx, species: string[], balance: number): EmbedBuilder {
   const byTier = new Map<number, string[]>();
-  for (const name of species) {
+  for (const name of species.filter((s) => sellable(ctx, s))) {
     const tier = tierOf(ctx, name);
     byTier.set(tier, [...(byTier.get(tier) ?? []), `${name} — **${priceOf(ctx, name)}**`]);
   }
+
+  // Said out loud rather than left as an absence. Someone who scrolls the list
+  // looking for a Rex should find out why it is missing here, not by trying to
+  // buy one.
+  const excluded = species.filter((s) => !sellable(ctx, s));
 
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
@@ -117,7 +155,11 @@ export function buildCatalogue(ctx: Ctx, species: string[], balance: number): Em
       `You have **${display(balance).toLocaleString()}** points.\n\n` +
       'Buy a **fully grown** dinosaur, delivered into your archive. You collect ' +
       'it by spawning that species and pressing **Release** — so what you are ' +
-      'buying is skipping the grow, not the species itself.',
+      'buying is skipping the grow, not the species itself.' +
+      (excluded.length > 0
+        ? `\n\n🚫 **${excluded.sort().join(', ')}** are not sold. Grow them ` +
+          'yourself — nobody buys their way to the top of the island.'
+        : ''),
     )
     .setFooter({
       text: `Mutations +${mutationPrice(ctx)} each · uses one of your ${MAX_SLOTS} vaults\n${SIGNATURE}`,

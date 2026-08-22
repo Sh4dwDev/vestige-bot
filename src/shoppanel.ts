@@ -20,6 +20,7 @@ import {
   mutationPrice,
   peekPending,
   priceOf,
+  sellable,
   setPending,
   splitMutations,
   takePending,
@@ -242,10 +243,12 @@ export async function handleShopPanel(
       return true;
     }
 
-    const species = await speciesList(ctx);
+    const species = (await speciesList(ctx)).filter((name) => sellable(ctx, name));
     await interaction.reply({
       embeds: [new EmbedBuilder().setColor(COLORS.info).setTitle('🛒  Buy a dinosaur')
-        .setDescription('Pick a species to begin.').setFooter({ text: SIGNATURE })],
+        .setDescription('Pick a species to begin. Apexes are not sold — growing '
+          + 'one is most of the point of playing it.')
+        .setFooter({ text: SIGNATURE })],
       components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
         new StringSelectMenuBuilder()
           .setCustomId('shop:species')

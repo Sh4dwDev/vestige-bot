@@ -1,16 +1,17 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, ComponentType, EmbedBuilder, MessageFlags, ModalBuilder, PermissionFlagsBits, SlashCommandBuilder, TextInputBuilder, TextInputStyle, } from 'discord.js';
 import { AdminStore } from './admins.js';
 import { ARCHIVE_CAP, SERVER, SIGNATURE } from './brand.js';
-import { buildCommandsEmbed, buildStorageGuideEmbed } from './guides.js';
+import { buildCommandsEmbed, buildStorageGuideEmbed, referenceKeys, rememberGuideChannel, } from './guides.js';
 import { refreshPopulationPanel, setPopulationChannel } from './livepanel.js';
 import { mutationList, speciesList, suggest } from './catalog.js';
 import { isRemoved, mutationChoices } from './mutations.js';
+import { setRestartAlertRole } from './alertrole.js';
 import { setJoinRole } from './joinrole.js';
-import { buildCatalogue, buildReceipt, mutationPrice, setPending, setSpeciesPrice, setTierPrice, takePending, totalPrice, } from './shop.js';
+import { buildCatalogue, buildReceipt, mutationPrice, setPending, setSpeciesPrice, setTierPrice, takePending, sellable, setMaxShopTier, totalPrice, } from './shop.js';
 import { forgetPainted } from './skinsync.js';
 import { buildShopPanel, setShopPanelChannel, shopPanelRows, SHOP_PANEL_MESSAGE_KEY, } from './shoppanel.js';
 import { BUILT_IN, encodeColours, patternLetter, PATTERN_CHOICES, hexToInt, hexToLinear, linearToHex, PARTS, PRESETS, } from './skins.js';
-import { multiplierFor, setMultiplier, setTier, TIER_LABEL, tierOf } from './tiers.js';
+import { MAX_TIER, multiplierFor, setMultiplier, setTier, TIER_LABEL, tierOf, } from './tiers.js';
 import { cleanSlotName, showPanel, stopAutoRefresh } from './panel.js';
 import { addRequest, askEmbed, askRows, cooldownMinutes, delaySeconds, requestFor, } from './teleport.js';
 import { buildHubEmbed, hubRows, HUB_MESSAGE_KEY, setHubChannel } from './hub.js';
@@ -160,6 +161,9 @@ export const commandData = [
         .addSubcommand((s) => s.setName('mutationprice').setDescription('What each mutation adds')
         .addIntegerOption((o) => o.setName('points').setDescription('0 makes mutations free')
         .setMinValue(0).setMaxValue(100_000).setRequired(true)))
+        .addSubcommand((s) => s.setName('maxtier').setDescription('Highest tier the shop will sell')
+        .addIntegerOption((o) => o.setName('tier').setDescription('3 keeps apexes off the shelf')
+        .setMinValue(1).setMaxValue(MAX_TIER).setRequired(true)))
         .addSubcommand((s) => s.setName('log').setDescription('Post every purchase to a channel')
         .addChannelOption((o) => o.setName('channel').setDescription('Where purchases are logged')
         .addChannelTypes(ChannelType.GuildText).setRequired(true)))
@@ -362,6 +366,10 @@ export const commandData = [
         .addSubcommand((s) => s.setName('set').setDescription('Give this role to everyone who joins')
         .addRoleOption((o) => o.setName('role').setDescription('The role to give').setRequired(true)))
         .addSubcommand((s) => s.setName('off').setDescription('Stop giving a role on join')))
+        .addSubcommandGroup((g) => g.setName('restartrole').setDescription('The role pinged before restarts')
+        .addSubcommand((s) => s.setName('set').setDescription('Which role the panel button hands out')
+        .addRoleOption((o) => o.setName('role').setDescription('The role to give').setRequired(true)))
+        .addSubcommand((s) => s.setName('off').setDescription('Turn the button off')))
         .addSubcommandGroup((g) => g.setName('founders').setDescription('Founder skins for the first members')
         .addSubcommand((c) => c.setName('panel').setDescription('Post the founder skin panel in a channel')
         .addChannelOption((o) => o.setName('channel').setDescription('Where the panel goes')
@@ -784,6 +792,16 @@ async function handleShop(ctx, i) {
         });
         return;
     }
+    // Refused here, not merely hidden from the catalogue. A species left out of a
+    // list but still accepted by name is not a rule, and the names are public.
+    if (!sellable(ctx, species)) {
+        await i.editReply({
+            embeds: [embed(COLORS.warn, 'Not for sale', `**${species}** is an apex, and apexes are not sold. Growing one is ` +
+                    'most of the point of playing it.\n\nEverything below apex is in ' +
+                    '`/shop browse`.')],
+        });
+        return;
+    }
     const price = totalPrice(ctx, species, mutations);
     const balance = ctx.db.pointsFor(link.steamId).balance;
     if (balance < price) {
@@ -1117,6 +1135,22 @@ async function handleShopAdmin(ctx, i, action) {
         await i.reply({
             embeds: [embed(COLORS.good, 'Purchase log set', `Every purchase will be posted in <#${channel.id}>.\n\n` +
                     'They are recorded either way — this just makes them visible.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'maxtier') {
+        const tier = i.options.getInteger('tier', true);
+        setMaxShopTier(ctx, tier);
+        const excluded = Object.entries(TIER_LABEL)
+            .filter(([t]) => Number(t) > tier)
+            .map(([, label]) => label);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Shop limit set', `The shop sells up to **${TIER_LABEL[tier]}**.\n\n` +
+                    (excluded.length > 0
+                        ? `${excluded.join(', ')} cannot be bought — the catalogue says so, ` +
+                            'and buying one by name is refused rather than quietly hidden.'
+                        : 'Everything is for sale, apexes included.'))],
             flags: MessageFlags.Ephemeral,
         });
         return;
@@ -2340,6 +2374,42 @@ async function handleAdmin(ctx, i) {
         });
         return;
     }
+    if (group === 'restartrole') {
+        if (action === 'off') {
+            setRestartAlertRole(ctx, null);
+            await i.reply({
+                embeds: [embed(COLORS.good, 'Restart alerts off', 'The button now tells people it is not set up. Anyone already holding '
+                        + 'the role keeps it — this only stops the button handing it out.')],
+                flags: MessageFlags.Ephemeral,
+            });
+            return;
+        }
+        const role = i.options.getRole('role', true);
+        setRestartAlertRole(ctx, role.id);
+        // Checked now rather than discovered by the first player who presses it.
+        const me = i.guild?.members.me;
+        const problems = [];
+        if (me && !me.permissions.has(PermissionFlagsBits.ManageRoles)) {
+            problems.push('the bot does not have **Manage Roles**');
+        }
+        if (me && 'comparePositionTo' in role && me.roles.highest.comparePositionTo(role) <= 0) {
+            problems.push(`the bot's own role sits **below** ${role}, so it cannot hand it out`);
+        }
+        await i.reply({
+            embeds: [problems.length
+                    ? embed(COLORS.warn, 'Set, but it will not work yet', `The button is meant to hand out ${role}, but ${problems.join(', and ')}.
+
+`
+                        + 'Fix that in Server Settings → Roles and it starts working immediately.')
+                    : embed(COLORS.good, 'Restart alert role set', `**🔔 Restart alerts** on the panel now gives and takes ${role}.
+
+`
+                        + 'One button does both, so press it again to opt out. Mention the '
+                        + 'role in your restart warnings for it to reach anybody.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
     if (group === 'skin')
         return handleSkin(ctx, i, action);
     if (group === 'tier')
@@ -2553,14 +2623,16 @@ async function handleReferencePanel(ctx, i, which) {
     const channel = i.options.getChannel('channel', true);
     await i.deferReply({ flags: MessageFlags.Ephemeral });
     const panel = which === 'guide' ? buildStorageGuideEmbed() : buildCommandsEmbed();
-    const key = which === 'guide' ? 'guide_message' : 'commands_message';
-    const label = which === 'guide' ? 'Storage guide' : 'Command list';
+    const { message: key, label } = referenceKeys(which);
     try {
         await postOrEdit(ctx.db, i.client, channel.id, key, [panel]);
+        // Remembering where it went is what lets a restart re-render it, so the
+        // wording no longer has to be re-posted by hand after every change.
+        rememberGuideChannel(ctx, which, channel.id);
         await i.editReply({
             embeds: [embed(COLORS.good, `${label} posted`, `It is in <#${channel.id}>.\n\n` +
-                    'Run this again to update it or move it — the same message is reused ' +
-                    'rather than a second one posted.')],
+                    'It is rewritten whenever the bot restarts, so it stays accurate on its ' +
+                    'own. Run this again only to move it.')],
         });
     }
     catch (err) {

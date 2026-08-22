@@ -5,7 +5,7 @@ import { completePurchase } from './commands.js';
 import { mutationList, speciesList } from './catalog.js';
 import { describeMutation } from './mutations.js';
 import { display } from './points.js';
-import { buildCatalogue, mutationPrice, peekPending, priceOf, setPending, splitMutations, takePending, totalPrice, } from './shop.js';
+import { buildCatalogue, mutationPrice, peekPending, priceOf, sellable, setPending, splitMutations, takePending, totalPrice, } from './shop.js';
 /**
  * The shop as a panel, for people who will never type a command.
  *
@@ -166,10 +166,12 @@ export async function handleShopPanel(ctx, interaction) {
             await interaction.reply({ embeds: [notLinked()], components: [verifyRow()], flags: MessageFlags.Ephemeral });
             return true;
         }
-        const species = await speciesList(ctx);
+        const species = (await speciesList(ctx)).filter((name) => sellable(ctx, name));
         await interaction.reply({
             embeds: [new EmbedBuilder().setColor(COLORS.info).setTitle('🛒  Buy a dinosaur')
-                    .setDescription('Pick a species to begin.').setFooter({ text: SIGNATURE })],
+                    .setDescription('Pick a species to begin. Apexes are not sold — growing '
+                    + 'one is most of the point of playing it.')
+                    .setFooter({ text: SIGNATURE })],
             components: [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
                     .setCustomId('shop:species')
                     .setPlaceholder('Choose a species')

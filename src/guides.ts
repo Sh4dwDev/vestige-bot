@@ -1,7 +1,9 @@
-import { EmbedBuilder } from 'discord.js';
+import { EmbedBuilder, type Client } from 'discord.js';
 
 import { ARCHIVE_CAP, SERVER, SIGNATURE } from './brand.js';
 import { MAX_SLOTS } from './bridge.js';
+import type { Ctx } from './commands.js';
+import { postOrEdit } from './pinned.js';
 
 /**
  * The two reference embeds that live permanently in a channel: how storage
@@ -172,7 +174,8 @@ export function buildCommandsEmbed(): EmbedBuilder {
           'or use the shop panel, which has the same three buttons.\n' +
           'You get a **fully grown** dinosaur in your archive — collect it by ' +
           'spawning that species and pressing **Release**. Uses a vault, and ' +
-          'purchases are not refundable.',
+          'purchases are not refundable.\n' +
+          '🚫 **Apexes are not sold.** Grow those yourself.',
       },
       {
         name: '🪙  `/points`',
@@ -205,4 +208,67 @@ export function buildCommandsEmbed(): EmbedBuilder {
       },
     )
     .setFooter({ text: SIGNATURE });
+}
+
+/**
+ * Which channel each reference embed lives in.
+ *
+ * Only the message id was kept before, which was enough to edit one but not to
+ * find one — so the embeds could only ever be refreshed by an admin re-running
+ * the command. Nobody does that after shipping a feature, and both drifted:
+ * the command list was still telling players there was nothing to spend points
+ * on months after the shop opened.
+ */
+const PANELS = {
+  guide: { channel: 'guide_channel', message: 'guide_message', label: 'Storage guide' },
+  commands: { channel: 'commands_channel', message: 'commands_message', label: 'Command list' },
+} as const;
+
+export type ReferencePanel = keyof typeof PANELS;
+
+export const referenceKeys = (which: ReferencePanel): typeof PANELS[ReferencePanel] =>
+  PANELS[which];
+
+export function rememberGuideChannel(
+  ctx: Ctx,
+  which: ReferencePanel,
+  channelId: string,
+): void {
+  ctx.db.setSetting(PANELS[which].channel, channelId);
+}
+
+const buildFor = (which: ReferencePanel): EmbedBuilder =>
+  (which === 'guide' ? buildStorageGuideEmbed() : buildCommandsEmbed());
+
+/**
+ * Re-renders both reference embeds wherever they already are.
+ *
+ * Run at startup, so shipping a change to the wording is enough to update what
+ * players actually read. These are static text with no live data, so redrawing
+ * them costs two edits per restart and removes the whole class of "the guide
+ * says something that stopped being true".
+ *
+ * A panel nobody has placed yet is skipped rather than posted somewhere
+ * arbitrary.
+ */
+export async function refreshGuides(
+  ctx: Ctx,
+  client: Client,
+  log: (message: string) => void,
+): Promise<void> {
+  for (const which of Object.keys(PANELS) as ReferencePanel[]) {
+    const { channel, message, label } = PANELS[which];
+    const channelId = ctx.db.getSetting(channel);
+    if (!channelId) continue;
+
+    try {
+      await postOrEdit(ctx.db, client, channelId, message, [buildFor(which)]);
+      log(`${label} refreshed`);
+    } catch (err) {
+      // Worth saying out loud but never worth failing startup over: the channel
+      // may have been deleted, and the bot has a server to run either way.
+      log(`${label} could not be refreshed: ${
+        err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 }

@@ -1,4 +1,5 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, UserSelectMenuBuilder, } from 'discord.js';
+import { handleRestartRoleButton, RESTART_ROLE_BUTTON } from './alertrole.js';
 import { SERVER, SIGNATURE } from './brand.js';
 import { handleShopPanel } from './shoppanel.js';
 import { beginLink, describeError, runSlay, startTeleport, steamNamer, } from './commands.js';
@@ -44,6 +45,10 @@ export function buildHubEmbed() {
     }, {
         name: '✅  Verify (required)',
         value: 'Link your Steam account. Nothing that touches your dinosaur works until you do.',
+    }, {
+        name: '🔔  Restart alerts',
+        value: 'Give yourself the ping for scheduled restarts, or take it back. '
+            + 'Press it again to turn them off.',
     })
         .setFooter({ text: SIGNATURE });
 }
@@ -54,7 +59,11 @@ export function hubRows() {
             .setEmoji('🎮').setStyle(ButtonStyle.Primary), new ButtonBuilder().setCustomId('hub:stats').setLabel('Stats')
             .setEmoji('📊').setStyle(ButtonStyle.Secondary)),
         new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('hub:verify').setLabel('Verify')
-            .setEmoji('✅').setStyle(ButtonStyle.Success)),
+            .setEmoji('✅').setStyle(ButtonStyle.Success), 
+        // Opt-in rather than a blanket ping: a channel that pings everyone on a
+        // schedule is a channel people mute.
+        new ButtonBuilder().setCustomId(RESTART_ROLE_BUTTON).setLabel('Restart alerts')
+            .setEmoji('🔔').setStyle(ButtonStyle.Secondary)),
     ];
 }
 function verifyModal() {
@@ -120,6 +129,13 @@ export async function handleHubInteraction(ctx, interaction) {
     }
     if (!id.startsWith('hub:'))
         return false;
+    // Self-service, so it needs no link and no game session — it only touches a
+    // Discord role. The reply says what is wrong when Discord refuses, which is
+    // the part an admin actually needs; there is no logger threaded this far.
+    if (interaction.isButton()
+        && await handleRestartRoleButton(ctx, interaction, () => undefined)) {
+        return true;
+    }
     // The modal has to be the first response, so it cannot be deferred first.
     if (id === 'hub:verify' && interaction.isButton()) {
         await interaction.showModal(verifyModal());

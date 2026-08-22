@@ -2,6 +2,16 @@ import { EmbedBuilder } from 'discord.js';
 import type { Ctx } from './commands.js';
 import { MAX_SLOTS } from './bridge.js';
 export { MAX_SLOTS };
+export declare function maxShopTier(ctx: Ctx): number;
+export declare function setMaxShopTier(ctx: Ctx, tier: number): void;
+/**
+ * Whether the shop will sell this at all.
+ *
+ * Checked when buying, not only when listing. Hiding a species from the
+ * catalogue while `/shop buy` still accepts it by name is not a restriction,
+ * it is a secret — and the species names are public in `/population`.
+ */
+export declare function sellable(ctx: Ctx, species: string): boolean;
 export declare function priceOf(ctx: Ctx, species: string): number;
 export declare function mutationPrice(ctx: Ctx): number;
 export declare function totalPrice(ctx: Ctx, species: string, mutations: string[]): number;
