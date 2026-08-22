@@ -22,6 +22,38 @@ export const DEFAULT_RATE_PER_HOUR = 60;
  * everyone online for all six — including people who joined a minute ago.
  */
 const MAX_MINUTES_PER_AWARD = 5;
+/**
+ * A one-off for linking a Steam account.
+ *
+ * Linking is the step everything else is gated behind, and it costs somebody a
+ * trip in game to type a code — so it is worth paying for rather than merely
+ * demanding. Small on purpose: it is a nudge past the one bit of friction, not
+ * a thing to farm.
+ *
+ * **Paid once per Steam account, ever.** Against the game account rather than
+ * the Discord one, because unlinking and linking again is otherwise a button
+ * that prints points. That marker is never cleared, including by /unlink.
+ */
+const DEFAULT_LINK_BONUS = 150;
+export function linkBonus(ctx) {
+    const raw = Number.parseFloat(ctx.db.getSetting('link_bonus') ?? '');
+    return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_LINK_BONUS;
+}
+export function setLinkBonus(ctx, amount) {
+    ctx.db.setSetting('link_bonus', String(amount));
+}
+/** Pays it if this account has never been paid. Returns what was paid. */
+export function payLinkBonus(ctx, steamId) {
+    const amount = linkBonus(ctx);
+    if (amount <= 0)
+        return 0;
+    const key = `link_bonus_paid:${steamId}`;
+    if (ctx.db.getSetting(key) === '1')
+        return 0;
+    ctx.db.setSetting(key, '1');
+    ctx.db.addPoints(steamId, amount, 0);
+    return amount;
+}
 export function ratePerHour(ctx) {
     const raw = Number.parseFloat(ctx.db.getSetting(RATE_KEY) ?? '');
     return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_RATE_PER_HOUR;

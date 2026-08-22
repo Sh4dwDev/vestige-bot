@@ -86,7 +86,7 @@ function basket(ctx, discordId, balance) {
             // Elder is free, and worth saying so: it cannot be earned on a bought
             // dinosaur, so left unmentioned it reads as missing rather than given.
             'Elder: **included**\n' +
-            (prime ? `Prime: **yes** — ${primePrice(ctx)}\n` : '_Not Prime._\n') +
+            (prime ? `Prime: **yes** — ${primePrice(ctx, species)}\n` : '_Not Prime._\n') +
             `\n**Total ${display(price).toLocaleString()}** · you have ` +
             `**${display(balance).toLocaleString()}**` +
             (affordable ? '' : '\n\n⚠️ Not enough points.')
@@ -124,7 +124,7 @@ function basket(ctx, discordId, balance) {
     // One toggle rather than add/remove buttons, so the row never shows a
     // control that does nothing.
     new ButtonBuilder().setCustomId('shop:prime')
-        .setLabel(prime ? 'Prime: on' : `Prime +${primePrice(ctx)}`)
+        .setLabel(prime ? 'Prime: on' : `Prime +${primePrice(ctx, species)}`)
         .setEmoji('👑').setStyle(prime ? ButtonStyle.Primary : ButtonStyle.Secondary), new ButtonBuilder().setCustomId('shop:cancel').setLabel('Cancel')
         .setStyle(ButtonStyle.Secondary)));
     return { embed, rows };

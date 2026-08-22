@@ -84,6 +84,7 @@ import {
   buildLeaderboardEmbed,
   display,
   ratePerHour,
+  setLinkBonus,
   setRatePerHour,
 } from './points.js';
 import type { Panel } from './pterodactyl.js';
@@ -227,7 +228,7 @@ interface Editable {
 
 const linkReplies = new Map<string, Editable>();
 
-export async function announceLinked(discordId: string): Promise<boolean> {
+export async function announceLinked(discordId: string, bonus = 0): Promise<boolean> {
   const interaction = linkReplies.get(discordId);
   linkReplies.delete(discordId);
   if (!interaction) return false;
@@ -236,6 +237,9 @@ export async function announceLinked(discordId: string): Promise<boolean> {
     await interaction.editReply({
       embeds: [embed(COLORS.good, 'Recognised',
         `${ARCHIVE_CAP} knows you now.\n\n` +
+        (bonus > 0
+          ? `🪙 **+${display(bonus).toLocaleString()} points** for linking.\n\n`
+          : '') +
         'Run `/storage` while playing a fully grown dinosaur to commit it.')],
     });
     return true;
@@ -709,6 +713,11 @@ export const commandData = [
             .addUserOption((o) => o.setName('user').setDescription('Who').setRequired(true))
             .addNumberOption((o) =>
               o.setName('amount').setDescription('New balance').setMinValue(0).setRequired(true)))
+        .addSubcommand((s) =>
+          s.setName('linkbonus').setDescription('One-off points for linking an account')
+            .addIntegerOption((o) =>
+              o.setName('points').setDescription('0 turns it off')
+                .setMinValue(0).setMaxValue(100_000).setRequired(true)))
         .addSubcommand((s) =>
           s.setName('rate').setDescription('Points earned per hour played')
             .addNumberOption((o) =>
@@ -1230,6 +1239,24 @@ async function handleAdminPoints(
   i: ChatInputCommandInteraction,
   action: string,
 ): Promise<void> {
+  if (action === 'linkbonus') {
+    const points = i.options.getInteger('points', true);
+    setLinkBonus(ctx, points);
+    await i.reply({
+      embeds: [embed(COLORS.good, 'Link bonus set',
+        points === 0
+          ? 'Linking no longer pays anything.'
+          : `Linking now pays **${display(points).toLocaleString()}** once.
+
+` +
+            'Paid against the Steam account rather than the Discord one, so ' +
+            'unlinking and linking again does not pay twice. Anyone who linked ' +
+            'before this was set is not paid retroactively.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
   if (action === 'rate') {
     const rate = i.options.getNumber('per_hour', true);
     setRatePerHour(ctx, rate);

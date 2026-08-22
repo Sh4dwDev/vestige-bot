@@ -15,8 +15,15 @@ export declare function sellable(ctx: Ctx, species: string): boolean;
 export declare function priceOf(ctx: Ctx, species: string): number;
 export declare function elderStacks(ctx: Ctx): number;
 export declare function setElderStacks(ctx: Ctx, stacks: number): void;
-export declare function primePrice(ctx: Ctx): number;
-export declare function setPrimePrice(ctx: Ctx, price: number): void;
+export declare function primeFactor(ctx: Ctx): number;
+export declare function setPrimeFactor(ctx: Ctx, factor: number): void;
+/**
+ * What Prime adds to this species.
+ *
+ * A flat override still wins where one is set, so a server that wants one price
+ * for everything can still have it.
+ */
+export declare function primePrice(ctx: Ctx, species: string): number;
 export declare function mutationPrice(ctx: Ctx): number;
 export declare function totalPrice(ctx: Ctx, species: string, mutations: string[], prime?: boolean): number;
 export declare function setSpeciesPrice(ctx: Ctx, species: string, price: number): void;

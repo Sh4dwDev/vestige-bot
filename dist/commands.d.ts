@@ -27,7 +27,7 @@ interface Editable {
         embeds: EmbedBuilder[];
     }) => Promise<unknown>;
 }
-export declare function announceLinked(discordId: string): Promise<boolean>;
+export declare function announceLinked(discordId: string, bonus?: number): Promise<boolean>;
 export declare const commandData: import("discord.js").RESTPostAPIChatInputApplicationCommandsJSONBody[];
 export declare function handleCommand(ctx: Ctx, i: ChatInputCommandInteraction): Promise<void>;
 export declare const LINK_MODAL_ID = "lk:steam";

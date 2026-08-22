@@ -12,7 +12,7 @@ import { refreshGuides } from './guides.js';
 import { handleFounderInteraction } from './founders.js';
 import { handleHubInteraction } from './hub.js';
 import { buildKillEmbed, killfeedChannel } from './kills.js';
-import { awardOnline } from './points.js';
+import { awardOnline, payLinkBonus } from './points.js';
 import { giveJoinRole } from './joinrole.js';
 import { cacheInvites, collectPayouts, noteJoin, noteLink, tellInviter, } from './referrals.js';
 import { skinNeedsReapply } from './skinsync.js';
@@ -391,6 +391,9 @@ async function handleChatEvent(ctx, event, lastReply, client) {
     ctx.db.saveLink(pending.discordId, pending.steamId);
     ctx.db.clearPending(pending.discordId);
     log(`link: ${pending.discordId} <- ${pending.steamId}`);
+    const bonus = payLinkBonus(ctx, pending.steamId);
+    if (bonus > 0)
+        log(`link: paid ${bonus} joining bonus to ${pending.steamId}`);
     // Checked here rather than at join: the Steam account is what a referral is
     // owed against, and this is the first moment it is known. The outcome is
     // logged, because "why was I not credited" is otherwise unanswerable.
@@ -400,7 +403,7 @@ async function handleChatEvent(ctx, event, lastReply, client) {
     }
     // Turns their own "/link" reply into a confirmation, in the channel they are
     // already looking at and visible only to them.
-    await announceLinked(pending.discordId);
+    await announceLinked(pending.discordId, bonus);
 }
 /**
  * Answers `!discord`. The mod cannot write to game chat, so the reply goes out

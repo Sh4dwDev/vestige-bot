@@ -17,7 +17,7 @@ import { addRequest, askEmbed, askRows, cooldownMinutes, delaySeconds, requestFo
 import { buildHubEmbed, hubRows, HUB_MESSAGE_KEY, setHubChannel } from './hub.js';
 import { buildKillsEmbed, setKillfeedChannel } from './kills.js';
 import { postOrEdit } from './pinned.js';
-import { buildBalanceEmbed, buildLeaderboardEmbed, display, ratePerHour, setRatePerHour, } from './points.js';
+import { buildBalanceEmbed, buildLeaderboardEmbed, display, ratePerHour, setLinkBonus, setRatePerHour, } from './points.js';
 import { nextRestart, restartNow, restartSettings, setRestartAnnounce, setRestartInterval, setRestartsEnabled, WARNINGS, } from './restarts.js';
 import { cleanupSettings, clearAI, nextCleanup, setCleanupAI, setCleanupEnabled, setCleanupHours, wipeNow, } from './cleanup.js';
 import { backupConfig, lastBackup, listSnapshots, markBackup, restoreSnapshot, runBackup, } from './backup.js';
@@ -54,7 +54,7 @@ function embed(color, title, description, fields) {
 }
 const isSteamId = (v) => /^7656119\d{10}$/.test(v);
 const linkReplies = new Map();
-export async function announceLinked(discordId) {
+export async function announceLinked(discordId, bonus = 0) {
     const interaction = linkReplies.get(discordId);
     linkReplies.delete(discordId);
     if (!interaction)
@@ -62,6 +62,9 @@ export async function announceLinked(discordId) {
     try {
         await interaction.editReply({
             embeds: [embed(COLORS.good, 'Recognised', `${ARCHIVE_CAP} knows you now.\n\n` +
+                    (bonus > 0
+                        ? `🪙 **+${display(bonus).toLocaleString()} points** for linking.\n\n`
+                        : '') +
                     'Run `/storage` while playing a fully grown dinosaur to commit it.')],
         });
         return true;
@@ -355,6 +358,9 @@ export const commandData = [
         .addSubcommand((s) => s.setName('set').setDescription('Set someone’s balance exactly')
         .addUserOption((o) => o.setName('user').setDescription('Who').setRequired(true))
         .addNumberOption((o) => o.setName('amount').setDescription('New balance').setMinValue(0).setRequired(true)))
+        .addSubcommand((s) => s.setName('linkbonus').setDescription('One-off points for linking an account')
+        .addIntegerOption((o) => o.setName('points').setDescription('0 turns it off')
+        .setMinValue(0).setMaxValue(100_000).setRequired(true)))
         .addSubcommand((s) => s.setName('rate').setDescription('Points earned per hour played')
         .addNumberOption((o) => o.setName('per_hour').setDescription('Points per hour')
         .setMinValue(0).setMaxValue(10_000).setRequired(true)))),
@@ -717,6 +723,22 @@ async function handlePoints(ctx, i) {
     });
 }
 async function handleAdminPoints(ctx, i, action) {
+    if (action === 'linkbonus') {
+        const points = i.options.getInteger('points', true);
+        setLinkBonus(ctx, points);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Link bonus set', points === 0
+                    ? 'Linking no longer pays anything.'
+                    : `Linking now pays **${display(points).toLocaleString()}** once.
+
+` +
+                        'Paid against the Steam account rather than the Discord one, so ' +
+                        'unlinking and linking again does not pay twice. Anyone who linked ' +
+                        'before this was set is not paid retroactively.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
     if (action === 'rate') {
         const rate = i.options.getNumber('per_hour', true);
         setRatePerHour(ctx, rate);

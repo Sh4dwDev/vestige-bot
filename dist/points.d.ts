@@ -2,6 +2,10 @@ import { EmbedBuilder } from 'discord.js';
 import type { Ctx } from './commands.js';
 import type { PlayerRow } from './population.js';
 export declare const DEFAULT_RATE_PER_HOUR = 60;
+export declare function linkBonus(ctx: Ctx): number;
+export declare function setLinkBonus(ctx: Ctx, amount: number): void;
+/** Pays it if this account has never been paid. Returns what was paid. */
+export declare function payLinkBonus(ctx: Ctx, steamId: string): number;
 export declare function ratePerHour(ctx: Ctx): number;
 export declare function setRatePerHour(ctx: Ctx, rate: number): void;
 /**

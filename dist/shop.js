@@ -67,7 +67,18 @@ export function priceOf(ctx, species) {
  * Prime is charged for, because it is the part people actually want.
  */
 const DEFAULT_ELDER_STACKS = 1;
-const DEFAULT_PRIME_PRICE = 800;
+/**
+ * Prime costs a share of the animal, not a flat fee.
+ *
+ * A flat 800 was nearly three times the price of a Dryosaurus and well under a
+ * Tier 3, so it read as a rip-off at the bottom of the shelf and a bargain at
+ * the top — the opposite of what a premium should do. Scaling keeps it the same
+ * decision whatever you are buying.
+ *
+ * 0.8 puts a Tier 3 at 800, which is where the flat price sat, so nothing the
+ * server already advertised gets more expensive.
+ */
+const DEFAULT_PRIME_FACTOR = 0.8;
 export function elderStacks(ctx) {
     const raw = Number.parseInt(ctx.db.getSetting('shop_elder_stacks') ?? '', 10);
     return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_ELDER_STACKS;
@@ -75,12 +86,25 @@ export function elderStacks(ctx) {
 export function setElderStacks(ctx, stacks) {
     ctx.db.setSetting('shop_elder_stacks', String(stacks));
 }
-export function primePrice(ctx) {
-    const raw = Number.parseFloat(ctx.db.getSetting('shop_prime_price') ?? '');
-    return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_PRIME_PRICE;
+export function primeFactor(ctx) {
+    const raw = Number.parseFloat(ctx.db.getSetting('shop_prime_factor') ?? '');
+    return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_PRIME_FACTOR;
 }
-export function setPrimePrice(ctx, price) {
-    ctx.db.setSetting('shop_prime_price', String(price));
+export function setPrimeFactor(ctx, factor) {
+    ctx.db.setSetting('shop_prime_factor', String(factor));
+}
+/**
+ * What Prime adds to this species.
+ *
+ * A flat override still wins where one is set, so a server that wants one price
+ * for everything can still have it.
+ */
+export function primePrice(ctx, species) {
+    const flat = Number.parseFloat(ctx.db.getSetting('shop_prime_price') ?? '');
+    if (Number.isFinite(flat) && flat >= 0)
+        return flat;
+    // Rounded to something a player can hold in their head rather than 243.6.
+    return Math.round((priceOf(ctx, species) * primeFactor(ctx)) / 10) * 10;
 }
 export function mutationPrice(ctx) {
     const stored = Number.parseFloat(ctx.db.getSetting('shop_mutation_price') ?? '');
@@ -89,7 +113,7 @@ export function mutationPrice(ctx) {
 export function totalPrice(ctx, species, mutations, prime = false) {
     return priceOf(ctx, species)
         + (mutations.length * mutationPrice(ctx))
-        + (prime ? primePrice(ctx) : 0);
+        + (prime ? primePrice(ctx, species) : 0);
 }
 export function setSpeciesPrice(ctx, species, price) {
     ctx.db.setSetting(`shop_price:${species}`, String(price));
@@ -149,7 +173,8 @@ export function buildCatalogue(ctx, species, balance) {
                 'yourself — nobody buys their way to the top of the island.'
             : ''))
         .setFooter({
-        text: `Elder included · Prime +${primePrice(ctx)} · Mutations +${mutationPrice(ctx)} each`
+        text: `Elder included · Prime +${Math.round(primeFactor(ctx) * 100)}% of the price`
+            + ` · Mutations +${mutationPrice(ctx)} each`
             + ` · uses one of your ${MAX_SLOTS} vaults\n${SIGNATURE}`,
     });
     for (const tier of [4, 3, 2, 1]) {
