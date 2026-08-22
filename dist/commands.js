@@ -25,7 +25,7 @@ import { baseImage, DEFAULT_PATHS, sniffFormat, SUPPORTED, toPixel } from './hea
 import { applyReading, clearReadings, landmarkById, LANDMARKS, storedReadings, } from './calibrate.js';
 import { ANCHORS, boundsAreManual, buildHeatmapEmbed, effectiveBounds, HEATMAP_MESSAGE_KEY, heatmapMinutes, pointsFrom, resetBounds, resolveMapImage, saveBounds, setHeatmapChannel, setHeatmapImage, setHeatmapMinutes, setManualBounds, storedBounds, widen, } from './heatmap.js';
 import { applyCaps, planCaps } from './capplan.js';
-import { bucket, buildPeakEmbed, PEAK_DAY_MESSAGE_KEY, PEAK_WEEK_MESSAGE_KEY, REFRESH_MINUTES, setPeaksChannel, } from './peaks.js';
+import { postPeak, REFRESH_MINUTES, setPeaksChannel } from './peaks.js';
 import { enforcementEnabled, enforcementFault, restoreAllPlayables, setEnforcement, syncPlayables, } from './enforce.js';
 import { handleInGame, handleModeration } from './moderation.js';
 import { buildFounderPanel, founderLimit, FOUNDER_MESSAGE_KEY, founderRows, setFounderChannel, setFounderLimit, skinById, } from './founders.js';
@@ -1791,8 +1791,8 @@ async function handlePeaks(ctx, i, action) {
     const dayAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
     const weekAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
     try {
-        await postOrEdit(ctx.db, i.client, channel.id, PEAK_DAY_MESSAGE_KEY, [buildPeakEmbed('day', ctx.db.peakSince(dayAgo), bucket(ctx.db.countsSince(dayAgo), dayAgo, 24, now), now)]);
-        await postOrEdit(ctx.db, i.client, channel.id, PEAK_WEEK_MESSAGE_KEY, [buildPeakEmbed('week', ctx.db.peakSince(weekAgo), bucket(ctx.db.countsSince(weekAgo), weekAgo, 7, now), now)]);
+        await postPeak(ctx, i.client, channel.id, 'day', dayAgo, 24, now);
+        await postPeak(ctx, i.client, channel.id, 'week', weekAgo, 7, now);
         const readings = ctx.db.countsSince(weekAgo).length;
         await i.editReply({
             embeds: [embed(COLORS.good, 'Peak panels posted', `Both are in <#${channel.id}>, refreshing every **${REFRESH_MINUTES} ` +

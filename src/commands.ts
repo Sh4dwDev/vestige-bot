@@ -135,14 +135,7 @@ import {
   widen,
 } from './heatmap.js';
 import { applyCaps, planCaps, type PlannedCap } from './capplan.js';
-import {
-  bucket,
-  buildPeakEmbed,
-  PEAK_DAY_MESSAGE_KEY,
-  PEAK_WEEK_MESSAGE_KEY,
-  REFRESH_MINUTES,
-  setPeaksChannel,
-} from './peaks.js';
+import { postPeak, REFRESH_MINUTES, setPeaksChannel } from './peaks.js';
 import {
   enforcementEnabled,
   enforcementFault,
@@ -2543,12 +2536,8 @@ async function handlePeaks(
   const weekAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
 
   try {
-    await postOrEdit(ctx.db, i.client, channel.id, PEAK_DAY_MESSAGE_KEY,
-      [buildPeakEmbed('day', ctx.db.peakSince(dayAgo),
-        bucket(ctx.db.countsSince(dayAgo), dayAgo, 24, now), now)]);
-    await postOrEdit(ctx.db, i.client, channel.id, PEAK_WEEK_MESSAGE_KEY,
-      [buildPeakEmbed('week', ctx.db.peakSince(weekAgo),
-        bucket(ctx.db.countsSince(weekAgo), weekAgo, 7, now), now)]);
+    await postPeak(ctx, i.client, channel.id, 'day', dayAgo, 24, now);
+    await postPeak(ctx, i.client, channel.id, 'week', weekAgo, 7, now);
 
     const readings = ctx.db.countsSince(weekAgo).length;
     await i.editReply({

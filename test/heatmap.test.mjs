@@ -128,9 +128,13 @@ check('the grid is the size it says it is', (() => {
 // ---- the panel ------------------------------------------------------------
 
 {
+  // The panel is the map and nothing else. It used to print counts and the
+  // busiest Lat/Long, written when the picture did not work yet — repeating in
+  // text what the heat already shows, and handing out a hunting aid with it.
   const quiet = h.buildHeatmapEmbed([], null).toJSON();
-  check('an empty server says so rather than showing a blank grid',
-    /All quiet/.test(quiet.description ?? ''));
+  check('an empty server still shows the map rather than a line of text',
+    quiet.image?.url === 'attachment://heatmap.png');
+  check('and says nothing else', !quiet.description);
 
   const down = h.buildHeatmapEmbed([], null, { unreachable: true }).toJSON();
   check('an unreachable server still renders', /Unreachable/.test(down.description ?? ''));
@@ -141,11 +145,14 @@ check('the grid is the size it says it is', (() => {
     { minutes: 5 },
   ).toJSON();
 
-  check('a live map says how many are on', /\*\*20\*\*/.test(live.description ?? ''));
-  check('it says which way is up', /North is up/.test(live.description ?? ''));
+  check('a live map is just the picture', !live.description,
+    JSON.stringify(live.description ?? ''));
+  check('and it is still the picture', live.image?.url === 'attachment://heatmap.png');
+  check('nobody’s position is printed as coordinates',
+    !/Lat|Long/.test(JSON.stringify(live)));
+  check('the title survives, so the panel is identifiable',
+    /Where everyone is/.test(live.title ?? ''));
   check('it says how often it refreshes', /every 5 min/.test(live.footer?.text ?? ''));
-  check('it stays within the description limit',
-    (live.description ?? '').length < 4096, `${(live.description ?? '').length} chars`);
 }
 
 // Rows without positions must not be plotted at 0,0 - that would put everybody

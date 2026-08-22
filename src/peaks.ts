@@ -2,6 +2,7 @@ import { EmbedBuilder, type Client } from 'discord.js';
 
 import { SERVER, SIGNATURE } from './brand.js';
 import type { Ctx } from './commands.js';
+import { renderChart } from './chart.js';
 import { postOrEdit } from './pinned.js';
 
 /**
@@ -108,11 +109,21 @@ export function sparkline(buckets: Bucket[]): string {
   }).join('');
 }
 
+export const IMAGE_NAME = { day: 'peaks-day.png', week: 'peaks-week.png' } as const;
+
+/** Where the bottom of the chart is labelled, kept short: the axis font is 8px. */
+export const TICKS = {
+  day: ['-24h', '-18h', '-12h', '-6h', 'now'],
+  week: ['-7d', '-5d', '-3d', '-1d', 'now'],
+} as const;
+
 export function buildPeakEmbed(
   window: 'day' | 'week',
   peak: { online: number; at: string } | null,
   buckets: Bucket[],
   now: Date,
+  /** False when the chart could not be drawn, which falls back to the bars. */
+  charted = false,
 ): EmbedBuilder {
   const day = window === 'day';
   const title = day ? '📈  Busiest in the last 24 hours' : '📅  Busiest this week';
@@ -141,12 +152,49 @@ export function buildPeakEmbed(
     .setDescription(
       `**${peak.online}** at once, <t:${Math.floor(when.getTime() / 1000)}:R>.\n` +
       `Typically **${typical.toFixed(1)}** at the busiest point of each ` +
-      `${day ? 'hour' : 'day'}.\n\n` +
-      `\`\`\`\n${sparkline(buckets)}\n\`\`\`\n` +
-      `-# ${day ? '24 hours ago' : '7 days ago'} → now`,
+      `${day ? 'hour' : 'day'}.` +
+      // The bars are the fallback for when the chart could not be drawn. They
+      // carry the same shape at far lower resolution, which beats a panel that
+      // silently loses its picture.
+      (charted
+        ? ''
+        : `\n\n\`\`\`\n${sparkline(buckets)}\n\`\`\`\n`
+          + `-# ${day ? '24 hours ago' : '7 days ago'} → now`),
     )
+    .setImage(charted ? `attachment://${IMAGE_NAME[window]}` : null)
     .setFooter({ text: `${SERVER} · updates every ${REFRESH_MINUTES} min\n${SIGNATURE}` })
     .setTimestamp(now);
+}
+
+/**
+ * Draws one window and puts it in the channel.
+ *
+ * Shared by the timer and the setup command so both produce the same panel —
+ * the killfeed had two copies of one rule and kept behaving like the older one.
+ */
+export async function postPeak(
+  ctx: Ctx,
+  client: Client,
+  channelId: string,
+  window: 'day' | 'week',
+  since: Date,
+  slots: number,
+  now: Date,
+): Promise<void> {
+  const buckets = bucket(ctx.db.countsSince(since), since, slots, now);
+  const peak = ctx.db.peakSince(since);
+  const key = window === 'day' ? PEAK_DAY_MESSAGE_KEY : PEAK_WEEK_MESSAGE_KEY;
+
+  // A failed render must not take the panel with it: the text fallback still
+  // says everything the chart does, just less legibly.
+  const png = await renderChart(buckets, {
+    heading: window === 'day' ? 'Players, last 24 hours' : 'Players, last 7 days',
+    ticks: [...TICKS[window]],
+  }).catch(() => null);
+
+  await postOrEdit(ctx.db, client, channelId, key,
+    [buildPeakEmbed(window, peak, buckets, now, png !== null)], [],
+    png ? [{ attachment: png, name: IMAGE_NAME[window] }] : []);
 }
 
 export function startPeakPanels(ctx: Ctx, client: Client, log: (m: string) => void): void {
@@ -160,13 +208,8 @@ export function startPeakPanels(ctx: Ctx, client: Client, log: (m: string) => vo
 
     try {
       // One slot an hour for the day, one a day for the week.
-      const day = buildPeakEmbed('day', ctx.db.peakSince(dayAgo),
-        bucket(ctx.db.countsSince(dayAgo), dayAgo, 24, now), now);
-      const week = buildPeakEmbed('week', ctx.db.peakSince(weekAgo),
-        bucket(ctx.db.countsSince(weekAgo), weekAgo, 7, now), now);
-
-      await postOrEdit(ctx.db, client, channelId, PEAK_DAY_MESSAGE_KEY, [day]);
-      await postOrEdit(ctx.db, client, channelId, PEAK_WEEK_MESSAGE_KEY, [week]);
+      await postPeak(ctx, client, channelId, 'day', dayAgo, 24, now);
+      await postPeak(ctx, client, channelId, 'week', weekAgo, 7, now);
 
       ctx.db.pruneCounts(new Date(now.getTime() - (KEEP_DAYS * 24 * 60 * 60 * 1000)));
     } catch (err) {

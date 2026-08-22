@@ -378,26 +378,15 @@ export function buildHeatmapEmbed(
   // The picture is attached by the caller and always present, including on
   // an empty server: a panel that swaps between an image and a line of text
   // reads as broken rather than quiet.
-  embed.setImage('attachment://heatmap.png');
-
-  if (points.length === 0 || !bounds) {
-    return embed.setColor(0x4f545c)
-      .setDescription('🌙  **All quiet.** Nobody is out there right now.');
-  }
-
-  const spots = hotspots(points, bounds);
-
+  //
+  // **Nothing but the map.** The counts and hotspot coordinates were written
+  // before the picture worked, when a list of Lat/Long pairs was the only way
+  // to say where anyone was. Now that the heat is drawn where the players are,
+  // repeating it in text says the same thing worse — and printing a busiest
+  // spot to the nearest thousand units is a hunting aid nobody asked for.
   return embed
-    .setColor(0x5865f2)
-    .setDescription(
-      `**${points.length}** on the island. North is up.` +
-      (spots.length > 0
-        ? '\n\n**Busiest right now**\n' + spots
-          .map((s) => `**${s.count}** around Lat \`${s.lat}\` Long \`${s.long}\``)
-          .join('\n')
-        : '') +
-      '\n\nCoordinates match your in-game HUD.',
-    );
+    .setColor(points.length > 0 && bounds ? 0x5865f2 : 0x4f545c)
+    .setImage('attachment://heatmap.png');
 }
 
 /** Positions from the mod, skipping anyone whose pawn would not give one. */

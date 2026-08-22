@@ -34,8 +34,26 @@ export declare function bucket(readings: Reading[], since: Date, slots: number, 
  * reading is a space, which reads as a gap rather than as zero players.
  */
 export declare function sparkline(buckets: Bucket[]): string;
+export declare const IMAGE_NAME: {
+    readonly day: "peaks-day.png";
+    readonly week: "peaks-week.png";
+};
+/** Where the bottom of the chart is labelled, kept short: the axis font is 8px. */
+export declare const TICKS: {
+    readonly day: readonly ["-24h", "-18h", "-12h", "-6h", "now"];
+    readonly week: readonly ["-7d", "-5d", "-3d", "-1d", "now"];
+};
 export declare function buildPeakEmbed(window: 'day' | 'week', peak: {
     online: number;
     at: string;
-} | null, buckets: Bucket[], now: Date): EmbedBuilder;
+} | null, buckets: Bucket[], now: Date, 
+/** False when the chart could not be drawn, which falls back to the bars. */
+charted?: boolean): EmbedBuilder;
+/**
+ * Draws one window and puts it in the channel.
+ *
+ * Shared by the timer and the setup command so both produce the same panel —
+ * the killfeed had two copies of one rule and kept behaving like the older one.
+ */
+export declare function postPeak(ctx: Ctx, client: Client, channelId: string, window: 'day' | 'week', since: Date, slots: number, now: Date): Promise<void>;
 export declare function startPeakPanels(ctx: Ctx, client: Client, log: (m: string) => void): void;
