@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.33.0"
+local MOD_VERSION = "3.34.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -2191,30 +2191,46 @@ local function creatureNameOf(pawn)
     return name ~= "Unknown" and name or ""
 end
 
--- Logs the shape of the ApplyDamage callback once, then never again. Read it
--- back with `node scripts/deploy-mod.mjs --log`.
-local damageProbed = false
+-- Logs the shape of the ApplyDamage callback, so a fall or a drowning can be
+-- named instead of arriving as a bare "died".
+--
+-- The first attempt called the methods straight on each parameter and got nil
+-- fourteen times: UE4SS hands over wrappers, and the value only appears after
+-- :get(). It also fires a fixed number of parameters regardless of the real
+-- signature, so most of those fourteen are padding.
+--
+-- Several shots rather than one, because the interesting call is the fall that
+-- kills somebody, not whatever damage happened first after a reload.
+local damageProbes = 0
 function probeDamageParams(...)
-    if damageProbed then return end
-    damageProbed = true
+    if damageProbes >= 6 then return end
+    damageProbes = damageProbes + 1
 
-    local count = select("#", ...)
     local parts = {}
-    for i = 1, count do
-        local v = select(i, ...)
+    for i = 1, select("#", ...) do
+        local raw = select(i, ...)
+        local v = unwrap(raw)
+        if v == nil then v = raw end
+
         local kind = type(v)
-        local detail = kind
-        if kind == "userdata" or kind == "table" then
+        local detail = nil
+
+        if kind == "number" or kind == "boolean" or kind == "string" then
+            detail = kind .. "=" .. tostring(v)
+        elseif v ~= nil then
             local name
             pcall(function() name = v:GetFullName() end)
             if name == nil then pcall(function() name = v:GetClass():GetFullName() end) end
-            detail = kind .. "(" .. tostring(name) .. ")"
-        elseif kind == "number" or kind == "boolean" or kind == "string" then
-            detail = kind .. "=" .. tostring(v)
+            if name ~= nil then detail = "obj:" .. tostring(name) end
         end
-        parts[#parts + 1] = string.format("%d:%s", i, detail)
+
+        -- Padding is the common case, so only the parameters that said
+        -- something are logged. Fourteen "nil"s taught nobody anything.
+        if detail ~= nil then parts[#parts + 1] = string.format("%d:%s", i, detail) end
     end
-    log("PROBE ApplyDamage params: " .. table.concat(parts, "  "))
+
+    log(string.format("PROBE#%d ApplyDamage: %s", damageProbes,
+        #parts > 0 and table.concat(parts, "  ") or "(nothing readable)"))
 end
 
 local function onApplyDamage(selfParam, targetParam)

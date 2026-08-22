@@ -375,3 +375,26 @@ setter is plausible — but plausible is how invented API names get shipped, and
 this file exists because that has cost hours before. Confirm against
 `diplomatic-tendencies/evrima-dev-knowledge`, or read the struct off a naturally
 grown dinosaur and compare, before touching the restore path.
+
+## Fall damage never reaches ApplyDamage
+
+Measured, not assumed. A probe on `TICharacterBase:ApplyDamage` logging its
+first six calls was deployed, the server rebooted at 14:56:04, and a player died
+to fall damage at 14:57:05 — **with no probe line in between**. Zero calls, so
+no parameter of that hook carries a fall. The existing comment on the hook said
+as much ("direct player attacks only — never damage over time, environmental or
+AI damage") and it is right.
+
+**Do not probe this hook again for environmental causes.** It cannot answer.
+Naming a fall, a drowning or a bleed needs a different hook, which is not
+identified here — check `diplomatic-tendencies/evrima-dev-knowledge` before
+attempting it.
+
+Two things the same exercise did establish:
+
+- The hook **does** fire for real damage, so the AI-killer attribution built on
+  it works. A death to wildlife is named; a death to a fall is not.
+- UE4SS hands each parameter over as a **wrapper**, and passes a fixed fourteen
+  regardless of the real signature. Calling a method straight on one returns
+  nil; `unwrap()` (`:get()`) first. The first version of the probe logged
+  fourteen nils for exactly this reason.
