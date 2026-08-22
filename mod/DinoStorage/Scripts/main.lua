@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.27.0"
+local MOD_VERSION = "3.29.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1300,19 +1300,47 @@ local function handlePrime(cmd)
         return
     end
 
+    -- why the maxima: a bare "hunger 45" says nothing. Whether that is full or
+    -- nearly empty decides what a condition is reacting to, and reading the
+    -- flags without it wasted a round of testing.
     local growth = callNumber(pawn, "GetGrowth") or 0
     local health = callNumber(pawn, "GetHealth") or 0
     local maxHealth = callNumber(pawn, "GetMaxHealth") or 0
     local stamina = callNumber(pawn, "GetStamina") or 0
+    local maxStamina = callNumber(pawn, "GetMaxStamina") or 0
     local hunger = callNumber(pawn, "GetHunger") or 0
+    local maxHunger = callNumber(pawn, "GetMaxHunger") or 0
     local thirst = callNumber(pawn, "GetThirst") or 0
+    local maxThirst = callNumber(pawn, "GetMaxThirst") or 0
+
+    -- Nutrients too: the vitals moved a long way without shifting a single
+    -- flag, so whatever these conditions watch, it is not hunger or thirst.
+    -- Nutrients are the next thing that is per-dinosaur and slow to change.
+    local nutrients = {}
+    pcall(function()
+        local nut = pawn.NutrientsStruct
+        if nut == nil then return end
+        for _, field in ipairs(NUTRIENTS) do
+            local v
+            if pcall(function() v = nut[field] end) and type(v) == "number" then
+                nutrients[#nutrients + 1] = string.format('"%s":%.1f', field, v)
+            end
+        end
+        local mal
+        if pcall(function() mal = nut.bMalnutrition end) and type(mal) == "boolean" then
+            nutrients[#nutrients + 1] = string.format('"bMalnutrition":%s', mal and "true" or "false")
+        end
+    end)
 
     writeResult(cmd.id, "prime", cmd.steam, true, "read", string.format(
-        '{"eligible":%s,"conditions":{%s},'
+        '{"eligible":%s,"conditions":{%s},"nutrients":{' .. table.concat(nutrients, ",") .. '},'
         .. '"growth":%.4f,"health":%.1f,"maxHealth":%.1f,'
-        .. '"stamina":%.1f,"hunger":%.1f,"thirst":%.1f}',
+        .. '"stamina":%.1f,"maxStamina":%.1f,'
+        .. '"hunger":%.1f,"maxHunger":%.1f,'
+        .. '"thirst":%.1f,"maxThirst":%.1f}',
         eligible and "true" or "false", table.concat(conditions, ","),
-        growth, health, maxHealth, stamina, hunger, thirst))
+        growth, health, maxHealth, stamina, maxStamina,
+        hunger, maxHunger, thirst, maxThirst))
 end
 
 -- ---------------------------------------------------------------------------

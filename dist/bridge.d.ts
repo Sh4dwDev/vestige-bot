@@ -31,8 +31,13 @@ export interface PrimeState {
     health: number;
     maxHealth: number;
     stamina: number;
+    maxStamina: number;
     hunger: number;
+    maxHunger: number;
     thirst: number;
+    maxThirst: number;
+    /** Per-nutrient values, plus `bMalnutrition`. Empty if the pawn withheld them. */
+    nutrients?: Record<string, number | boolean>;
 }
 export interface PlayerRow {
     /** Present from mod v3.2.0 on; older payloads omit it. */
