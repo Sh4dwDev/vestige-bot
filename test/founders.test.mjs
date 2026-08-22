@@ -109,7 +109,8 @@ check('the limit can be raised', f.founderLimit(ctx) === 100);
   // change their mind. There is nothing left to disable at a limit either -
   // the cap is enforced when the role is handed out, not on the panel.
   check('there is a button per skin', rows[0].components.length === 3);
-  check('and no claim-then-apply second step', rows.length === 1);
+  check('and a reset beside them', rows[1].components.length === 1
+    && rows[1].components[0].custom_id === 'fs:reset');
   check('every skin is reachable',
     f.FOUNDER_SKINS.every((s) => rows[0].components.some((c) => c.label === s.name)));
   check('none of them are disabled', rows[0].components.every((c) => !c.disabled));

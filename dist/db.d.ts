@@ -81,6 +81,13 @@ export declare class Database {
         paid: number;
         pending: number;
     };
+    /** Only ever written once per dinosaur: a second paint must not overwrite it. */
+    setBaseline(steamId: string, species: string, colours: Record<string, string>, pattern?: number): boolean;
+    baselineFor(steamId: string, species: string): {
+        colours: Record<string, string>;
+        pattern?: number;
+    } | null;
+    clearBaseline(steamId: string, species?: string): number;
     close(): void;
     linkFor(discordId: string): Link | null;
     linkBySteam(steamId: string): Link | null;

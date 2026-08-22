@@ -315,4 +315,67 @@ export function hexToInt(hex) {
         return null;
     return Number.parseInt(full, 16);
 }
+// ------------------------------------------------------------- baselines --
+/**
+ * Remembers what a dinosaur looked like before anybody painted it.
+ *
+ * There is no "reset to default" to ask the game for, and the colours a
+ * dinosaur hatches with are its own — so undoing a skin is only possible if the
+ * original was kept first. Captured on the way in, before the first paint, and
+ * never overwritten: the second paint must not record the first one as if it
+ * were natural.
+ *
+ * Failure is deliberately quiet. Not being able to read the current colours is
+ * a reason to skip the safety net, never a reason to refuse the paint somebody
+ * actually asked for.
+ */
+export async function captureBaseline(ctx, steamId, species) {
+    if (ctx.db.baselineFor(steamId, species))
+        return;
+    try {
+        const read = await ctx.mod.run('skinget', steamId, {}, { quiet: true });
+        if (!read.ok)
+            return;
+        const live = (read.data ?? {});
+        const colours = {};
+        for (const [field, rgb] of Object.entries(live)) {
+            if (Array.isArray(rgb) && rgb.length === 3) {
+                colours[field] = linearToHex(rgb[0], rgb[1], rgb[2]);
+            }
+        }
+        if (Object.keys(colours).length === 0)
+            return;
+        const pattern = live['PatternIndex'];
+        ctx.db.setBaseline(steamId, species, colours, typeof pattern === 'number' ? pattern : undefined);
+    }
+    catch {
+        // Same reasoning: a missing net must not stop the jump.
+    }
+}
+/**
+ * Puts the original colours back on the live dinosaur.
+ *
+ * The point of this over simply forgetting: a forgotten skin stays on the
+ * animal until it dies or the player relogs, which is not what anybody means
+ * by "reset". This writes the original back immediately.
+ */
+export async function restoreBaseline(ctx, steamId, species) {
+    const baseline = ctx.db.baselineFor(steamId, species);
+    if (!baseline)
+        return 'no-baseline';
+    try {
+        // Pattern first, exactly as the apply path does: it decides which parts a
+        // colour lands on, so the other order paints onto the wrong pattern.
+        if (baseline.pattern !== undefined) {
+            await ctx.mod.run('pattern', steamId, { pattern: baseline.pattern }, { quiet: true });
+        }
+        const result = await ctx.mod.run('skinmany', steamId, {
+            colours: encodeColours(baseline.colours),
+        });
+        return result.ok ? 'restored' : 'failed';
+    }
+    catch {
+        return 'failed';
+    }
+}
 //# sourceMappingURL=skins.js.map

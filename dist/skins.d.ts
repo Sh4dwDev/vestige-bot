@@ -1,3 +1,4 @@
+import type { Ctx } from './commands.js';
 /**
  * Skin colours.
  *
@@ -79,3 +80,26 @@ export declare function linearToHex(r: number, g: number, b: number): string;
 export declare function encodeColours(colours: Record<string, string>): string;
 /** For the embed's colour bar, so the reply shows what was actually applied. */
 export declare function hexToInt(hex: string): number | null;
+/**
+ * Remembers what a dinosaur looked like before anybody painted it.
+ *
+ * There is no "reset to default" to ask the game for, and the colours a
+ * dinosaur hatches with are its own — so undoing a skin is only possible if the
+ * original was kept first. Captured on the way in, before the first paint, and
+ * never overwritten: the second paint must not record the first one as if it
+ * were natural.
+ *
+ * Failure is deliberately quiet. Not being able to read the current colours is
+ * a reason to skip the safety net, never a reason to refuse the paint somebody
+ * actually asked for.
+ */
+export declare function captureBaseline(ctx: Ctx, steamId: string, species: string): Promise<void>;
+export type ResetResult = 'restored' | 'no-baseline' | 'failed';
+/**
+ * Puts the original colours back on the live dinosaur.
+ *
+ * The point of this over simply forgetting: a forgotten skin stays on the
+ * animal until it dies or the player relogs, which is not what anybody means
+ * by "reset". This writes the original back immediately.
+ */
+export declare function restoreBaseline(ctx: Ctx, steamId: string, species: string): Promise<ResetResult>;

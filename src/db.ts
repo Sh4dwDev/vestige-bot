@@ -163,6 +163,21 @@ CREATE INDEX IF NOT EXISTS referrals_inviter ON referrals (inviter_discord);
 -- farm this, and the database is the one place that cannot be talked round.
 CREATE UNIQUE INDEX IF NOT EXISTS referrals_steam
   ON referrals (invitee_steam) WHERE invitee_steam IS NOT NULL;
+
+-- What a dinosaur looked like BEFORE anybody painted it.
+--
+-- The game has no "reset to default" that can be asked for, and the colours a
+-- dinosaur hatches with are its own. So the only honest way to undo a skin is
+-- to have kept what was there first, captured the moment before the first
+-- paint and never overwritten after.
+CREATE TABLE IF NOT EXISTS skin_baseline (
+  steam_id TEXT NOT NULL,
+  species  TEXT NOT NULL,
+  colours  TEXT NOT NULL,
+  pattern  INTEGER,
+  taken_at TEXT NOT NULL,
+  PRIMARY KEY (steam_id, species)
+);
 `;
 
 export interface Link {
@@ -388,6 +403,55 @@ export class Database {
       pending: one(
         'SELECT COUNT(*) AS n FROM referrals WHERE paid_at IS NULL AND invitee_steam IS NOT NULL'),
     };
+  }
+
+  // -------------------------------------------------------- skin baselines --
+
+  /** Only ever written once per dinosaur: a second paint must not overwrite it. */
+  setBaseline(
+    steamId: string,
+    species: string,
+    colours: Record<string, string>,
+    pattern?: number,
+  ): boolean {
+    return Number(
+      this.#db
+        .prepare(
+          `INSERT INTO skin_baseline (steam_id, species, colours, pattern, taken_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT (steam_id, species) DO NOTHING`,
+        )
+        .run(steamId, species, JSON.stringify(colours), pattern ?? null,
+          new Date().toISOString()).changes,
+    ) > 0;
+  }
+
+  baselineFor(
+    steamId: string,
+    species: string,
+  ): { colours: Record<string, string>; pattern?: number } | null {
+    const row = this.#db
+      .prepare('SELECT colours, pattern FROM skin_baseline WHERE steam_id = ? AND species = ?')
+      .get(steamId, species) as Record<string, unknown> | undefined;
+    if (!row) return null;
+
+    try {
+      const colours = JSON.parse(String(row['colours'])) as Record<string, string>;
+      const pattern = row['pattern'];
+      return typeof pattern === 'number' ? { colours, pattern } : { colours };
+    } catch {
+      return null;
+    }
+  }
+
+  clearBaseline(steamId: string, species?: string): number {
+    return Number(
+      species === undefined
+        ? this.#db.prepare('DELETE FROM skin_baseline WHERE steam_id = ?').run(steamId).changes
+        : this.#db
+          .prepare('DELETE FROM skin_baseline WHERE steam_id = ? AND species = ?')
+          .run(steamId, species).changes,
+    );
   }
 
   close(): void {

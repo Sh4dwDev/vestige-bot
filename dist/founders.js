@@ -2,7 +2,7 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlag
 import { SERVER, SIGNATURE } from './brand.js';
 import { describeError } from './commands.js';
 import { earlyRole, hasEarlyRole } from './earlymember.js';
-import { encodeColours, hexToInt } from './skins.js';
+import { captureBaseline, encodeColours, hexToInt, restoreBaseline, } from './skins.js';
 /**
  * Founder skins: three looks reserved for the people who showed up first.
  *
@@ -128,6 +128,11 @@ export function founderRows(ctx) {
             .setLabel(skin.name)
             .setEmoji(skin.emoji)
             .setStyle(ButtonStyle.Primary))),
+        new ActionRowBuilder().addComponents(new ButtonBuilder()
+            .setCustomId('fs:reset')
+            .setLabel('Reset my colours')
+            .setEmoji('🧼')
+            .setStyle(ButtonStyle.Secondary)),
     ];
 }
 // ------------------------------------------------------------ interactions --
@@ -170,11 +175,58 @@ export async function handleFounderInteraction(ctx, interaction) {
         });
         return true;
     }
+    if (id === 'fs:reset') {
+        await resetOwnSkin(ctx, interaction, link.steamId);
+        return true;
+    }
     const skin = skinById(id.slice('fs:wear:'.length));
     if (!skin)
         return true;
     await applyFounderSkin(ctx, interaction, link.steamId, skin);
     return true;
+}
+/**
+ * Puts the dinosaur's own colours back, on the animal being played right now.
+ *
+ * Forgetting the saved skin is not enough on its own: the colours stay on the
+ * live dinosaur until it dies or the player relogs, which nobody would call a
+ * reset.
+ */
+async function resetOwnSkin(ctx, interaction, steamId) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const playing = (await ctx.mod.players().catch(() => []))
+        .find((p) => p.steam === steamId)?.species;
+    if (!playing) {
+        await interaction.editReply({
+            embeds: [new EmbedBuilder().setColor(COLORS.warn).setTitle('Not on a dinosaur')
+                    .setDescription('Colours belong to the dinosaur you are playing, so you '
+                    + 'have to be on one.')],
+        });
+        return;
+    }
+    const result = await restoreBaseline(ctx, steamId, playing);
+    // Stop the resync putting it back on: it reapplies after every death, so
+    // leaving the record would undo this within a minute.
+    ctx.db.clearSkin(steamId, playing);
+    await interaction.editReply({
+        embeds: [result === 'restored'
+                ? new EmbedBuilder().setColor(COLORS.good).setTitle('🧼  Colours reset')
+                    .setDescription(`Your ${playing} is back to the colours it hatched with, `
+                    + 'right now — no relog needed.')
+                    .setFooter({ text: SIGNATURE })
+                : result === 'no-baseline'
+                    ? new EmbedBuilder().setColor(COLORS.warn).setTitle('Nothing to go back to')
+                        .setDescription('No original colours were recorded for this '
+                        + `${playing}, so there is nothing to restore — that only happens `
+                        + 'for dinosaurs painted since this feature arrived.\n\nThe saved '
+                        + 'skin is forgotten either way, so it will not come back after a '
+                        + 'death.')
+                        .setFooter({ text: SIGNATURE })
+                    : new EmbedBuilder().setColor(COLORS.bad).setTitle('Could not reset it')
+                        .setDescription('The server refused the change. The saved skin is '
+                        + 'forgotten, so it will not return after a death.')
+                        .setFooter({ text: SIGNATURE })],
+    });
 }
 async function applyFounderSkin(ctx, interaction, steamId, skin) {
     if (!skin) {
@@ -187,6 +239,13 @@ async function applyFounderSkin(ctx, interaction, steamId, skin) {
     }
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     try {
+        // Kept before the first paint so Reset has something to put back. Skipped
+        // silently if it cannot be read - a missing safety net must not stop the
+        // paint somebody actually asked for.
+        const playing = (await ctx.mod.players().catch(() => []))
+            .find((p) => p.steam === steamId)?.species;
+        if (playing)
+            await captureBaseline(ctx, steamId, playing);
         // Pattern first and checked: an index this species does not have is
         // refused, and the refusal aborts the colour rebuild with it.
         if (skin.pattern !== undefined) {

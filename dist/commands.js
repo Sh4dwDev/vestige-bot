@@ -11,7 +11,7 @@ import { setJoinRole } from './joinrole.js';
 import { buildCatalogue, buildReceipt, mutationPrice, setPending, setSpeciesPrice, setTierPrice, takePending, elderStacks, sellable, setMaxShopTier, totalPrice, } from './shop.js';
 import { forgetPainted } from './skinsync.js';
 import { buildShopPanel, setShopPanelChannel, shopPanelRows, SHOP_PANEL_MESSAGE_KEY, } from './shoppanel.js';
-import { BUILT_IN, encodeColours, patternLetter, PATTERN_CHOICES, hexToInt, hexToLinear, linearToHex, PARTS, PRESETS, } from './skins.js';
+import { BUILT_IN, encodeColours, captureBaseline, patternLetter, PATTERN_CHOICES, hexToInt, hexToLinear, linearToHex, PARTS, PRESETS, restoreBaseline, } from './skins.js';
 import { MAX_TIER, multiplierFor, setMultiplier, setTier, TIER_LABEL, tierOf, } from './tiers.js';
 import { cleanSlotName, showPanel, stopAutoRefresh } from './panel.js';
 import { addRequest, askEmbed, askRows, cooldownMinutes, delaySeconds, requestFor, } from './teleport.js';
@@ -1363,15 +1363,30 @@ async function handleSkin(ctx, i, action) {
         return;
     }
     if (action === 'reset') {
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
         const cleared = ctx.db.clearSkin(link.steamId);
         forgetPainted(link.steamId);
-        await i.reply({
-            embeds: [cleared > 0
-                    ? embed(COLORS.good, 'Colours forgotten', `Cleared ${cleared} saved look${cleared === 1 ? '' : 's'} for ${user}. ` +
-                        'What they have now stays until they relog or die, then the game gives ' +
-                        'them their own back.')
-                    : embed(COLORS.quiet, 'Nothing kept', `${user} has no colours saved.`)],
-            flags: MessageFlags.Ephemeral,
+        // Forgetting alone left the colours on the live dinosaur until it died or
+        // they relogged, which is not what "reset" means to anybody. If the
+        // original was recorded, it goes back on now.
+        const playing = (await ctx.mod.players().catch(() => []))
+            .find((p) => p.steam === link.steamId)?.species;
+        const restored = playing
+            ? await restoreBaseline(ctx, link.steamId, playing)
+            : 'no-baseline';
+        await i.editReply({
+            embeds: [embed(restored === 'restored' ? COLORS.good : COLORS.quiet, restored === 'restored' ? 'Colours reset' : 'Colours forgotten', (cleared > 0
+                    ? `Cleared ${cleared} saved look${cleared === 1 ? '' : 's'} for ${user}.`
+                    : `${user} had no colours saved.`) +
+                    (restored === 'restored'
+                        ? `\n\nTheir live **${playing}** is back to the colours it hatched ` +
+                            'with, straight away.'
+                        : !playing
+                            ? '\n\nThey are not on a dinosaur, so nothing could be repainted. ' +
+                                'What they are wearing next time they spawn is their own again.'
+                            : '\n\nNo original colours were recorded for that dinosaur, so ' +
+                                'there was nothing to put back. What they have now stays until ' +
+                                'they relog or die.'))],
         });
         return;
     }
@@ -1475,6 +1490,10 @@ async function handleSkin(ctx, i, action) {
             }
             ctx.db.setPattern(link.steamId, species, pattern);
         }
+        // Recorded before the first paint, so a later reset has something to put
+        // back. Never overwritten, so painting twice does not make the first paint
+        // look like the dinosaur's own colours.
+        await captureBaseline(ctx, link.steamId, species);
         const result = await ctx.mod.run('skinmany', link.steamId, {
             colors: encodeColours(colours),
         });
