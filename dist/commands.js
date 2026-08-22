@@ -7,7 +7,7 @@ import { mutationList, speciesList, suggest } from './catalog.js';
 import { isRemoved, mutationChoices } from './mutations.js';
 import { setRestartAlertRole } from './alertrole.js';
 import { setJoinRole } from './joinrole.js';
-import { buildCatalogue, buildReceipt, mutationPrice, setPending, setSpeciesPrice, setTierPrice, takePending, sellable, setMaxShopTier, totalPrice, } from './shop.js';
+import { buildCatalogue, buildReceipt, mutationPrice, setPending, setSpeciesPrice, setTierPrice, takePending, elderStacks, sellable, setMaxShopTier, totalPrice, } from './shop.js';
 import { forgetPainted } from './skinsync.js';
 import { buildShopPanel, setShopPanelChannel, shopPanelRows, SHOP_PANEL_MESSAGE_KEY, } from './shoppanel.js';
 import { BUILT_IN, encodeColours, patternLetter, PATTERN_CHOICES, hexToInt, hexToLinear, linearToHex, PARTS, PRESETS, } from './skins.js';
@@ -105,7 +105,8 @@ export const commandData = [
         .addStringOption((o) => o.setName('mutation1').setDescription('Optional mutation').setAutocomplete(true))
         .addStringOption((o) => o.setName('mutation2').setDescription('Optional mutation').setAutocomplete(true))
         .addStringOption((o) => o.setName('mutation3').setDescription('Optional mutation').setAutocomplete(true))
-        .addStringOption((o) => o.setName('mutation4').setDescription('Optional mutation').setAutocomplete(true))),
+        .addStringOption((o) => o.setName('mutation4').setDescription('Optional mutation').setAutocomplete(true))
+        .addBooleanOption((o) => o.setName('prime').setDescription('Born Prime. Costs extra'))),
     new SlashCommandBuilder()
         .setName('teleport')
         .setDescription('Ask a friend if you can travel to them')
@@ -847,7 +848,8 @@ async function handleShop(ctx, i) {
         });
         return;
     }
-    const price = totalPrice(ctx, species, mutations);
+    const wantsPrime = i.options.getBoolean('prime') ?? false;
+    const price = totalPrice(ctx, species, mutations, wantsPrime);
     const balance = ctx.db.pointsFor(link.steamId).balance;
     if (balance < price) {
         await i.editReply({
@@ -858,7 +860,9 @@ async function handleShop(ctx, i) {
         });
         return;
     }
-    setPending(i.user.id, { species, mutations, price, at: Date.now() });
+    setPending(i.user.id, {
+        species, mutations, price, at: Date.now(), ...(wantsPrime ? { prime: true } : {}),
+    });
     await i.editReply({
         embeds: [embed(COLORS.info, 'Confirm your purchase', `**${species}**, fully grown` +
                 (mutations.length ? `\nMutations: ${mutations.join(', ')}` : '') +
@@ -922,6 +926,11 @@ export async function completePurchase(ctx, interaction) {
             growth: 1,
             female: false,
             mutations: purchase.mutations,
+            // Elder always. It cannot be earned on a bought dinosaur — the prime
+            // conditions close at 75% growth and a purchase arrives at 100% — so
+            // withholding it sells something permanently worse than a grown one.
+            elderStacks: elderStacks(ctx),
+            ...(purchase.prime ? { prime: true } : {}),
             by: 'the shop',
         });
         if (!result.ok) {

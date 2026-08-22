@@ -41,6 +41,7 @@ import {
   setSpeciesPrice,
   setTierPrice,
   takePending,
+  elderStacks,
   sellable,
   setMaxShopTier,
   totalPrice,
@@ -294,7 +295,9 @@ export const commandData = [
         .addStringOption((o) =>
           o.setName('mutation3').setDescription('Optional mutation').setAutocomplete(true))
         .addStringOption((o) =>
-          o.setName('mutation4').setDescription('Optional mutation').setAutocomplete(true))),
+          o.setName('mutation4').setDescription('Optional mutation').setAutocomplete(true))
+        .addBooleanOption((o) =>
+          o.setName('prime').setDescription('Born Prime. Costs extra'))),
 
   new SlashCommandBuilder()
     .setName('teleport')
@@ -1384,7 +1387,8 @@ async function handleShop(ctx: Ctx, i: ChatInputCommandInteraction): Promise<voi
     return;
   }
 
-  const price = totalPrice(ctx, species, mutations);
+  const wantsPrime = i.options.getBoolean('prime') ?? false;
+  const price = totalPrice(ctx, species, mutations, wantsPrime);
   const balance = ctx.db.pointsFor(link.steamId).balance;
 
   if (balance < price) {
@@ -1398,7 +1402,9 @@ async function handleShop(ctx: Ctx, i: ChatInputCommandInteraction): Promise<voi
     return;
   }
 
-  setPending(i.user.id, { species, mutations, price, at: Date.now() });
+  setPending(i.user.id, {
+    species, mutations, price, at: Date.now(), ...(wantsPrime ? { prime: true } : {}),
+  });
 
   await i.editReply({
     embeds: [embed(COLORS.info, 'Confirm your purchase',
@@ -1477,6 +1483,11 @@ export async function completePurchase(
       growth: 1,
       female: false,
       mutations: purchase.mutations,
+      // Elder always. It cannot be earned on a bought dinosaur — the prime
+      // conditions close at 75% growth and a purchase arrives at 100% — so
+      // withholding it sells something permanently worse than a grown one.
+      elderStacks: elderStacks(ctx),
+      ...(purchase.prime ? { prime: true } : {}),
       by: 'the shop',
     });
 

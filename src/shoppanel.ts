@@ -20,6 +20,7 @@ import {
   mutationPrice,
   peekPending,
   priceOf,
+  primePrice,
   sellable,
   setPending,
   splitMutations,
@@ -121,7 +122,8 @@ function basket(ctx: Ctx, discordId: string, balance: number): {
   const held = peekPending(discordId);
   const species = held?.species ?? '';
   const chosen = held?.mutations ?? [];
-  const price = species ? totalPrice(ctx, species, chosen) : 0;
+  const prime = held?.prime === true;
+  const price = species ? totalPrice(ctx, species, chosen, prime) : 0;
   const affordable = price <= balance;
 
   const embed = new EmbedBuilder()
@@ -133,6 +135,10 @@ function basket(ctx: Ctx, discordId: string, balance: number): {
           (chosen.length
             ? `Mutations: ${chosen.join(', ')} — ${chosen.length * mutationPrice(ctx)}\n`
             : '_No mutations._\n') +
+          // Elder is free, and worth saying so: it cannot be earned on a bought
+          // dinosaur, so left unmentioned it reads as missing rather than given.
+          'Elder: **included**\n' +
+          (prime ? `Prime: **yes** — ${primePrice(ctx)}\n` : '_Not Prime._\n') +
           `\n**Total ${display(price).toLocaleString()}** · you have ` +
           `**${display(balance).toLocaleString()}**` +
           (affordable ? '' : '\n\n⚠️ Not enough points.')
@@ -179,6 +185,11 @@ function basket(ctx: Ctx, discordId: string, balance: number): {
   rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder().setCustomId('shop:buy').setLabel('Buy it')
       .setEmoji('🛒').setStyle(ButtonStyle.Success).setDisabled(!affordable),
+    // One toggle rather than add/remove buttons, so the row never shows a
+    // control that does nothing.
+    new ButtonBuilder().setCustomId('shop:prime')
+      .setLabel(prime ? 'Prime: on' : `Prime +${primePrice(ctx)}`)
+      .setEmoji('👑').setStyle(prime ? ButtonStyle.Primary : ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('shop:cancel').setLabel('Cancel')
       .setStyle(ButtonStyle.Secondary),
   ));
@@ -201,6 +212,18 @@ export async function handleShopPanel(
         .setDescription('Nothing was bought.')],
       components: [],
     });
+    return true;
+  }
+
+  if (id === 'shop:prime' && interaction.isButton()) {
+    const held = peekPending(interaction.user.id);
+    if (held) {
+      setPending(interaction.user.id, { ...held, prime: held.prime !== true });
+    }
+    const link = ctx.db.linkFor(interaction.user.id);
+    const balance = link ? ctx.db.pointsFor(link.steamId).balance : 0;
+    const { embed: next, rows } = basket(ctx, interaction.user.id, balance);
+    await interaction.update({ embeds: [next], components: rows });
     return true;
   }
 

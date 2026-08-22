@@ -13,8 +13,12 @@ export declare function setMaxShopTier(ctx: Ctx, tier: number): void;
  */
 export declare function sellable(ctx: Ctx, species: string): boolean;
 export declare function priceOf(ctx: Ctx, species: string): number;
+export declare function elderStacks(ctx: Ctx): number;
+export declare function setElderStacks(ctx: Ctx, stacks: number): void;
+export declare function primePrice(ctx: Ctx): number;
+export declare function setPrimePrice(ctx: Ctx, price: number): void;
 export declare function mutationPrice(ctx: Ctx): number;
-export declare function totalPrice(ctx: Ctx, species: string, mutations: string[]): number;
+export declare function totalPrice(ctx: Ctx, species: string, mutations: string[], prime?: boolean): number;
 export declare function setSpeciesPrice(ctx: Ctx, species: string, price: number): void;
 export declare function setTierPrice(ctx: Ctx, tier: number, price: number): void;
 export interface Pending {
@@ -22,6 +26,8 @@ export interface Pending {
     mutations: string[];
     price: number;
     at: number;
+    /** Bought as Prime. Elder comes free either way. */
+    prime?: boolean;
     /**
      * Mutations chosen from each half of the picker, kept apart so re-picking in
      * one menu replaces only that half. Discord caps a select at 25 options and

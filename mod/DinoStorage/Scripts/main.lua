@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.30.0"
+local MOD_VERSION = "3.31.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1304,6 +1304,7 @@ local function handlePrime(cmd)
     -- nearly empty decides what a condition is reacting to, and reading the
     -- flags without it wasted a round of testing.
     local growth = callNumber(pawn, "GetGrowth") or 0
+    local elderStacks = callNumber(pawn, "GetElderReplicationStacks") or 0
     local health = callNumber(pawn, "GetHealth") or 0
     local maxHealth = callNumber(pawn, "GetMaxHealth") or 0
     local stamina = callNumber(pawn, "GetStamina") or 0
@@ -1334,11 +1335,12 @@ local function handlePrime(cmd)
 
     writeResult(cmd.id, "prime", cmd.steam, true, "read", string.format(
         '{"eligible":%s,"conditions":{%s},"nutrients":{' .. table.concat(nutrients, ",") .. '},'
+        .. '"elderStacks":%d,'
         .. '"growth":%.4f,"health":%.1f,"maxHealth":%.1f,'
         .. '"stamina":%.1f,"maxStamina":%.1f,'
         .. '"hunger":%.1f,"maxHunger":%.1f,'
         .. '"thirst":%.1f,"maxThirst":%.1f}',
-        eligible and "true" or "false", table.concat(conditions, ","),
+        eligible and "true" or "false", table.concat(conditions, ","), elderStacks,
         growth, health, maxHealth, stamina, maxStamina,
         hunger, maxHunger, thirst, maxThirst))
 end
@@ -1401,6 +1403,21 @@ local function handleGive(cmd)
         mutations = {}, primeData = {}, unlockRequiredMutations = arr({}),
         giftedBy = tostring(args.by or "an admin"),
     }
+
+    -- why: prime conditions have to be met before 75% growth, and a purchase
+    -- arrives at 100% -- so a bought dinosaur can never earn Prime, or the
+    -- Elder that follows it, however long it is played. Granting it is the only
+    -- way the shop can sell one at all.
+    --
+    -- All ten conditions rather than bIsEligiblePrime alone: that bool is a
+    -- cache the engine recomputes from the conditions within a frame, so
+    -- setting it by itself is undone before anybody sees it (docs/NOTES.md).
+    if args.prime == true then
+        for i = 1, 10 do
+            state.primeData[string.format("bPrimeCondition%d", i)] = true
+        end
+        state.primeData.bIsEligiblePrime = true
+    end
 
     -- Mutations arrive as a plain list and are laid into the active slots in
     -- order. Anything past the four active slots is ignored rather than spilling

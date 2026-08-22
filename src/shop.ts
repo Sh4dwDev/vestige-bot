@@ -68,13 +68,51 @@ export function priceOf(ctx: Ctx, species: string): number {
   return DEFAULT_TIER_PRICE[tier] ?? DEFAULT_TIER_PRICE[1] ?? 300;
 }
 
+/**
+ * What a bought dinosaur is born as.
+ *
+ * Elder comes free with a purchase because it cannot be earned on one: the
+ * prime conditions have to be met before 75% growth and a purchase arrives at
+ * 100%, so without this a bought dinosaur is permanently barred from something
+ * a grown one gets for playing. That is a worse deal than it looks on the shelf.
+ *
+ * Prime is charged for, because it is the part people actually want.
+ */
+const DEFAULT_ELDER_STACKS = 1;
+const DEFAULT_PRIME_PRICE = 800;
+
+export function elderStacks(ctx: Ctx): number {
+  const raw = Number.parseInt(ctx.db.getSetting('shop_elder_stacks') ?? '', 10);
+  return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_ELDER_STACKS;
+}
+
+export function setElderStacks(ctx: Ctx, stacks: number): void {
+  ctx.db.setSetting('shop_elder_stacks', String(stacks));
+}
+
+export function primePrice(ctx: Ctx): number {
+  const raw = Number.parseFloat(ctx.db.getSetting('shop_prime_price') ?? '');
+  return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_PRIME_PRICE;
+}
+
+export function setPrimePrice(ctx: Ctx, price: number): void {
+  ctx.db.setSetting('shop_prime_price', String(price));
+}
+
 export function mutationPrice(ctx: Ctx): number {
   const stored = Number.parseFloat(ctx.db.getSetting('shop_mutation_price') ?? '');
   return Number.isFinite(stored) && stored >= 0 ? stored : DEFAULT_MUTATION_PRICE;
 }
 
-export function totalPrice(ctx: Ctx, species: string, mutations: string[]): number {
-  return priceOf(ctx, species) + mutations.length * mutationPrice(ctx);
+export function totalPrice(
+  ctx: Ctx,
+  species: string,
+  mutations: string[],
+  prime = false,
+): number {
+  return priceOf(ctx, species)
+    + (mutations.length * mutationPrice(ctx))
+    + (prime ? primePrice(ctx) : 0);
 }
 
 export function setSpeciesPrice(ctx: Ctx, species: string, price: number): void {
@@ -92,6 +130,8 @@ export interface Pending {
   mutations: string[];
   price: number;
   at: number;
+  /** Bought as Prime. Elder comes free either way. */
+  prime?: boolean;
   /**
    * Mutations chosen from each half of the picker, kept apart so re-picking in
    * one menu replaces only that half. Discord caps a select at 25 options and
@@ -162,7 +202,8 @@ export function buildCatalogue(ctx: Ctx, species: string[], balance: number): Em
         : ''),
     )
     .setFooter({
-      text: `Mutations +${mutationPrice(ctx)} each · uses one of your ${MAX_SLOTS} vaults\n${SIGNATURE}`,
+      text: `Elder included · Prime +${primePrice(ctx)} · Mutations +${mutationPrice(ctx)} each`
+        + ` · uses one of your ${MAX_SLOTS} vaults\n${SIGNATURE}`,
     });
 
   for (const tier of [4, 3, 2, 1]) {
