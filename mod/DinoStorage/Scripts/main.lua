@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.32.0"
+local MOD_VERSION = "3.33.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -23,6 +23,11 @@ local SHRINK_GROWTH = 0.05    -- corpse size before the kill, so it is not free 
 local FAST_TICK_MS = 500
 local POLL_TICK_MS = 3000
 local KILL_DELAY_TICKS = 2    -- ~1s for the shrink to replicate before death
+
+-- Health needed to store, as a fraction. Not 1.0: health regenerates in small
+-- steps and floating point rarely lands exactly on the maximum, so an exact
+-- match would refuse somebody who is, to every appearance, perfectly healthy.
+local STORE_HEALTH_MIN = 0.98
 
 -- why: UE4SS print() does not append a newline.
 local function log(msg)
@@ -1062,6 +1067,27 @@ local function handleStore(cmd)
         writeResult(cmd.id, "store", cmd.steam, false, string.format(
             "only fully grown dinosaurs can be stored — you are at %.0f%%", (growth or 0) * 100))
         return
+    end
+
+    -- why: storing is an escape. A dinosaur that goes into the archive leaves
+    -- the world instantly and comes back untouched, so allowing it mid-fight
+    -- turns the feature into a get-out-of-jail card -- lose the fight, vanish,
+    -- return later at full health with everything intact. The same reasoning
+    -- already gates travelling to a friend.
+    --
+    -- Full health rather than "not in combat": there is no combat flag to read,
+    -- and health is the honest proxy. Somebody who has just been bitten cannot
+    -- store until they have healed, which is the behaviour wanted anyway.
+    local health = callNumber(pawn, "GetHealth")
+    local maxHealth = callNumber(pawn, "GetMaxHealth")
+    if health ~= nil and maxHealth ~= nil and maxHealth > 0 then
+        local fraction = health / maxHealth
+        if fraction < STORE_HEALTH_MIN then
+            writeResult(cmd.id, "store", cmd.steam, false, string.format(
+                "you are hurt (%d%% health) — heal up before storing, so this "
+                .. "cannot be used to escape a fight", math.floor(fraction * 100)))
+            return
+        end
     end
 
     local state = capture(pawn, cmd.steam)
