@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.31.0"
+local MOD_VERSION = "3.32.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -2165,6 +2165,32 @@ local function creatureNameOf(pawn)
     return name ~= "Unknown" and name or ""
 end
 
+-- Logs the shape of the ApplyDamage callback once, then never again. Read it
+-- back with `node scripts/deploy-mod.mjs --log`.
+local damageProbed = false
+function probeDamageParams(...)
+    if damageProbed then return end
+    damageProbed = true
+
+    local count = select("#", ...)
+    local parts = {}
+    for i = 1, count do
+        local v = select(i, ...)
+        local kind = type(v)
+        local detail = kind
+        if kind == "userdata" or kind == "table" then
+            local name
+            pcall(function() name = v:GetFullName() end)
+            if name == nil then pcall(function() name = v:GetClass():GetFullName() end) end
+            detail = kind .. "(" .. tostring(name) .. ")"
+        elseif kind == "number" or kind == "boolean" or kind == "string" then
+            detail = kind .. "=" .. tostring(v)
+        end
+        parts[#parts + 1] = string.format("%d:%s", i, detail)
+    end
+    log("PROBE ApplyDamage params: " .. table.concat(parts, "  "))
+end
+
 local function onApplyDamage(selfParam, targetParam)
     local attackerPawn = unwrap(selfParam)
     local attacker = steamIdOfPawn(attackerPawn)
@@ -2293,7 +2319,13 @@ else
     -- A failure here must not stop the mod: kills are a nice-to-have, storage
     -- is not.
     local damageHooked = pcall(function()
-        RegisterHook("/Script/TheIsle.TICharacterBase:ApplyDamage", function(a, b)
+        RegisterHook("/Script/TheIsle.TICharacterBase:ApplyDamage", function(...)
+            local a, b = ...
+            -- One-shot probe. Only the first two parameters were ever taken,
+            -- and a death to a fall or drowning reaches the killfeed with
+            -- nothing to say what happened -- so before guessing at a damage
+            -- type field, find out what this hook is actually handed.
+            probeDamageParams(...)
             safeCall("onApplyDamage", function() onApplyDamage(a, b) end)
         end)
     end)
