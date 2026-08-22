@@ -2,11 +2,12 @@ import { ActivityType, Client, Events, GatewayIntentBits, MessageFlags, } from '
 import { AdminStore } from './admins.js';
 import { SERVER } from './brand.js';
 import { ModBridge } from './bridge.js';
-import { announceLinked, describeError, handleLinkModal, handleAutocomplete, handleCommand, } from './commands.js';
+import { announceLinked, describeError, handleLinkModal, handleAutocomplete, handleCommand, steamNamer, } from './commands.js';
 import { loadConfig } from './config.js';
 import { Database } from './db.js';
 import { startPopulationPanel } from './livepanel.js';
 import { startHeatmapPanel } from './heatmap.js';
+import { startPeakPanels } from './peaks.js';
 import { refreshGuides } from './guides.js';
 import { handleFounderInteraction } from './founders.js';
 import { handleHubInteraction } from './hub.js';
@@ -93,6 +94,7 @@ async function main() {
             startServerPoll(ctx, ready);
             startPopulationPanel(ctx, ready, log);
             startHeatmapPanel(ctx, ready, log);
+            startPeakPanels(ctx, ready, log);
             // Static text, so redrawing it on boot is how a change to the wording
             // reaches the people actually reading it.
             void refreshGuides(ctx, ready, log);
@@ -334,11 +336,14 @@ async function handleChatEvent(ctx, event, lastReply, client) {
         if (channelId && client) {
             const channel = await client.channels.fetch(channelId).catch(() => null);
             if (channel?.isTextBased() && 'send' in channel) {
-                const nameFor = (steamId) => {
-                    const link = ctx.db.linkBySteam(steamId);
-                    return link ? `<@${link.discordId}>` : `\`${steamId.slice(-6)}\``;
-                };
-                await channel.send({ embeds: [buildKillEmbed(kill, nameFor)] });
+                // Shared with the leaderboards rather than a second copy of the rule —
+                // it had its own, which is how it kept pinging people.
+                await channel.send({
+                    embeds: [buildKillEmbed(kill, steamNamer(ctx))],
+                    // Renders a mention as a name without notifying anyone. Dying is not
+                    // news to the person who died, and it is noise to everybody else.
+                    allowedMentions: { parse: [] },
+                });
             }
         }
         return;
@@ -415,6 +420,18 @@ function startServerPoll(ctx, client) {
     const tick = async () => {
         const players = await ctx.rcon.players().catch(() => null);
         const online = players?.length ?? null;
+        if (players !== null) {
+            // Both of these are only knowable while somebody is looking. The names
+            // feed the killfeed, which reports people who have often already
+            // disconnected; the counts are the only record of how busy it was.
+            try {
+                ctx.db.rememberNames(players);
+                ctx.db.recordCount(online ?? 0);
+            }
+            catch (err) {
+                log(`history: could not record: ${describeError(err)}`);
+            }
+        }
         // Points accrue against this poll rather than a timer of their own, so a
         // player is only ever paid for time they were actually seen online. The
         // species comes from the mod, since the payout is scaled by tier.

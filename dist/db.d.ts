@@ -23,6 +23,31 @@ export declare class Database {
         links: number;
         pending: number;
     };
+    /**
+     * Remembers what each account is calling itself in game.
+     *
+     * Written on every poll, so a rename is picked up within a minute. The name
+     * outlives the session on purpose: a death is reported for somebody who may
+     * already be gone, and `\`4f2a1c\`` tells nobody anything.
+     */
+    rememberNames(players: Array<{
+        steamId: string;
+        name: string;
+    }>): void;
+    gameName(steamId: string): string | null;
+    recordCount(online: number): void;
+    /** The busiest single reading since a moment, and when it happened. */
+    peakSince(since: Date): {
+        online: number;
+        at: string;
+    } | null;
+    /** Every reading since a moment, oldest first, for bucketing into a chart. */
+    countsSince(since: Date): Array<{
+        at: string;
+        online: number;
+    }>;
+    /** Keeps the table from growing forever; nothing asks beyond a month. */
+    pruneCounts(before: Date): number;
     close(): void;
     linkFor(discordId: string): Link | null;
     linkBySteam(steamId: string): Link | null;

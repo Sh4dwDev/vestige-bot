@@ -136,6 +136,14 @@ import {
 } from './heatmap.js';
 import { applyCaps, planCaps, type PlannedCap } from './capplan.js';
 import {
+  bucket,
+  buildPeakEmbed,
+  PEAK_DAY_MESSAGE_KEY,
+  PEAK_WEEK_MESSAGE_KEY,
+  REFRESH_MINUTES,
+  setPeaksChannel,
+} from './peaks.js';
+import {
   enforcementEnabled,
   enforcementFault,
   restoreAllPlayables,
@@ -792,6 +800,15 @@ export const commandData = [
         .addSubcommand((c) => c.setName('off').setDescription('Take the panel down')),
     )
     .addSubcommandGroup((g) =>
+      g.setName('peaks').setDescription('How busy the server has been')
+        .addSubcommand((c) =>
+          c.setName('channel').setDescription('Put both peak panels in a channel')
+            .addChannelOption((o) =>
+              o.setName('channel').setDescription('Where they live')
+                .addChannelTypes(ChannelType.GuildText).setRequired(true)))
+        .addSubcommand((c) => c.setName('off').setDescription('Stop updating them')),
+    )
+    .addSubcommandGroup((g) =>
       g.setName('backup').setDescription('Database backups')
         .addSubcommand((c) => c.setName('now').setDescription('Take a snapshot right now'))
         .addSubcommand((c) => c.setName('status').setDescription('When the last one ran'))
@@ -1218,8 +1235,25 @@ async function handleAdminPoints(
 // ------------------------------------------------------------------ kills --
 
 /** Steam IDs are the key, so anyone unlinked shows as a partial ID. */
+/**
+ * How a player is named in anything the whole channel reads.
+ *
+ * The in-game name first, and no mention. Mentions ping: a busy night pinged
+ * everybody who died, which is a notification for something the person already
+ * knows and a stream of red dots for everyone else. The killfeed reports what
+ * happened on the island, so the island's name for somebody is the right one —
+ * and it works for people who never linked, where a slice of Steam ID told
+ * nobody anything.
+ *
+ * Falls back to a Discord mention, which the killfeed sends with mentions
+ * suppressed so it renders as a name without notifying anybody, and to a short
+ * Steam ID only when nothing at all is known.
+ */
 export function steamNamer(ctx: Ctx): (steamId: string) => string {
   return (steamId) => {
+    const inGame = ctx.db.gameName(steamId);
+    if (inGame) return inGame;
+
     const link = ctx.db.linkBySteam(steamId);
     return link ? `<@${link.discordId}>` : `\`${steamId.slice(-6)}\``;
   };
@@ -2480,6 +2514,61 @@ async function handleSpecies(
   });
 }
 
+// ---------------------------------------------------------------- peaks --
+
+async function handlePeaks(
+  ctx: Ctx,
+  i: ChatInputCommandInteraction,
+  action: string,
+): Promise<void> {
+  if (action === 'off') {
+    setPeaksChannel(ctx, null);
+    await i.reply({
+      embeds: [embed(COLORS.good, 'Peak panels stopped',
+        'They stop updating. The messages stay where they are — delete them ' +
+        'yourself if you want them gone.\n\nReadings keep being recorded either ' +
+        'way, so turning them back on shows the history rather than starting ' +
+        'again from nothing.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const channel = i.options.getChannel('channel', true);
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+  setPeaksChannel(ctx, channel.id);
+
+  const now = new Date();
+  const dayAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+  const weekAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+
+  try {
+    await postOrEdit(ctx.db, i.client, channel.id, PEAK_DAY_MESSAGE_KEY,
+      [buildPeakEmbed('day', ctx.db.peakSince(dayAgo),
+        bucket(ctx.db.countsSince(dayAgo), dayAgo, 24, now), now)]);
+    await postOrEdit(ctx.db, i.client, channel.id, PEAK_WEEK_MESSAGE_KEY,
+      [buildPeakEmbed('week', ctx.db.peakSince(weekAgo),
+        bucket(ctx.db.countsSince(weekAgo), weekAgo, 7, now), now)]);
+
+    const readings = ctx.db.countsSince(weekAgo).length;
+    await i.editReply({
+      embeds: [embed(COLORS.good, 'Peak panels posted',
+        `Both are in <#${channel.id}>, refreshing every **${REFRESH_MINUTES} ` +
+        'minutes**.\n\n' +
+        (readings === 0
+          ? 'There is no history yet — recording only started with this build, ' +
+            'so both will say so until the bot has watched for a few hours.'
+          : `Built from **${readings}** readings so far.`))],
+    });
+  } catch (err) {
+    await i.editReply({
+      embeds: [embed(COLORS.bad, 'Could not post there',
+        `${describeError(err)}\n\nCheck the bot can **View Channel**, ` +
+        '**Send Messages** and **Embed Links** there.')],
+    });
+  }
+}
+
 // -------------------------------------------------------------- heatmap --
 
 /**
@@ -3290,6 +3379,7 @@ async function handleAdmin(ctx: Ctx, i: ChatInputCommandInteraction): Promise<vo
   if (group === 'events') return handleEvents(ctx, i, action);
   if (group === 'bounties') return handleBounties(ctx, i, action);
   if (group === 'backup') return handleBackup(ctx, i, action);
+  if (group === 'peaks') return handlePeaks(ctx, i, action);
   if (group === 'heatmap') return handleHeatmap(ctx, i, action);
 
   if (group === 'teleport') {

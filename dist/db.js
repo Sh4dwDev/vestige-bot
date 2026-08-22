@@ -126,6 +126,23 @@ CREATE TABLE IF NOT EXISTS points (
   minutes    INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL
 );
+
+-- The last in-game name each account was seen using. Kept because the killfeed
+-- reports people who have often just disconnected, so it cannot ask the server
+-- who they were - and a row of Steam ID fragments is unreadable.
+CREATE TABLE IF NOT EXISTS player_names (
+  steam_id TEXT PRIMARY KEY,
+  name     TEXT NOT NULL,
+  seen_at  TEXT NOT NULL
+);
+
+-- One row per poll. The peak panels are built from this; nothing else records
+-- how busy the server was, so without it "busiest this week" is unanswerable.
+CREATE TABLE IF NOT EXISTS player_counts (
+  at     TEXT NOT NULL,
+  online INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS player_counts_at ON player_counts (at);
 `;
 export class Database {
     #db;
@@ -160,6 +177,60 @@ export class Database {
             links: one('SELECT COUNT(*) AS n FROM links'),
             pending: one('SELECT COUNT(*) AS n FROM pending_links'),
         };
+    }
+    // ------------------------------------------------------------ in-game names --
+    /**
+     * Remembers what each account is calling itself in game.
+     *
+     * Written on every poll, so a rename is picked up within a minute. The name
+     * outlives the session on purpose: a death is reported for somebody who may
+     * already be gone, and `\`4f2a1c\`` tells nobody anything.
+     */
+    rememberNames(players) {
+        const now = new Date().toISOString();
+        const stmt = this.#db.prepare(`INSERT INTO player_names (steam_id, name, seen_at) VALUES (?, ?, ?)
+       ON CONFLICT (steam_id) DO UPDATE SET name = excluded.name,
+                                            seen_at = excluded.seen_at`);
+        for (const player of players) {
+            const name = player.name?.trim();
+            if (!name || !player.steamId)
+                continue;
+            stmt.run(player.steamId, name, now);
+        }
+    }
+    gameName(steamId) {
+        const row = this.#db
+            .prepare('SELECT name FROM player_names WHERE steam_id = ?')
+            .get(steamId);
+        return row ? String(row['name']) : null;
+    }
+    // ---------------------------------------------------------- how busy it was --
+    recordCount(online) {
+        this.#db
+            .prepare('INSERT INTO player_counts (at, online) VALUES (?, ?)')
+            .run(new Date().toISOString(), online);
+    }
+    /** The busiest single reading since a moment, and when it happened. */
+    peakSince(since) {
+        const row = this.#db
+            .prepare(`SELECT online, at FROM player_counts
+         WHERE at >= ? ORDER BY online DESC, at ASC LIMIT 1`)
+            .get(since.toISOString());
+        return row ? { online: Number(row['online']), at: String(row['at']) } : null;
+    }
+    /** Every reading since a moment, oldest first, for bucketing into a chart. */
+    countsSince(since) {
+        return this.#db
+            .prepare('SELECT at, online FROM player_counts WHERE at >= ? ORDER BY at ASC')
+            .all(since.toISOString())
+            .map((r) => ({ at: String(r['at']), online: Number(r['online']) }));
+    }
+    /** Keeps the table from growing forever; nothing asks beyond a month. */
+    pruneCounts(before) {
+        const result = this.#db
+            .prepare('DELETE FROM player_counts WHERE at < ?')
+            .run(before.toISOString());
+        return Number(result.changes ?? 0);
     }
     close() {
         this.#db.close();

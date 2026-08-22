@@ -63,6 +63,20 @@ interface Confirmable {
 export declare function slayCooldownMinutes(ctx: Ctx): number;
 export declare function runSlay(ctx: Ctx, i: Confirmable, steamId: string): Promise<void>;
 /** Steam IDs are the key, so anyone unlinked shows as a partial ID. */
+/**
+ * How a player is named in anything the whole channel reads.
+ *
+ * The in-game name first, and no mention. Mentions ping: a busy night pinged
+ * everybody who died, which is a notification for something the person already
+ * knows and a stream of red dots for everyone else. The killfeed reports what
+ * happened on the island, so the island's name for somebody is the right one —
+ * and it works for people who never linked, where a slice of Steam ID told
+ * nobody anything.
+ *
+ * Falls back to a Discord mention, which the killfeed sends with mentions
+ * suppressed so it renders as a name without notifying anybody, and to a short
+ * Steam ID only when nothing at all is known.
+ */
 export declare function steamNamer(ctx: Ctx): (steamId: string) => string;
 /**
  * Completes a purchase.
