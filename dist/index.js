@@ -406,11 +406,23 @@ async function handleChatEvent(ctx, event, lastReply, client) {
 async function sendInvite(ctx, steamId) {
     if (!ctx.config.discordInvite)
         return;
+    // The mod's notification, not RCON. `directmessage` draws over the game's own
+    // ANNOUNCEMENT label, renders the sender as "RCON" on a line of its own, and
+    // is gone in about a second — which is useless for a link somebody has to
+    // read and type out. The notification stays on screen until dismissed.
     try {
-        // Short on purpose: this draws over the game's own ANNOUNCEMENT label and
-        // vanishes quickly, so it has to be readable at a glance.
-        await ctx.rcon.directMessage(steamId, ctx.config.discordInvite);
+        await ctx.mod.notify(steamId, `Discord: ${ctx.config.discordInvite}`);
         log(`discord: sent invite to ${steamId}`);
+        return;
+    }
+    catch (err) {
+        log(`discord: notification failed for ${steamId}: ${describeError(err)}`);
+    }
+    // Falls back rather than saying nothing: a banner that vanishes still beats
+    // silence when somebody has just asked for the link.
+    try {
+        await ctx.rcon.directMessage(steamId, ctx.config.discordInvite);
+        log(`discord: sent invite to ${steamId} over RCON instead`);
     }
     catch (err) {
         log(`discord: could not message ${steamId}: ${describeError(err)}`);
