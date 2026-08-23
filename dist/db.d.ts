@@ -100,8 +100,17 @@ export declare class Database {
     /** Everyone holding one, for staff to see who has what. */
     skinOwners(preset: string): string[];
     /** Only ever adds. A species missing from the live menu is hidden, not gone. */
-    rememberSpecies(names: string[]): number;
+    rememberSpecies(names: string[], origin?: 'seen' | 'named'): number;
+    /** Every name, for validating what somebody typed. */
     knownSpecies(): string[];
+    /**
+     * Only the ones this server has actually offered.
+     *
+     * The list to add from. Adding a species the server never listed asks the
+     * game for something it may not have, which is what the original guard was
+     * protecting against - it was right, it just looked in the wrong place.
+     */
+    offeredSpecies(): string[];
     close(): void;
     linkFor(discordId: string): Link | null;
     linkBySteam(steamId: string): Link | null;

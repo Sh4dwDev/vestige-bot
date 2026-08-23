@@ -79,7 +79,8 @@ export async function knownSpecies(ctx: Ctx): Promise<string[]> {
   // zero vanishes from the menu, and if its cap row is later rewritten there is
   // nothing left that remembers it - so the roster has to be fed by something a
   // lockout cannot erase.
-  ctx.db.rememberSpecies([...live, ...TIERED_SPECIES]);
+  ctx.db.rememberSpecies(live);
+  ctx.db.rememberSpecies(TIERED_SPECIES, 'named');
 
   const roster = ctx.db.knownSpecies();
   return roster.length > 0 ? roster : live;

@@ -209,7 +209,19 @@ fs.rmSync(path.dirname(file), { recursive: true, force: true });
   fresh.rememberSpecies(['Deinosuchus']);
   check('a species known only from a cap can be restored',
     diffPlayables([{ species: 'Deinosuchus', cap: 5, locked: false }], live,
-      fresh.knownSpecies()).add.includes('Deinosuchus'));
+      fresh.offeredSpecies()).add.includes('Deinosuchus'));
+
+  // Naming and adding are different powers. A curated table is enough to
+  // validate what somebody typed, and not enough to ask the game for a species
+  // it may never have shipped with.
+  fresh.rememberSpecies(['Carcharodontosaurus'], 'named');
+  check('a name from a curated list can be validated',
+    fresh.knownSpecies().includes('Carcharodontosaurus'));
+  check('but is never added to the spawn menu',
+    !fresh.offeredSpecies().includes('Carcharodontosaurus'));
+  check('until the server itself offers it',
+    (fresh.rememberSpecies(['Carcharodontosaurus'], 'seen'),
+      fresh.offeredSpecies().includes('Carcharodontosaurus')));
 
   fresh.close();
 }

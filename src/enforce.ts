@@ -94,8 +94,9 @@ export async function syncPlayables(
   // The roster is the authority on what exists, not the live menu. A capped
   // species is absent from the menu by design, and taking "what exists" from
   // the menu meant a locked species could never be unlocked.
-  ctx.db.rememberSpecies([...live, ...known, ...caps.map((c) => c.species), ...TIERED_SPECIES]);
-  const roster = ctx.db.knownSpecies();
+  ctx.db.rememberSpecies([...live, ...known, ...caps.map((c) => c.species)]);
+  ctx.db.rememberSpecies(TIERED_SPECIES, 'named');
+  const roster = ctx.db.offeredSpecies();
 
   const plan = diffPlayables(caps, live, roster.length > 0 ? roster : live);
 
@@ -146,8 +147,8 @@ export async function restoreAllPlayables(
   // Same trap as the diff: what is missing cannot be worked out from the list
   // it is missing from. The roster remembers, so a species locked before the
   // bot last stopped is still restorable.
-  ctx.db.rememberSpecies([...live, ...known, ...TIERED_SPECIES]);
-  const roster = ctx.db.knownSpecies();
+  ctx.db.rememberSpecies([...live, ...known]);
+  const roster = ctx.db.offeredSpecies();
 
   const missing = (roster.length > 0 ? roster : known).filter((s) => !live.has(s));
   if (missing.length === 0) return [];

@@ -195,7 +195,12 @@ CREATE INDEX IF NOT EXISTS owned_skins_steam ON owned_skins (steam_id);
 -- added back. Setting a cap to zero was a door that locked behind you.
 CREATE TABLE IF NOT EXISTS known_species (
   name       TEXT PRIMARY KEY,
-  first_seen TEXT NOT NULL
+  first_seen TEXT NOT NULL,
+  -- 'seen' when the server actually listed it, 'named' when it is only known
+  -- from a curated table. Naming and adding are different powers: a name is
+  -- safe to validate against, while adding one the server never offered asks
+  -- the game for something it may not have.
+  origin     TEXT NOT NULL DEFAULT 'seen'
 );
 
 CREATE TABLE IF NOT EXISTS skin_baseline (
@@ -535,23 +540,41 @@ export class Database {
   // -------------------------------------------------------- species roster --
 
   /** Only ever adds. A species missing from the live menu is hidden, not gone. */
-  rememberSpecies(names: string[]): number {
+  rememberSpecies(names: string[], origin: 'seen' | 'named' = 'seen'): number {
+    // A name first met in a curated list can be upgraded once the server
+    // actually offers it; never the other way round.
     const stmt = this.#db.prepare(
-      `INSERT INTO known_species (name, first_seen) VALUES (?, ?)
-       ON CONFLICT (name) DO NOTHING`,
+      `INSERT INTO known_species (name, first_seen, origin) VALUES (?, ?, ?)
+       ON CONFLICT (name) DO UPDATE SET origin = 'seen'
+         WHERE known_species.origin = 'named' AND excluded.origin = 'seen'`,
     );
     const now = new Date().toISOString();
     let added = 0;
     for (const name of names) {
       if (!name || !/^[A-Za-z]{3,}$/.test(name)) continue;
-      added += Number(stmt.run(name, now).changes);
+      added += Number(stmt.run(name, now, origin).changes);
     }
     return added;
   }
 
+  /** Every name, for validating what somebody typed. */
   knownSpecies(): string[] {
     return (this.#db
       .prepare('SELECT name FROM known_species ORDER BY name ASC')
+      .all() as Array<Record<string, unknown>>)
+      .map((r) => String(r['name']));
+  }
+
+  /**
+   * Only the ones this server has actually offered.
+   *
+   * The list to add from. Adding a species the server never listed asks the
+   * game for something it may not have, which is what the original guard was
+   * protecting against - it was right, it just looked in the wrong place.
+   */
+  offeredSpecies(): string[] {
+    return (this.#db
+      .prepare("SELECT name FROM known_species WHERE origin = 'seen' ORDER BY name ASC")
       .all() as Array<Record<string, unknown>>)
       .map((r) => String(r['name']));
   }
