@@ -110,4 +110,43 @@ export const contestAnnounce = (contest) => `${contest.name}: hold Lat ${hud(con
     + `${Math.round(contest.holdMs / 60000)} minutes to win ${contest.reward} points. `
     + 'Two or more players on it and nobody gains.';
 export const winnerAnnounce = (contest, who) => `${who} held ${contest.name} and takes ${contest.reward} points.`;
+// ------------------------------------------------------------------ running --
+const CHANNEL_KEY = 'contest_channel';
+export const contestChannel = (ctx) => ctx.db.getSetting(CHANNEL_KEY) || null;
+export const setContestChannel = (ctx, channelId) => ctx.db.setSetting(CHANNEL_KEY, channelId ?? '');
+/**
+ * One turn of the clock, and the payout if it ends.
+ *
+ * Called from the poll that already reads positions, so this costs nothing
+ * extra. Everything that decides an outcome lives in `tickContest`, which is
+ * pure; this only writes the results down and hands out the prize.
+ */
+export function advanceContest(ctx, players, elapsedMs) {
+    const contest = activeContest(ctx);
+    if (!contest)
+        return null;
+    const result = tickContest(contest, players, elapsedMs);
+    if (!result.winner) {
+        saveContest(ctx, result.contest);
+        return { winner: null, contested: result.contested, holders: result.holders };
+    }
+    // Paid and cleared in one go: leaving it active would keep paying the same
+    // person every few seconds for standing still.
+    ctx.db.addPoints(result.winner, contest.reward, 0);
+    if (contest.skin)
+        ctx.db.grantSkin(result.winner, contest.skin, `Won ${contest.name}`);
+    saveContest(ctx, null);
+    return { winner: result.winner, contested: false, holders: result.holders };
+}
+export function buildContestWonEmbed(contest, winner) {
+    const held = leader(contest);
+    return new EmbedBuilder()
+        .setColor(0x57f287)
+        .setTitle(`🏆  ${contest.name} claimed`)
+        .setDescription(`${winner} held it and takes **${contest.reward}** points` +
+        (contest.skin ? ` and the **${contest.skin}** skin` : '') + '.\n\n' +
+        (held ? `Held for **${minutes(held.heldMs)}**.` : ''))
+        .setFooter({ text: `${SERVER} · ${SIGNATURE}` })
+        .setTimestamp();
+}
 //# sourceMappingURL=contest.js.map

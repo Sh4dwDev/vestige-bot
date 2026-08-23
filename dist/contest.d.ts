@@ -53,3 +53,20 @@ export declare function buildContestEmbed(contest: Contest, nameFor: (steamId: s
 /** ASCII only: this goes out over RCON, which silently drops anything else. */
 export declare const contestAnnounce: (contest: Contest) => string;
 export declare const winnerAnnounce: (contest: Contest, who: string) => string;
+export declare const contestChannel: (ctx: Ctx) => string | null;
+export declare const setContestChannel: (ctx: Ctx, channelId: string | null) => void;
+export interface TickOutcome {
+    /** Set when somebody just won, so the caller can announce it once. */
+    winner: string | null;
+    contested: boolean;
+    holders: string[];
+}
+/**
+ * One turn of the clock, and the payout if it ends.
+ *
+ * Called from the poll that already reads positions, so this costs nothing
+ * extra. Everything that decides an outcome lives in `tickContest`, which is
+ * pure; this only writes the results down and hands out the prize.
+ */
+export declare function advanceContest(ctx: Ctx, players: PlayerRow[], elapsedMs: number): TickOutcome | null;
+export declare function buildContestWonEmbed(contest: Contest, winner: string): EmbedBuilder;

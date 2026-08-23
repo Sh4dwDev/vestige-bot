@@ -1,6 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, EmbedBuilder, ModalBuilder, type AutocompleteInteraction, type Client, type ChatInputCommandInteraction, type ButtonInteraction, type ModalSubmitInteraction } from 'discord.js';
 import { AdminStore } from './admins.js';
-import type { ModBridge } from './bridge.js';
+import { type ModBridge } from './bridge.js';
 import type { Config } from './config.js';
 import type { Database } from './db.js';
 import type { Panel } from './pterodactyl.js';

@@ -172,3 +172,66 @@ export const contestAnnounce = (contest: Contest): string =>
 
 export const winnerAnnounce = (contest: Contest, who: string): string =>
   `${who} held ${contest.name} and takes ${contest.reward} points.`;
+
+// ------------------------------------------------------------------ running --
+
+const CHANNEL_KEY = 'contest_channel';
+
+export const contestChannel = (ctx: Ctx): string | null =>
+  ctx.db.getSetting(CHANNEL_KEY) || null;
+
+export const setContestChannel = (ctx: Ctx, channelId: string | null): void =>
+  ctx.db.setSetting(CHANNEL_KEY, channelId ?? '');
+
+export interface TickOutcome {
+  /** Set when somebody just won, so the caller can announce it once. */
+  winner: string | null;
+  contested: boolean;
+  holders: string[];
+}
+
+/**
+ * One turn of the clock, and the payout if it ends.
+ *
+ * Called from the poll that already reads positions, so this costs nothing
+ * extra. Everything that decides an outcome lives in `tickContest`, which is
+ * pure; this only writes the results down and hands out the prize.
+ */
+export function advanceContest(
+  ctx: Ctx,
+  players: PlayerRow[],
+  elapsedMs: number,
+): TickOutcome | null {
+  const contest = activeContest(ctx);
+  if (!contest) return null;
+
+  const result = tickContest(contest, players, elapsedMs);
+
+  if (!result.winner) {
+    saveContest(ctx, result.contest);
+    return { winner: null, contested: result.contested, holders: result.holders };
+  }
+
+  // Paid and cleared in one go: leaving it active would keep paying the same
+  // person every few seconds for standing still.
+  ctx.db.addPoints(result.winner, contest.reward, 0);
+  if (contest.skin) ctx.db.grantSkin(result.winner, contest.skin, `Won ${contest.name}`);
+  saveContest(ctx, null);
+
+  return { winner: result.winner, contested: false, holders: result.holders };
+}
+
+export function buildContestWonEmbed(contest: Contest, winner: string): EmbedBuilder {
+  const held = leader(contest);
+
+  return new EmbedBuilder()
+    .setColor(0x57f287)
+    .setTitle(`🏆  ${contest.name} claimed`)
+    .setDescription(
+      `${winner} held it and takes **${contest.reward}** points` +
+      (contest.skin ? ` and the **${contest.skin}** skin` : '') + '.\n\n' +
+      (held ? `Held for **${minutes(held.heldMs)}**.` : ''),
+    )
+    .setFooter({ text: `${SERVER} · ${SIGNATURE}` })
+    .setTimestamp();
+}

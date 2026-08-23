@@ -22,7 +22,7 @@ import {
 
 import { AdminStore } from './admins.js';
 import { ARCHIVE_CAP, SERVER, SIGNATURE } from './brand.js';
-import type { ModBridge, PlayerRow } from './bridge.js';
+import { toPlainAscii, type ModBridge, type PlayerRow } from './bridge.js';
 import type { Config } from './config.js';
 import type { Database } from './db.js';
 import {
@@ -148,6 +148,17 @@ import {
   wardrobeRows,
 } from './wardrobe.js';
 import { buildPrimeDebugEmbed, buildPrimeEmbed } from './prime.js';
+import {
+  activeContest,
+  buildContestEmbed,
+  contestAnnounce,
+  contestChannel,
+  hud,
+  inside,
+  saveContest,
+  setContestChannel,
+  type Contest,
+} from './contest.js';
 import {
   buildReferralEmbed,
   referralMinutes,
@@ -854,6 +865,32 @@ export const commandData = [
           c.setName('recalibrate')
             .setDescription('Forget the learned map bounds and start again'))
         .addSubcommand((c) => c.setName('off').setDescription('Take the panel down')),
+    )
+    .addSubcommandGroup((g) =>
+      g.setName('contest').setDescription('A place worth fighting over')
+        .addSubcommand((c) =>
+          c.setName('start').setDescription('Start one where you are standing')
+            .addIntegerOption((o) =>
+              o.setName('minutes').setDescription('How long it must be held. Default 5')
+                .setMinValue(1).setMaxValue(120))
+            .addIntegerOption((o) =>
+              o.setName('reward').setDescription('Points for the winner. Default 750')
+                .setMinValue(0).setMaxValue(100_000))
+            .addIntegerOption((o) =>
+              o.setName('radius').setDescription('How close counts, in HUD units. Default 30')
+                .setMinValue(5).setMaxValue(500))
+            .addStringOption((o) =>
+              o.setName('name').setDescription('What to call it'))
+            .addStringOption((o) =>
+              o.setName('skin').setDescription('A skin the winner also keeps')
+                .setAutocomplete(true)))
+        .addSubcommand((c) => c.setName('status').setDescription('How the current one is going'))
+        .addSubcommand((c) => c.setName('stop').setDescription('Call it off, paying nobody'))
+        .addSubcommand((c) =>
+          c.setName('channel').setDescription('Where results are posted')
+            .addChannelOption((o) =>
+              o.setName('channel').setDescription('Where it announces')
+                .addChannelTypes(ChannelType.GuildText).setRequired(true))),
     )
     .addSubcommandGroup((g) =>
       g.setName('prime').setDescription('The raw prime condition flags')
@@ -2772,6 +2809,146 @@ async function handlePrimeDebug(ctx: Ctx, i: ChatInputCommandInteraction): Promi
   });
 }
 
+
+// -------------------------------------------------------------- contest --
+
+async function handleContest(
+  ctx: Ctx,
+  i: ChatInputCommandInteraction,
+  action: string,
+): Promise<void> {
+  if (action === 'channel') {
+    const channel = i.options.getChannel('channel', true);
+    setContestChannel(ctx, channel.id);
+    await i.reply({
+      embeds: [embed(COLORS.good, 'Contest channel set',
+        `Results are posted in <#${channel.id}>. The start and the win are also `
+        + 'announced in game, which is where people actually are.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (action === 'stop') {
+    const running = activeContest(ctx);
+    saveContest(ctx, null);
+    await i.reply({
+      embeds: [embed(COLORS.good, running ? 'Contest called off' : 'Nothing running',
+        running
+          ? `**${running.name}** is over and nobody was paid. Anyone standing on `
+            + 'it keeps nothing, so say something in game if people were trying.'
+          : 'There was no contest to stop.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (action === 'status') {
+    const running = activeContest(ctx);
+    if (!running) {
+      await i.reply({
+        embeds: [embed(COLORS.quiet, 'Nothing running',
+          'Stand somewhere good and use `/admin contest start`.')],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    const players = await ctx.mod.players().catch(() => [] as PlayerRow[]);
+    const holders = players.filter((p) => p.steam && inside(running, p))
+      .map((p) => p.steam as string);
+
+    await i.editReply({
+      embeds: [buildContestEmbed(running, steamNamer(ctx),
+        { holders, contested: holders.length > 1 })],
+    });
+    return;
+  }
+
+  // Starting. The location is wherever the admin is standing, which beats
+  // typing coordinates: you can see what is there, and whether it is somewhere
+  // worth fighting over.
+  const link = ctx.db.linkFor(i.user.id);
+  if (!link) {
+    await i.reply({
+      embeds: [embed(COLORS.warn, 'Link your account first',
+        'The contest starts where you are standing, so the bot needs to know '
+        + 'which character is yours.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+
+  if (activeContest(ctx)) {
+    await i.editReply({
+      embeds: [embed(COLORS.warn, 'One at a time',
+        'A contest is already running. `/admin contest stop` ends it first — two '
+        + 'at once would split everybody and neither would be fought over.')],
+    });
+    return;
+  }
+
+  const me = (await ctx.mod.players().catch(() => [] as PlayerRow[]))
+    .find((p) => p.steam === link.steamId);
+
+  if (!me || me.x === undefined || me.y === undefined) {
+    await i.editReply({
+      embeds: [embed(COLORS.warn, 'Cannot see where you are',
+        'Join the server, stand where you want it, and run this again.')],
+    });
+    return;
+  }
+
+  const skin = i.options.getString('skin')?.trim();
+  if (skin && !ctx.db.preset(skin)) {
+    await i.editReply({
+      embeds: [embed(COLORS.warn, 'No such skin',
+        `There is no preset called **${skin}**. Make one with \`/admin skin save\` `
+        + 'first, or leave it out and pay points only.')],
+    });
+    return;
+  }
+
+  const minutes = i.options.getInteger('minutes') ?? 5;
+  const contest: Contest = {
+    x: me.x,
+    y: me.y,
+    // Typed in HUD units, stored in world units, like every other distance here.
+    radius: (i.options.getInteger('radius') ?? 30) * 1000,
+    holdMs: minutes * 60_000,
+    reward: i.options.getInteger('reward') ?? 750,
+    ...(skin ? { skin } : {}),
+    name: i.options.getString('name')?.trim() || 'The Contested Ground',
+    startedAt: Date.now(),
+    progress: {},
+  };
+
+  saveContest(ctx, contest);
+
+  // In game first: that is where the people who can act on it are.
+  await ctx.rcon.announce(toPlainAscii(contestAnnounce(contest))).catch(() => undefined);
+
+  const channelId = contestChannel(ctx);
+  if (channelId) {
+    const channel = await i.client.channels.fetch(channelId).catch(() => null);
+    if (channel?.isTextBased() && 'send' in channel) {
+      await channel.send({ embeds: [buildContestEmbed(contest, steamNamer(ctx))] })
+        .catch(() => undefined);
+    }
+  }
+
+  await i.editReply({
+    embeds: [embed(COLORS.good, 'Contest started',
+      `**${contest.name}** at Lat **${hud(contest.y)}**, Long **${hud(contest.x)}**.\n\n`
+      + `Hold it **${minutes} minutes** to win **${contest.reward}** points`
+      + (skin ? ` and the **${skin}** skin` : '') + '.\n\n'
+      + 'Two or more players inside and nobody gains. Announced in game already.')],
+  });
+}
+
 // ------------------------------------------------------------ referrals --
 
 async function handleReferrals(
@@ -3813,6 +3990,7 @@ async function handleAdmin(ctx: Ctx, i: ChatInputCommandInteraction): Promise<vo
   if (group === 'events') return handleEvents(ctx, i, action);
   if (group === 'bounties') return handleBounties(ctx, i, action);
   if (group === 'backup') return handleBackup(ctx, i, action);
+  if (group === 'contest') return handleContest(ctx, i, action);
   if (group === 'prime') return handlePrimeDebug(ctx, i);
   if (group === 'referrals') return handleReferrals(ctx, i, action);
   if (group === 'wardrobe') return handleWardrobePanel(ctx, i, action);

@@ -9,7 +9,7 @@ import {
 
 import { AdminStore } from './admins.js';
 import { SERVER } from './brand.js';
-import { ModBridge } from './bridge.js';
+import { ModBridge, toPlainAscii } from './bridge.js';
 import {
   announceLinked,
   describeError,
@@ -53,6 +53,13 @@ import { enforcementEnabled, restoreAllPlayables } from './enforce.js';
 import { refreshStatusPanel } from './status.js';
 import { handlePanelInteraction } from './panel.js';
 import { handleWardrobe } from './wardrobe.js';
+import {
+  activeContest,
+  advanceContest,
+  buildContestWonEmbed,
+  contestChannel,
+  winnerAnnounce,
+} from './contest.js';
 import { EvrimaRcon } from './rcon.js';
 
 const log = (message: string): void => {
@@ -475,6 +482,45 @@ async function handleChatEvent(
  * Answers `!discord`. The mod cannot write to game chat, so the reply goes out
  * over RCON as a direct message to that player.
  */
+/**
+ * Advances the contested point and announces an outcome once.
+ *
+ * Announcing lives here rather than in the rules so the rules stay pure and
+ * testable, and so a Discord failure can never stop somebody being paid.
+ */
+async function runContest(
+  ctx: Ctx,
+  client: Client,
+  players: Awaited<ReturnType<Ctx['mod']['players']>>,
+  elapsedMs: number,
+  log: (m: string) => void,
+): Promise<void> {
+  const contest = activeContest(ctx);
+  if (!contest) return;
+
+  const outcome = advanceContest(ctx, players, elapsedMs);
+  if (!outcome?.winner) return;
+
+  const named = steamNamer(ctx)(outcome.winner);
+  log(`contest: ${outcome.winner} won ${contest.name} for ${contest.reward}`);
+
+  // Points are already paid by this point. Everything below is telling people,
+  // so each part is allowed to fail on its own.
+  await ctx.rcon.announce(toPlainAscii(winnerAnnounce(contest, named)))
+    .catch(() => undefined);
+
+  const channelId = contestChannel(ctx);
+  if (!channelId) return;
+
+  const channel = await client.channels.fetch(channelId).catch(() => null);
+  if (!channel?.isTextBased() || !('send' in channel)) return;
+
+  await channel.send({
+    embeds: [buildContestWonEmbed(contest, named)],
+    allowedMentions: { parse: [] },
+  }).catch(() => undefined);
+}
+
 async function sendInvite(ctx: Ctx, steamId: string): Promise<void> {
   if (!ctx.config.discordInvite) return;
 
@@ -537,7 +583,12 @@ function startServerPoll(ctx: Ctx, client: Client<true>): void {
       const elapsed = Date.now() - lastAward;
       lastAward = Date.now();
       try {
-        awardOnline(ctx, await ctx.mod.players(), elapsed);
+        // Read once and used twice: the positions the contest needs are the
+        // same ones the payout needs, so asking again would be a second round
+        // trip for data already in hand.
+        const live = await ctx.mod.players();
+        awardOnline(ctx, live, elapsed);
+        await runContest(ctx, client, live, elapsed, log);
       } catch (err) {
         log(`points: award failed: ${describeError(err)}`);
       }
