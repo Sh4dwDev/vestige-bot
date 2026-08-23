@@ -32,7 +32,7 @@ import { refreshStatusPanel } from './status.js';
 import { handlePanelInteraction } from './panel.js';
 import { handleWardrobe } from './wardrobe.js';
 import { advanceTryout } from './tryout.js';
-import { activeHunt, buildHuntEmbed, caughtAnnounce, claimHunt, huntChannel, huntStep, markRevealed, revealAnnounce, saveHunt, survivedAnnounce, } from './hunt.js';
+import { activeHunt, buildHuntEmbed, caughtAnnounce, claimHunt, huntChannel, huntStep, proximityStep, markRevealed, revealAnnounce, saveHunt, survivedAnnounce, } from './hunt.js';
 import { activeContest, advanceContest, buildContestWonEmbed, contestChannel, enterNotice, leaveNotice, winnersAnnounce, } from './contest.js';
 import { EvrimaRcon } from './rcon.js';
 const log = (message) => {
@@ -487,7 +487,15 @@ async function runHunt(ctx, client, players, log) {
     const hunt = activeHunt(ctx);
     if (!hunt)
         return;
-    const step = huntStep(hunt, players, Date.now());
+    // Before the reveal check: warmth is continuous, while a position call is
+    // once every few minutes, and returning early would silence it.
+    const near = proximityStep(hunt, players);
+    if (near.notices.length > 0) {
+        saveHunt(ctx, near.hunt);
+        for (const notice of near.notices)
+            void ctx.mod.notify(notice.steam, notice.text);
+    }
+    const step = huntStep(near.hunt, players, Date.now());
     if (step.kind === 'waiting')
         return;
     if (step.kind === 'survived') {
@@ -499,7 +507,7 @@ async function runHunt(ctx, client, players, log) {
     }
     // Marked before announcing: a failed announcement must not mean trying again
     // every minute for the rest of the hunt.
-    markRevealed(ctx, hunt, Date.now(), step.species);
+    markRevealed(ctx, near.hunt, Date.now(), step.species);
     await ctx.rcon.announce(toPlainAscii(revealAnnounce(hunt, step.x, step.y, step.species)))
         .catch(() => undefined);
 }
@@ -582,7 +590,6 @@ function startServerPoll(ctx, client) {
                 // a minute is far too coarse for a notice that says "you are on it".
                 // Closes the hidden-species window the instant the admin is seen on it.
                 await advanceTryout(ctx, live, log);
-                await runHunt(ctx, client, live, log);
             }
             catch (err) {
                 log(`points: award failed: ${describeError(err)}`);
@@ -634,20 +641,47 @@ function startServerPoll(ctx, client) {
     // seconds is close enough to feel like a boundary. It also makes the hold
     // itself fairer, since time is credited between sightings and the rounding is
     // a quarter of what it was.
+    //
+    // Five seconds is the floor worth asking for: positions come back over the
+    // file bridge, and the mod only looks at its inbox every three seconds, so a
+    // reading is three to four seconds old before the bot ever sees it. Asking
+    // faster would queue requests rather than produce fresher answers.
     let lastContest = Date.now();
+    let contestBusy = false;
     const contestTick = async () => {
+        // A round trip can outlast the interval. Without this the ticks stack up,
+        // each holding a stale `elapsed`, and the hold clock runs fast.
+        if (contestBusy)
+            return;
+        const contest = activeContest(ctx);
+        const hunt = activeHunt(ctx);
+        if (!contest && !hunt) {
+            // Still moved on, or the first tick after one starts would credit every
+            // second since the bot booted.
+            lastContest = Date.now();
+            return;
+        }
+        contestBusy = true;
         const elapsed = Date.now() - lastContest;
         lastContest = Date.now();
-        if (!activeContest(ctx))
-            return;
         try {
-            await runContest(ctx, client, await ctx.mod.players(), elapsed, log);
+            // One read of positions serves both. The hunt is here rather than on the
+            // minute tick because "you are close" a minute after you were is not a
+            // signal anybody can chase.
+            const live = await ctx.mod.players();
+            if (contest)
+                await runContest(ctx, client, live, elapsed, log);
+            if (hunt)
+                await runHunt(ctx, client, live, log);
         }
         catch (err) {
-            log(`contest: tick failed: ${describeError(err)}`);
+            log(`events: tick failed: ${describeError(err)}`);
+        }
+        finally {
+            contestBusy = false;
         }
     };
-    setInterval(() => void contestTick(), 15_000).unref();
+    setInterval(() => void contestTick(), 5_000).unref();
 }
 /** `online: null` means the server did not answer; `max: null` means Game.ini has not been read. */
 function setStatus(client, online, max) {

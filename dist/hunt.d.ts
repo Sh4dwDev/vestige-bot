@@ -24,7 +24,27 @@ export interface Hunt {
     /** Last time it did, so the timer survives a restart. */
     lastRevealAt: number;
     startedAt: number;
+    /**
+     * How close each hunter was told they were, last time they were told.
+     *
+     * Kept so a notice fires when somebody crosses a band rather than every few
+     * seconds while they stand still — "you are close" repeated twelve times a
+     * minute is not a warmer signal, it is spam.
+     */
+    bands?: Record<string, number>;
 }
+/**
+ * How close counts as close, in HUD units, nearest first.
+ *
+ * HUD units because that is what the position call already speaks: a hunter is
+ * given `Lat -317, Long 120` and can read their own coordinates off the same
+ * display, so a distance in the same scale is one they can act on.
+ */
+export declare const BANDS: Array<{
+    within: number;
+    hunter: string;
+    target: string;
+}>;
 export declare function activeHunt(ctx: Ctx): Hunt | null;
 export declare const saveHunt: (ctx: Ctx, hunt: Hunt | null) => void;
 export type HuntStep = {
@@ -50,6 +70,25 @@ export declare const revealAnnounce: (hunt: Hunt, x: number, y: number, species:
 export declare const caughtAnnounce: (hunt: Hunt, killer: string) => string;
 export declare const survivedAnnounce: (hunt: Hunt) => string;
 export declare function buildHuntEmbed(hunt: Hunt, state: 'running' | 'caught' | 'survived', killer?: string): EmbedBuilder;
+export interface ProximityNotice {
+    steam: string;
+    text: string;
+}
+export interface ProximityStep {
+    hunt: Hunt;
+    notices: ProximityNotice[];
+}
+/**
+ * Who is close enough to be told so, and what they are told.
+ *
+ * Both sides get a notice. Telling only the hunters makes the quarry a sitting
+ * target who never knows to run; telling only the quarry makes the hunters
+ * wander. The pair of them is what turns a coordinate into a chase.
+ *
+ * Pure, and it only speaks on a change of band — including the change to "no
+ * longer close", which is how somebody knows they have lost the trail.
+ */
+export declare function proximityStep(hunt: Hunt, players: PlayerRow[]): ProximityStep;
 export declare const huntChannel: (ctx: Ctx) => string | null;
 export declare const setHuntChannel: (ctx: Ctx, channelId: string | null) => void;
 /**

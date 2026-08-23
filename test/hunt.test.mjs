@@ -10,7 +10,7 @@ const load = (f) => import(pathToFileURL(path.join(root, 'dist', f)).href);
 
 const {
   huntStep, claimHunt, saveHunt, activeHunt, markRevealed,
-  buildHuntEmbed, huntAnnounce, revealAnnounce, survivedAnnounce,
+  buildHuntEmbed, huntAnnounce, revealAnnounce, survivedAnnounce, proximityStep,
 } = await load('hunt.js');
 const { Database } = await load('db.js');
 
@@ -172,6 +172,90 @@ const at = (steam, x, y, species = 'Rex') =>
   const survived = buildHuntEmbed(h, 'survived').toJSON();
   check('surviving explains why nobody won',
     /player kill/.test(survived.description ?? ''), survived.description);
+}
+
+// ---- how close am I --------------------------------------------------------
+//
+// Asked for as "a pop up message like the prime conditions message when you are
+// close to the target". Both sides are told: a quarry who never knows they are
+// being closed on cannot run, which is the half of a hunt that makes it one.
+
+{
+  const h = base();
+  const far = proximityStep(h, [at(TARGET, 0, 0), at(HUNTER, 900_000, 900_000)]);
+  check('nobody across the island is told anything', far.notices.length === 0);
+
+  // 30 HUD units out, which is the middle band.
+  const warm = proximityStep(h, [at(TARGET, 0, 0), at(HUNTER, 30_000, 0)]);
+  check('the hunter is told they are getting warm',
+    warm.notices.some((n) => n.steam === HUNTER && /warm/i.test(n.text)),
+    JSON.stringify(warm.notices));
+  check('and the target is warned too',
+    warm.notices.some((n) => n.steam === TARGET), JSON.stringify(warm.notices));
+  check('the hunter is told roughly how far',
+    /30/.test(warm.notices.find((n) => n.steam === HUNTER)?.text ?? ''));
+
+  // Standing still must not repeat it twelve times a minute.
+  const again = proximityStep(warm.hunt, [at(TARGET, 0, 0), at(HUNTER, 30_000, 0)]);
+  check('standing still says nothing more', again.notices.length === 0,
+    JSON.stringify(again.notices));
+
+  // Closing in is worth saying.
+  const closer = proximityStep(again.hunt, [at(TARGET, 0, 0), at(HUNTER, 5_000, 0)]);
+  check('getting closer is worth a second notice',
+    closer.notices.some((n) => n.steam === HUNTER && /on top/i.test(n.text)),
+    JSON.stringify(closer.notices));
+
+  // Drifting back out to a colder band is not - the silence says it.
+  const drifting = proximityStep(closer.hunt, [at(TARGET, 0, 0), at(HUNTER, 30_000, 0)]);
+  check('drifting back out does not announce itself',
+    drifting.notices.length === 0, JSON.stringify(drifting.notices));
+
+  const lost = proximityStep(drifting.hunt, [at(TARGET, 0, 0), at(HUNTER, 900_000, 900_000)]);
+  check('losing them entirely is worth saying',
+    lost.notices.some((n) => n.steam === HUNTER && /lost/i.test(n.text)),
+    JSON.stringify(lost.notices));
+  check('and the target is told they are clear',
+    lost.notices.some((n) => n.steam === TARGET && /lost/i.test(n.text)));
+}
+
+{
+  // A target nobody can see cannot be measured against.
+  const h = base();
+  const blind = proximityStep(h, [at(HUNTER, 0, 0)]);
+  check('an unlocatable target produces no notices', blind.notices.length === 0);
+  check('and the bands are cleared, so coming back speaks again',
+    Object.keys(blind.hunt.bands ?? {}).length === 0);
+}
+
+{
+  // The target must never be told they are close to themselves.
+  const h = base();
+  const alone = proximityStep(h, [at(TARGET, 0, 0)]);
+  check('a target alone on the island hears nothing', alone.notices.length === 0,
+    JSON.stringify(alone.notices));
+}
+
+{
+  // Two hunters closing in warns the quarry once, not once each.
+  const h = base();
+  const pair = proximityStep(h, [
+    at(TARGET, 0, 0), at(HUNTER, 5_000, 0), at('76561198000000003', 6_000, 0),
+  ]);
+  check('the quarry is warned once however many are chasing',
+    pair.notices.filter((n) => n.steam === TARGET).length === 1,
+    JSON.stringify(pair.notices));
+  check('and each hunter is told separately',
+    pair.notices.filter((n) => n.steam !== TARGET).length === 2);
+}
+
+{
+  // These render through the mod, which drops anything outside ASCII silently.
+  const h = base();
+  const near = proximityStep(h, [at(TARGET, 0, 0), at(HUNTER, 5_000, 0)]);
+  for (const notice of near.notices) {
+    check('a proximity notice is plain ASCII', /^[ -~]*$/.test(notice.text), notice.text);
+  }
 }
 
 const failed = results.filter((r) => !r).length;

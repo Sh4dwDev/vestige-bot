@@ -47,7 +47,40 @@ export interface Hunt {
   /** Last time it did, so the timer survives a restart. */
   lastRevealAt: number;
   startedAt: number;
+  /**
+   * How close each hunter was told they were, last time they were told.
+   *
+   * Kept so a notice fires when somebody crosses a band rather than every few
+   * seconds while they stand still — "you are close" repeated twelve times a
+   * minute is not a warmer signal, it is spam.
+   */
+  bands?: Record<string, number>;
 }
+
+/**
+ * How close counts as close, in HUD units, nearest first.
+ *
+ * HUD units because that is what the position call already speaks: a hunter is
+ * given `Lat -317, Long 120` and can read their own coordinates off the same
+ * display, so a distance in the same scale is one they can act on.
+ */
+export const BANDS: Array<{ within: number; hunter: string; target: string }> = [
+  {
+    within: 8,
+    hunter: 'You are right on top of them.',
+    target: 'They are right on top of you.',
+  },
+  {
+    within: 20,
+    hunter: 'You are close.',
+    target: 'Somebody is close.',
+  },
+  {
+    within: 45,
+    hunter: 'You are getting warm.',
+    target: 'Somebody is getting warm.',
+  },
+];
 
 export function activeHunt(ctx: Ctx): Hunt | null {
   const raw = ctx.db.getSetting(KEY);
@@ -142,6 +175,97 @@ export function buildHuntEmbed(hunt: Hunt, state: 'running' | 'caught' | 'surviv
     )
     .setFooter({ text: `${SERVER} · ${SIGNATURE}` })
     .setTimestamp();
+}
+
+export interface ProximityNotice {
+  steam: string;
+  text: string;
+}
+
+export interface ProximityStep {
+  hunt: Hunt;
+  notices: ProximityNotice[];
+}
+
+/**
+ * Who is close enough to be told so, and what they are told.
+ *
+ * Both sides get a notice. Telling only the hunters makes the quarry a sitting
+ * target who never knows to run; telling only the quarry makes the hunters
+ * wander. The pair of them is what turns a coordinate into a chase.
+ *
+ * Pure, and it only speaks on a change of band — including the change to "no
+ * longer close", which is how somebody knows they have lost the trail.
+ */
+export function proximityStep(hunt: Hunt, players: PlayerRow[]): ProximityStep {
+  const target = players.find((p) => p.steam === hunt.targetSteam);
+  const bands = { ...(hunt.bands ?? {}) };
+  const notices: ProximityNotice[] = [];
+
+  if (!target || target.x === undefined || target.y === undefined) {
+    // Unlocatable: nothing can be said about distance, and the bands are
+    // cleared so coming back into view speaks again rather than staying silent.
+    return { hunt: { ...hunt, bands: {} }, notices };
+  }
+
+  // The nearest hunter, so the quarry is warned once rather than once per
+  // person chasing them.
+  let closest = Number.POSITIVE_INFINITY;
+
+  for (const player of players) {
+    if (!player.steam || player.steam === hunt.targetSteam) continue;
+    if (player.x === undefined || player.y === undefined) continue;
+
+    const away = Math.hypot(player.x - target.x, player.y - target.y) / 1000;
+    const band = BANDS.findIndex((b) => away <= b.within);
+    const was = bands[player.steam] ?? -1;
+
+    if (band >= 0 && away < closest) closest = away;
+
+    if (band === was) continue;
+
+    if (band < 0) {
+      delete bands[player.steam];
+      // Only worth saying to somebody who had been told they were close.
+      if (was >= 0) {
+        notices.push({ steam: player.steam, text: `HUNT: you have lost ${hunt.targetName}.` });
+      }
+      continue;
+    }
+
+    bands[player.steam] = band;
+    // Only on the way in. Drifting from "close" back to "warm" already says
+    // enough by not saying "right on top of them" any more.
+    if (was < 0 || band < was) {
+      notices.push({
+        steam: player.steam,
+        text: `HUNT: ${BANDS[band]?.hunter ?? ''} ${hunt.targetName} is `
+          + `about ${Math.round(away)} out.`,
+      });
+    }
+  }
+
+  const targetBand = BANDS.findIndex((b) => closest <= b.within);
+  const targetWas = bands[hunt.targetSteam] ?? -1;
+
+  if (targetBand !== targetWas) {
+    if (targetBand < 0) {
+      delete bands[hunt.targetSteam];
+      if (targetWas >= 0) {
+        notices.push({ steam: hunt.targetSteam, text: 'HUNT: you have lost them.' });
+      }
+    } else {
+      bands[hunt.targetSteam] = targetBand;
+      if (targetWas < 0 || targetBand < targetWas) {
+        notices.push({
+          steam: hunt.targetSteam,
+          text: `HUNT: ${BANDS[targetBand]?.target ?? ''} Run.`,
+        });
+      }
+    }
+  }
+
+  return { hunt: { ...hunt, bands }, notices };
 }
 
 const CHANNEL_KEY = 'hunt_channel';
