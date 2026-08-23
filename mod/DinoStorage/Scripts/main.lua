@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.39.0"
+local MOD_VERSION = "3.40.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1129,6 +1129,163 @@ local function handleStore(cmd)
         due = fastTick + KILL_DELAY_TICKS, resultId = cmd.id,
     }
     log(string.format("store: %s -> %s (%s)", cmd.steam, slot, state.species))
+end
+
+-- Moving a stored dinosaur to somebody else.
+--
+-- This is the whole of selling one. A stored dinosaur is a file and an index
+-- row, so a sale is a rename -- no pawn, no respawn, and none of the engine
+-- risk that comes with either. It works while both parties are offline, which
+-- is what makes a marketplace possible at all.
+--
+-- The escrow account is a destination that is not a Steam ID. A listed
+-- dinosaur is moved to it so the seller cannot restore, delete or re-list the
+-- thing they have already offered; the sale moves it on to the buyer and a
+-- cancellation moves it back. It is exempt from the slot cap on purpose: it is
+-- a holding pen for the whole server, not somebody's archive.
+local ESCROW = "escrow"
+
+-- File first, then index, then remove the source -- the same order store uses,
+-- and for the same reason. Interrupted halfway this leaves a duplicate, which
+-- somebody can sort out; the other order loses the dinosaur.
+local function handleTransfer(cmd)
+    local slot = cmd.args and cmd.args.slot
+    local to = cmd.args and cmd.args.to
+
+    if not slotNameOk(slot) then
+        writeResult(cmd.id, "transfer", cmd.steam, false, "that is not a valid slot name")
+        return
+    end
+    if type(to) ~= "string" or to == "" or to == cmd.steam then
+        writeResult(cmd.id, "transfer", cmd.steam, false, "no destination given")
+        return
+    end
+    -- Restoring mid-transfer would leave the file moved and the dinosaur alive.
+    if busy(cmd.steam) or busy(to) then
+        writeResult(cmd.id, "transfer", cmd.steam, false, "an action is still finishing")
+        return
+    end
+
+    local body = readAll(savedDir .. slotFile(cmd.steam, slot))
+    if body == nil then
+        writeResult(cmd.id, "transfer", cmd.steam, false, "nothing is stored in that slot")
+        return
+    end
+
+    local parsed
+    local okParse = pcall(function() parsed = jsonParse(body) end)
+    if not okParse or type(parsed) ~= "table" then
+        writeResult(cmd.id, "transfer", cmd.steam, false, "that snapshot could not be read")
+        return
+    end
+
+    local theirs = slotsOf(to)
+    if to ~= ESCROW and #theirs >= MAX_SLOTS then
+        writeResult(cmd.id, "transfer", cmd.steam, false, string.format(
+            "their storage is full (%d of %d)", #theirs, MAX_SLOTS))
+        return
+    end
+
+    -- Keep the name where it is free. Two people can easily both call a slot
+    -- "rex", and overwriting theirs would destroy a dinosaur to move one.
+    local taken = {}
+    for _, entry in ipairs(theirs) do taken[entry.slot] = true end
+
+    local target = slot
+    if taken[target] then
+        local n = 2
+        while taken[target] and n < 100 do
+            -- Truncated so the suffix cannot push it past the 24-char limit.
+            target = string.sub(slot, 1, 20) .. "-" .. tostring(n)
+            n = n + 1
+        end
+        if taken[target] then
+            writeResult(cmd.id, "transfer", cmd.steam, false, "could not find a free slot name")
+            return
+        end
+    end
+
+    parsed.steam = to
+    parsed.slot = target
+
+    local wrote, err = writeAtomic(savedDir .. slotFile(to, target),
+        encodeValue(parsed, 0) .. "\n")
+    if not wrote then
+        writeResult(cmd.id, "transfer", cmd.steam, false,
+            "could not write the slot: " .. tostring(err))
+        return
+    end
+
+    local entries, kept = readIndex(), {}
+    for _, entry in ipairs(entries) do
+        if not (entry.steam == cmd.steam and entry.slot == slot) then
+            kept[#kept + 1] = entry
+        end
+    end
+    kept[#kept + 1] = {
+        steam = to, slot = target,
+        species = parsed.species, storedAt = parsed.storedAt,
+    }
+
+    if not writeIndex(kept) then
+        os.remove(savedDir .. slotFile(to, target))
+        writeResult(cmd.id, "transfer", cmd.steam, false,
+            "could not update storage, nothing was changed")
+        return
+    end
+
+    os.remove(savedDir .. slotFile(cmd.steam, slot))
+
+    log(string.format("transfer: %s %s -> %s %s (%s)",
+        cmd.steam, slot, to, target, tostring(parsed.species)))
+    writeResult(cmd.id, "transfer", cmd.steam, true, "moved",
+        string.format('{"slot":"%s","to":"%s","species":"%s"}',
+            jsonEscape(target), jsonEscape(to), jsonEscape(parsed.species or "Unknown")))
+end
+
+-- What is actually in a slot, for a listing somebody is deciding whether to buy.
+-- The plain list gives species and a date, which is not enough to price one.
+local function handleSlotInfo(cmd)
+    local slot = cmd.args and cmd.args.slot
+    if not slotNameOk(slot) then
+        writeResult(cmd.id, "slotinfo", cmd.steam, false, "that is not a valid slot name")
+        return
+    end
+
+    local body = readAll(savedDir .. slotFile(cmd.steam, slot))
+    if body == nil then
+        writeResult(cmd.id, "slotinfo", cmd.steam, false, "nothing is stored in that slot")
+        return
+    end
+
+    local parsed
+    local okParse = pcall(function() parsed = jsonParse(body) end)
+    if not okParse or type(parsed) ~= "table" then
+        writeResult(cmd.id, "slotinfo", cmd.steam, false, "that snapshot could not be read")
+        return
+    end
+
+    local mutations = {}
+    for _, field in ipairs(MUTATION_SLOTS) do
+        local name = (parsed.mutations or {})[field]
+        if type(name) == "string" and name ~= "" then
+            mutations[#mutations + 1] = string.format('"%s"', jsonEscape(name))
+        end
+    end
+
+    local prime = false
+    pcall(function() prime = (parsed.primeData or {}).bIsEligiblePrime == true end)
+
+    writeResult(cmd.id, "slotinfo", cmd.steam, true, "read",
+        string.format(
+            '{"slot":"%s","species":"%s","growth":%.4f,"female":%s,"prime":%s,'
+            .. '"elderStacks":%d,"storedAt":%d,"mutations":[%s]}',
+            jsonEscape(slot), jsonEscape(parsed.species or "Unknown"),
+            tonumber(parsed.growth) or 0,
+            tostring(parsed.isFemale == true), tostring(prime),
+            math.floor(tonumber(parsed.elderStacks) or 0),
+            math.floor(tonumber(parsed.storedAt) or 0),
+            table.concat(mutations, ",")))
 end
 
 local function handleRestore(cmd)
@@ -2334,6 +2491,8 @@ local function dispatch(cmd)
     elseif verb == "restore" then handleRestore(cmd)
     elseif verb == "list" then handleList(cmd)
     elseif verb == "delete" then handleDelete(cmd)
+    elseif verb == "transfer" then handleTransfer(cmd)
+    elseif verb == "slotinfo" then handleSlotInfo(cmd)
     elseif verb == "slay" then handleSlay(cmd)
     elseif verb == "players" then handlePlayers(cmd)
     elseif verb == "give" then handleGive(cmd)

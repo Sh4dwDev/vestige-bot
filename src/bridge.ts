@@ -19,7 +19,8 @@ import type { Config } from './config.js';
 export type Verb =
   | 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players'
   | 'give' | 'teleport' | 'where' | 'skinget' | 'skinmany' | 'pattern'
-  | 'notify' | 'heal' | 'prime' | 'nest' | 'look' | 'skinfields';
+  | 'notify' | 'heal' | 'prime' | 'nest' | 'look' | 'skinfields'
+  | 'transfer' | 'slotinfo';
 
 export interface StoredSlot {
   slot: string;

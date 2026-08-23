@@ -52,6 +52,7 @@ import { speciesList } from './catalog.js';
 import { enforcementEnabled, restoreAllPlayables } from './enforce.js';
 import { refreshStatusPanel } from './status.js';
 import { handlePanelInteraction } from './panel.js';
+import { handleMarket } from './market.js';
 import { handleWardrobe } from './wardrobe.js';
 import { advanceTryout } from './tryout.js';
 import {
@@ -250,6 +251,9 @@ async function dispatch(ctx: Ctx, interaction: Interaction): Promise<void> {
       if (interaction.isButton() && await handleFounderInteraction(ctx, interaction)) return;
       if ((interaction.isButton() || interaction.isStringSelectMenu())
         && await handleWardrobe(ctx, interaction)) return;
+      // The market takes buttons, selects and its price form, so it is offered
+      // all three rather than the pair the wardrobe needs.
+      if (!interaction.isUserSelectMenu() && await handleMarket(ctx, interaction)) return;
       if (await handleHubInteraction(ctx, interaction)) return;
       await handlePanelInteraction(ctx, interaction);
     }

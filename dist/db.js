@@ -201,6 +201,34 @@ CREATE TABLE IF NOT EXISTS known_species (
   origin     TEXT NOT NULL DEFAULT 'seen'
 );
 
+-- Dinosaurs players are selling to each other.
+--
+-- The dinosaur itself is not here: it is a file on the game server, and a sale
+-- moves that file. What is here is the offer — who, what, how much, and the
+-- description a buyer decides on, snapshotted at listing time so the embed does
+-- not need a round trip to the server to render.
+CREATE TABLE IF NOT EXISTS listings (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  seller_steam TEXT NOT NULL,
+  -- The slot name inside the escrow account, which is where a listed dinosaur
+  -- lives. Not the seller's original name: escrow may have had to rename it.
+  slot         TEXT NOT NULL,
+  species      TEXT NOT NULL,
+  growth       REAL NOT NULL,
+  female       INTEGER NOT NULL,
+  prime        INTEGER NOT NULL,
+  mutations    TEXT NOT NULL,
+  price        INTEGER NOT NULL,
+  -- open | pending | sold | cancelled. A pending listing is held for the few
+  -- seconds a purchase takes, so two people pressing Buy at once cannot both
+  -- walk away with it.
+  status       TEXT NOT NULL,
+  buyer_steam  TEXT,
+  message_id   TEXT,
+  listed_at    TEXT NOT NULL,
+  closed_at    TEXT
+);
+
 CREATE TABLE IF NOT EXISTS skin_baseline (
   steam_id TEXT NOT NULL,
   species  TEXT NOT NULL,
@@ -441,6 +469,87 @@ export class Database {
             : this.#db
                 .prepare('DELETE FROM skin_baseline WHERE steam_id = ? AND species = ?')
                 .run(steamId, species).changes);
+    }
+    // -------------------------------------------------------------- listings --
+    createListing(row) {
+        return Number(this.#db
+            .prepare(`INSERT INTO listings
+             (seller_steam, slot, species, growth, female, prime, mutations,
+              price, status, listed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`)
+            .run(row.sellerSteam, row.slot, row.species, row.growth, row.female ? 1 : 0, row.prime ? 1 : 0, JSON.stringify(row.mutations), row.price, new Date().toISOString()).lastInsertRowid);
+    }
+    #asListing(row) {
+        let mutations = [];
+        try {
+            const parsed = JSON.parse(String(row['mutations'] ?? '[]'));
+            if (Array.isArray(parsed))
+                mutations = parsed.map(String);
+        }
+        catch {
+            // A listing with unreadable mutations is still a listing.
+        }
+        return {
+            id: Number(row['id']),
+            sellerSteam: String(row['seller_steam']),
+            slot: String(row['slot']),
+            species: String(row['species']),
+            growth: Number(row['growth']),
+            female: Number(row['female']) === 1,
+            prime: Number(row['prime']) === 1,
+            mutations,
+            price: Number(row['price']),
+            status: String(row['status']),
+            buyerSteam: row['buyer_steam'] ? String(row['buyer_steam']) : null,
+            messageId: row['message_id'] ? String(row['message_id']) : null,
+            listedAt: String(row['listed_at']),
+        };
+    }
+    listing(id) {
+        const row = this.#db.prepare('SELECT * FROM listings WHERE id = ?')
+            .get(id);
+        return row ? this.#asListing(row) : null;
+    }
+    openListings(limit = 50) {
+        return this.#db
+            .prepare("SELECT * FROM listings WHERE status = 'open' ORDER BY id DESC LIMIT ?")
+            .all(limit)
+            .map((r) => this.#asListing(r));
+    }
+    listingsBySeller(sellerSteam) {
+        return this.#db
+            .prepare("SELECT * FROM listings WHERE seller_steam = ? AND status IN ('open', 'pending') "
+            + 'ORDER BY id DESC')
+            .all(sellerSteam)
+            .map((r) => this.#asListing(r));
+    }
+    /**
+     * Takes an open listing off the market for one buyer, or returns false.
+     *
+     * The claim and the check are one statement on purpose: two people pressing
+     * Buy in the same second would otherwise both pass a read, both be charged,
+     * and only one get a dinosaur.
+     */
+    claimListing(id, buyerSteam) {
+        return Number(this.#db
+            .prepare("UPDATE listings SET status = 'pending', buyer_steam = ? "
+            + "WHERE id = ? AND status = 'open'")
+            .run(buyerSteam, id).changes) === 1;
+    }
+    /** Puts a claim back, for when the transfer fails and nobody was charged. */
+    releaseListing(id) {
+        this.#db
+            .prepare("UPDATE listings SET status = 'open', buyer_steam = NULL "
+            + "WHERE id = ? AND status = 'pending'")
+            .run(id);
+    }
+    closeListing(id, status) {
+        this.#db
+            .prepare('UPDATE listings SET status = ?, closed_at = ? WHERE id = ?')
+            .run(status, new Date().toISOString(), id);
+    }
+    setListingMessage(id, messageId) {
+        this.#db.prepare('UPDATE listings SET message_id = ? WHERE id = ?').run(messageId, id);
     }
     // ------------------------------------------------------------ owned skins --
     /** Returns false when they already had it, so a grant can say so honestly. */

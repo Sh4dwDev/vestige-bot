@@ -2,6 +2,21 @@ export interface Link {
     discordId: string;
     steamId: string;
 }
+export interface Listing {
+    id: number;
+    sellerSteam: string;
+    slot: string;
+    species: string;
+    growth: number;
+    female: boolean;
+    prime: boolean;
+    mutations: string[];
+    price: number;
+    status: 'open' | 'pending' | 'sold' | 'cancelled';
+    buyerSteam: string | null;
+    messageId: string | null;
+    listedAt: string;
+}
 export interface Referral {
     inviteeDiscord: string;
     inviterDiscord: string;
@@ -90,6 +105,31 @@ export declare class Database {
         variation?: number;
     } | null;
     clearBaseline(steamId: string, species?: string): number;
+    createListing(row: {
+        sellerSteam: string;
+        slot: string;
+        species: string;
+        growth: number;
+        female: boolean;
+        prime: boolean;
+        mutations: string[];
+        price: number;
+    }): number;
+    listing(id: number): Listing | null;
+    openListings(limit?: number): Listing[];
+    listingsBySeller(sellerSteam: string): Listing[];
+    /**
+     * Takes an open listing off the market for one buyer, or returns false.
+     *
+     * The claim and the check are one statement on purpose: two people pressing
+     * Buy in the same second would otherwise both pass a read, both be charged,
+     * and only one get a dinosaur.
+     */
+    claimListing(id: number, buyerSteam: string): boolean;
+    /** Puts a claim back, for when the transfer fails and nobody was charged. */
+    releaseListing(id: number): void;
+    closeListing(id: number, status: 'sold' | 'cancelled'): void;
+    setListingMessage(id: number, messageId: string): void;
     /** Returns false when they already had it, so a grant can say so honestly. */
     grantSkin(steamId: string, preset: string, source: string): boolean;
     revokeSkin(steamId: string, preset: string): boolean;

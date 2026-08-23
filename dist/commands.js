@@ -29,6 +29,7 @@ import { ANCHORS, boundsAreManual, buildHeatmapEmbed, effectiveBounds, HEATMAP_M
 import { applyCaps, planCaps } from './capplan.js';
 import { postPeak, REFRESH_MINUTES, setPeaksChannel } from './peaks.js';
 import { buildWardrobePanel, setWardrobeChannel, WARDROBE_MESSAGE_KEY, wardrobeRows, } from './wardrobe.js';
+import { buildMarketPanel, MARKET_MESSAGE_KEY, marketRows, setMarketChannel, setMarketFee, } from './market.js';
 import { buildPrimeDebugEmbed, buildPrimeEmbed } from './prime.js';
 import { activeTryout, startTryout } from './tryout.js';
 import { activeHunt, buildHuntEmbed, huntAnnounce, huntChannel, saveHunt, setHuntChannel, } from './hunt.js';
@@ -512,6 +513,14 @@ export const commandData = [
         .setMinValue(1).setMaxValue(10_000))
         .addIntegerOption((o) => o.setName('weekly').setDescription('Most one person can be paid a week. 0 is no cap')
         .setMinValue(0).setMaxValue(100))))
+        .addSubcommandGroup((g) => g.setName('market').setDescription('Players buying and selling dinosaurs')
+        .addSubcommand((c) => c.setName('panel').setDescription('Put the market panel in a channel')
+        .addChannelOption((o) => o.setName('channel').setDescription('Where listings are posted')
+        .addChannelTypes(ChannelType.GuildText).setRequired(true)))
+        .addSubcommand((c) => c.setName('off').setDescription('Close the market'))
+        .addSubcommand((c) => c.setName('fee').setDescription("The server's cut of each sale")
+        .addIntegerOption((o) => o.setName('percent').setDescription('0 takes nothing, which is the default')
+        .setMinValue(0).setMaxValue(50).setRequired(true))))
         .addSubcommandGroup((g) => g.setName('wardrobe').setDescription('The panel where players wear their skins')
         .addSubcommand((c) => c.setName('panel').setDescription('Put the skins panel in a channel')
         .addChannelOption((o) => o.setName('channel').setDescription('Where it lives')
@@ -2451,6 +2460,49 @@ async function handleReferrals(ctx, i, action) {
         flags: MessageFlags.Ephemeral,
     });
 }
+// --------------------------------------------------------------- market --
+async function handleMarketPanel(ctx, i, action) {
+    if (action === 'fee') {
+        const percent = i.options.getInteger('percent', true);
+        setMarketFee(ctx, percent);
+        await i.reply({
+            embeds: [embed(COLORS.good, percent > 0 ? 'Cut set' : 'No cut', percent > 0
+                    ? `The server keeps **${percent}%** of every sale from now on. It is `
+                        + 'stated on each listing, so sellers see it before they price '
+                        + 'anything.\n\nListings made before now are unaffected — the cut is '
+                        + 'worked out when a sale completes.'
+                    : 'Sellers now keep the whole price.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'off') {
+        setMarketChannel(ctx, null);
+        await i.reply({
+            embeds: [embed(COLORS.warn, 'Market closed', 'The panel stops working. **Open listings stay in escrow** — the '
+                    + 'dinosaurs are not lost, but nobody can buy or take one down until '
+                    + 'the market is open again.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    const channel = i.options.getChannel('channel', true);
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    setMarketChannel(ctx, channel.id);
+    try {
+        await postOrEdit(ctx.db, i.client, channel.id, MARKET_MESSAGE_KEY, [buildMarketPanel(ctx)], marketRows());
+        await i.editReply({
+            embeds: [embed(COLORS.good, 'Market open', `The panel is in <#${channel.id}>, and listings are posted underneath it.`
+                    + '\n\nA listed dinosaur leaves the seller\'s archive until it sells or '
+                    + 'is taken down, so nobody can sell the same one twice.')],
+        });
+    }
+    catch (err) {
+        await i.editReply({
+            embeds: [embed(COLORS.bad, 'Could not post it', describeError(err))],
+        });
+    }
+}
 // ------------------------------------------------------------- wardrobe --
 async function handleWardrobePanel(ctx, i, action) {
     if (action === 'off') {
@@ -3265,6 +3317,8 @@ async function handleAdmin(ctx, i) {
         return handleReferrals(ctx, i, action);
     if (group === 'wardrobe')
         return handleWardrobePanel(ctx, i, action);
+    if (group === 'market')
+        return handleMarketPanel(ctx, i, action);
     if (group === 'peaks')
         return handlePeaks(ctx, i, action);
     if (group === 'heatmap')
