@@ -99,6 +99,9 @@ export declare class Database {
     }>;
     /** Everyone holding one, for staff to see who has what. */
     skinOwners(preset: string): string[];
+    /** Only ever adds. A species missing from the live menu is hidden, not gone. */
+    rememberSpecies(names: string[]): number;
+    knownSpecies(): string[];
     close(): void;
     linkFor(discordId: string): Link | null;
     linkBySteam(steamId: string): Link | null;

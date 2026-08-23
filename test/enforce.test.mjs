@@ -167,6 +167,53 @@ function fakeServer(options = {}) {
 db.close();
 fs.rmSync(path.dirname(file), { recursive: true, force: true });
 
+// ---- unlocking has to be possible ----------------------------------------
+//
+// Reported live: setting a Rex cap to 0 removed it from the spawn menu, and
+// putting the cap back to 10 did nothing. A cap works by removing the name from
+// the live menu, and the live menu was also where "which species exist" came
+// from - so a removed species became unknown, and unknown species were never
+// re-added. Setting a cap to zero was a door that locked behind you.
+
+{
+  const fresh = new Database(
+    path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'vesta-')), 'roster.sqlite'));
+  const ctx = { db: fresh };
+
+  fresh.rememberSpecies(['Tyrannosaurus', 'Dryosaurus', 'Troodon']);
+  check('the roster remembers what it has seen', fresh.knownSpecies().length === 3);
+  check('and never records the same name twice',
+    fresh.rememberSpecies(['Tyrannosaurus']) === 0);
+  check('rubbish is not recorded', fresh.rememberSpecies(['', 'x', '12345']) === 0);
+
+  // The exact reported case: locked, so absent from the live menu.
+  const capped = [{ species: 'Tyrannosaurus', cap: 0, locked: true }];
+  const live = ['Dryosaurus', 'Troodon'];
+
+  const stuck = diffPlayables(capped, live, live);
+  check('the old behaviour could not add it back, because it asked the menu',
+    !stuck.add.includes('Tyrannosaurus'));
+
+  // Now unlocked, and asked against the roster instead.
+  const freed = [{ species: 'Tyrannosaurus', cap: 10, locked: false }];
+  const plan = diffPlayables(freed, live, fresh.knownSpecies());
+  check('the roster puts it back', plan.add.includes('Tyrannosaurus'),
+    JSON.stringify(plan));
+  check('and nothing already present is added twice',
+    !plan.add.includes('Dryosaurus') && !plan.add.includes('Troodon'));
+  check('and it is not removed at the same time', plan.remove.length === 0);
+
+  // A species only ever named by a cap must still be recoverable: the roster is
+  // seeded from the caps too, so locking something the bot never saw listed
+  // does not strand it.
+  fresh.rememberSpecies(['Deinosuchus']);
+  check('a species known only from a cap can be restored',
+    diffPlayables([{ species: 'Deinosuchus', cap: 5, locked: false }], live,
+      fresh.knownSpecies()).add.includes('Deinosuchus'));
+
+  fresh.close();
+}
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
 process.exit(failed === 0 ? 0 : 1);

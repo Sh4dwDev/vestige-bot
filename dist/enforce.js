@@ -45,7 +45,9 @@ export function diffPlayables(caps, live, known) {
     const shouldBeGone = new Set(caps.filter((c) => c.locked).map((c) => c.species));
     const remove = [...shouldBeGone].filter((s) => present.has(s)).sort();
     // Only ever re-add something the server is known to have. Inventing a name
-    // here would ask the game for a species it cannot spawn.
+    // here would ask the game for a species it cannot spawn — so this list has to
+    // be the remembered roster, never the live menu, which a cap has already
+    // edited.
     const add = known
         .filter((s) => !shouldBeGone.has(s) && !present.has(s))
         .sort();
@@ -60,7 +62,12 @@ export function diffPlayables(caps, live, known) {
 export async function syncPlayables(ctx, known, log) {
     const caps = ctx.db.speciesCaps();
     const live = parsePlayables(await ctx.rcon.playables());
-    const plan = diffPlayables(caps, live, known.length > 0 ? known : live);
+    // The roster is the authority on what exists, not the live menu. A capped
+    // species is absent from the menu by design, and taking "what exists" from
+    // the menu meant a locked species could never be unlocked.
+    ctx.db.rememberSpecies([...live, ...known, ...caps.map((c) => c.species)]);
+    const roster = ctx.db.knownSpecies();
+    const plan = diffPlayables(caps, live, roster.length > 0 ? roster : live);
     if (plan.remove.length === 0 && plan.add.length === 0) {
         return { ...plan, verified: true };
     }
@@ -96,7 +103,12 @@ export async function syncPlayables(ctx, known, log) {
  */
 export async function restoreAllPlayables(ctx, known, log) {
     const live = new Set(parsePlayables(await ctx.rcon.playables()));
-    const missing = known.filter((s) => !live.has(s));
+    // Same trap as the diff: what is missing cannot be worked out from the list
+    // it is missing from. The roster remembers, so a species locked before the
+    // bot last stopped is still restorable.
+    ctx.db.rememberSpecies([...live, ...known]);
+    const roster = ctx.db.knownSpecies();
+    const missing = (roster.length > 0 ? roster : known).filter((s) => !live.has(s));
     if (missing.length === 0)
         return [];
     for (const species of missing)

@@ -185,6 +185,17 @@ CREATE TABLE IF NOT EXISTS owned_skins (
 );
 CREATE INDEX IF NOT EXISTS owned_skins_steam ON owned_skins (steam_id);
 
+-- Every species the server has ever offered.
+--
+-- The roster only grows. Species caps work by removing a name from the live
+-- spawn menu, and the live menu was also where "which species exist" came
+-- from - so removing one made it unknown, and unknown species can never be
+-- added back. Setting a cap to zero was a door that locked behind you.
+CREATE TABLE IF NOT EXISTS known_species (
+  name       TEXT PRIMARY KEY,
+  first_seen TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS skin_baseline (
   steam_id TEXT NOT NULL,
   species  TEXT NOT NULL,
@@ -429,6 +440,26 @@ export class Database {
             .prepare('SELECT steam_id FROM owned_skins WHERE preset = ? ORDER BY granted_at ASC')
             .all(preset)
             .map((r) => String(r['steam_id']));
+    }
+    // -------------------------------------------------------- species roster --
+    /** Only ever adds. A species missing from the live menu is hidden, not gone. */
+    rememberSpecies(names) {
+        const stmt = this.#db.prepare(`INSERT INTO known_species (name, first_seen) VALUES (?, ?)
+       ON CONFLICT (name) DO NOTHING`);
+        const now = new Date().toISOString();
+        let added = 0;
+        for (const name of names) {
+            if (!name || !/^[A-Za-z]{3,}$/.test(name))
+                continue;
+            added += Number(stmt.run(name, now).changes);
+        }
+        return added;
+    }
+    knownSpecies() {
+        return this.#db
+            .prepare('SELECT name FROM known_species ORDER BY name ASC')
+            .all()
+            .map((r) => String(r['name']));
     }
     close() {
         this.#db.close();
