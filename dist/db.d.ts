@@ -129,6 +129,14 @@ export declare class Database {
     /** Puts a claim back, for when the transfer fails and nobody was charged. */
     releaseListing(id: number): void;
     closeListing(id: number, status: 'sold' | 'cancelled'): void;
+    /**
+     * Forgets where every open listing was posted.
+     *
+     * Used when the listings channel changes: the old messages are in a channel
+     * the bot no longer draws in, so keeping the ids would mean editing messages
+     * nobody is looking at and never posting the real ones.
+     */
+    clearListingMessages(): number;
     setListingMessage(id: number, messageId: string): void;
     /** Returns false when they already had it, so a grant can say so honestly. */
     grantSkin(steamId: string, preset: string, source: string): boolean;

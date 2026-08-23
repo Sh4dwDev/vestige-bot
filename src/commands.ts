@@ -162,6 +162,7 @@ import {
   MARKET_MESSAGE_KEY,
   marketRows,
   refreshMarket,
+  setListingsChannel,
   setMarketChannel,
   setMarketFee,
 } from './market.js';
@@ -1027,7 +1028,16 @@ export const commandData = [
         .addSubcommand((c) =>
           c.setName('panel').setDescription('Put the market panel in a channel')
             .addChannelOption((o) =>
-              o.setName('channel').setDescription('Where listings are posted')
+              o.setName('channel').setDescription('Where the Sell and Browse buttons live')
+                .addChannelTypes(ChannelType.GuildText).setRequired(true))
+            .addChannelOption((o) =>
+              o.setName('listings').setDescription(
+                'Where each listing is posted. Defaults to the same channel')
+                .addChannelTypes(ChannelType.GuildText)))
+        .addSubcommand((c) =>
+          c.setName('listings').setDescription('Move listings to a channel of their own')
+            .addChannelOption((o) =>
+              o.setName('channel').setDescription('Where each listing is posted')
                 .addChannelTypes(ChannelType.GuildText).setRequired(true)))
         .addSubcommand((c) => c.setName('off').setDescription('Close the market'))
         .addSubcommand((c) =>
@@ -3480,6 +3490,26 @@ async function handleMarketPanel(
   i: ChatInputCommandInteraction,
   action: string,
 ): Promise<void> {
+  if (action === 'listings') {
+    const channel = i.options.getChannel('channel', true);
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const forgotten = setListingsChannel(ctx, channel.id);
+    const done = await refreshMarket(ctx, i.client);
+
+    await i.editReply({
+      embeds: [embed(COLORS.good, 'Listings moved',
+        `Each listing now gets its own message in <#${channel.id}>, and the panel `
+        + 'stays where it is.\n\n'
+        + `**${done.posted}** open listing${done.posted === 1 ? '' : 's'} reposted there.`
+        + (forgotten > done.posted
+          ? '\n\nThe old messages are still in the previous channel. They are stale '
+            + 'now — delete them when convenient; nothing breaks if you leave them.'
+          : ''))],
+    });
+    return;
+  }
+
   if (action === 'refresh') {
     await i.deferReply({ flags: MessageFlags.Ephemeral });
     const done = await refreshMarket(ctx, i.client);
@@ -3528,15 +3558,23 @@ async function handleMarketPanel(
   }
 
   const channel = i.options.getChannel('channel', true);
+  const listings = i.options.getChannel('listings');
   await i.deferReply({ flags: MessageFlags.Ephemeral });
+
   setMarketChannel(ctx, channel.id);
+  // Set before the panel is drawn: the panel names the listings channel when it
+  // is a different one, so the order decides whether that line is right.
+  if (listings) setListingsChannel(ctx, listings.id);
 
   try {
     await postOrEdit(ctx.db, i.client, channel.id, MARKET_MESSAGE_KEY,
       [buildMarketPanel(ctx)], marketRows());
+    if (listings) await refreshMarket(ctx, i.client);
+
     await i.editReply({
       embeds: [embed(COLORS.good, 'Market open',
-        `The panel is in <#${channel.id}>, and listings are posted underneath it.`
+        `The panel is in <#${channel.id}>, and each listing gets its own message in `
+        + `<#${listings?.id ?? channel.id}>.`
         + '\n\nA listed dinosaur leaves the seller\'s archive until it sells or '
         + 'is taken down, so nobody can sell the same one twice.')],
     });

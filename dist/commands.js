@@ -29,7 +29,7 @@ import { ANCHORS, boundsAreManual, buildHeatmapEmbed, effectiveBounds, HEATMAP_M
 import { applyCaps, planCaps } from './capplan.js';
 import { postPeak, REFRESH_MINUTES, setPeaksChannel } from './peaks.js';
 import { buildWardrobePanel, setWardrobeChannel, WARDROBE_MESSAGE_KEY, wardrobeRows, } from './wardrobe.js';
-import { buildMarketPanel, MARKET_MESSAGE_KEY, marketRows, refreshMarket, setMarketChannel, setMarketFee, } from './market.js';
+import { buildMarketPanel, MARKET_MESSAGE_KEY, marketRows, refreshMarket, setListingsChannel, setMarketChannel, setMarketFee, } from './market.js';
 import { buildPrimeDebugEmbed, buildPrimeEmbed } from './prime.js';
 import { activeTryout, startTryout } from './tryout.js';
 import { activeHunt, buildHuntEmbed, huntAnnounce, huntChannel, saveHunt, setHuntChannel, } from './hunt.js';
@@ -515,7 +515,12 @@ export const commandData = [
         .setMinValue(0).setMaxValue(100))))
         .addSubcommandGroup((g) => g.setName('market').setDescription('Players buying and selling dinosaurs')
         .addSubcommand((c) => c.setName('panel').setDescription('Put the market panel in a channel')
-        .addChannelOption((o) => o.setName('channel').setDescription('Where listings are posted')
+        .addChannelOption((o) => o.setName('channel').setDescription('Where the Sell and Browse buttons live')
+        .addChannelTypes(ChannelType.GuildText).setRequired(true))
+        .addChannelOption((o) => o.setName('listings').setDescription('Where each listing is posted. Defaults to the same channel')
+        .addChannelTypes(ChannelType.GuildText)))
+        .addSubcommand((c) => c.setName('listings').setDescription('Move listings to a channel of their own')
+        .addChannelOption((o) => o.setName('channel').setDescription('Where each listing is posted')
         .addChannelTypes(ChannelType.GuildText).setRequired(true)))
         .addSubcommand((c) => c.setName('off').setDescription('Close the market'))
         .addSubcommand((c) => c.setName('refresh').setDescription('Repost any listing that lost its message, and redraw the rest'))
@@ -2463,6 +2468,22 @@ async function handleReferrals(ctx, i, action) {
 }
 // --------------------------------------------------------------- market --
 async function handleMarketPanel(ctx, i, action) {
+    if (action === 'listings') {
+        const channel = i.options.getChannel('channel', true);
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        const forgotten = setListingsChannel(ctx, channel.id);
+        const done = await refreshMarket(ctx, i.client);
+        await i.editReply({
+            embeds: [embed(COLORS.good, 'Listings moved', `Each listing now gets its own message in <#${channel.id}>, and the panel `
+                    + 'stays where it is.\n\n'
+                    + `**${done.posted}** open listing${done.posted === 1 ? '' : 's'} reposted there.`
+                    + (forgotten > done.posted
+                        ? '\n\nThe old messages are still in the previous channel. They are stale '
+                            + 'now — delete them when convenient; nothing breaks if you leave them.'
+                        : ''))],
+        });
+        return;
+    }
     if (action === 'refresh') {
         await i.deferReply({ flags: MessageFlags.Ephemeral });
         const done = await refreshMarket(ctx, i.client);
@@ -2503,12 +2524,20 @@ async function handleMarketPanel(ctx, i, action) {
         return;
     }
     const channel = i.options.getChannel('channel', true);
+    const listings = i.options.getChannel('listings');
     await i.deferReply({ flags: MessageFlags.Ephemeral });
     setMarketChannel(ctx, channel.id);
+    // Set before the panel is drawn: the panel names the listings channel when it
+    // is a different one, so the order decides whether that line is right.
+    if (listings)
+        setListingsChannel(ctx, listings.id);
     try {
         await postOrEdit(ctx.db, i.client, channel.id, MARKET_MESSAGE_KEY, [buildMarketPanel(ctx)], marketRows());
+        if (listings)
+            await refreshMarket(ctx, i.client);
         await i.editReply({
-            embeds: [embed(COLORS.good, 'Market open', `The panel is in <#${channel.id}>, and listings are posted underneath it.`
+            embeds: [embed(COLORS.good, 'Market open', `The panel is in <#${channel.id}>, and each listing gets its own message in `
+                    + `<#${listings?.id ?? channel.id}>.`
                     + '\n\nA listed dinosaur leaves the seller\'s archive until it sells or '
                     + 'is taken down, so nobody can sell the same one twice.')],
         });

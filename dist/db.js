@@ -548,6 +548,18 @@ export class Database {
             .prepare('UPDATE listings SET status = ?, closed_at = ? WHERE id = ?')
             .run(status, new Date().toISOString(), id);
     }
+    /**
+     * Forgets where every open listing was posted.
+     *
+     * Used when the listings channel changes: the old messages are in a channel
+     * the bot no longer draws in, so keeping the ids would mean editing messages
+     * nobody is looking at and never posting the real ones.
+     */
+    clearListingMessages() {
+        return Number(this.#db
+            .prepare("UPDATE listings SET message_id = NULL WHERE status IN ('open', 'pending')")
+            .run().changes);
+    }
     setListingMessage(id, messageId) {
         this.#db.prepare('UPDATE listings SET message_id = ? WHERE id = ?').run(messageId, id);
     }

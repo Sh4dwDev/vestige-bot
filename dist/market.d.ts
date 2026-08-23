@@ -23,8 +23,25 @@ import type { Listing } from './db.js';
 /** Must match ESCROW in the mod. A name, not a Steam ID, so it cannot collide. */
 export declare const ESCROW = "escrow";
 export declare const MARKET_MESSAGE_KEY = "market_message";
+/** Where the panel with the Sell and Browse buttons lives. */
 export declare const marketChannel: (ctx: Ctx) => string | null;
+/**
+ * Where the individual listings are posted.
+ *
+ * Falls back to the panel channel, so a market set up before this was split
+ * carries on working and everything simply lands in one place.
+ */
+export declare const listingsChannel: (ctx: Ctx) => string | null;
 export declare function setMarketChannel(ctx: Ctx, channelId: string | null): void;
+/**
+ * Points listings at a channel of their own.
+ *
+ * Every open listing forgets where it was posted, because it was posted
+ * somewhere else. The old messages are left where they are — deleting other
+ * people's messages is not something to do quietly — but they are stale, and
+ * `/admin market refresh` puts live ones in the new channel.
+ */
+export declare function setListingsChannel(ctx: Ctx, channelId: string | null): number;
 /**
  * The server's cut, as a percentage of the sale.
  *

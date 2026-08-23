@@ -43,6 +43,7 @@ import type { Listing } from './db.js';
 export const ESCROW = 'escrow';
 
 const CHANNEL_KEY = 'market_channel';
+const LISTINGS_KEY = 'market_listings_channel';
 export const MARKET_MESSAGE_KEY = 'market_message';
 const FEE_KEY = 'market_fee_percent';
 
@@ -51,12 +52,35 @@ const COLORS = { good: 0x57f287, bad: 0xed4245, warn: 0xfee75c, info: 0x5865f2 }
 /** Storage is three slots; a buyer with none has nowhere to put it. */
 const MAX_SLOTS = 3;
 
+/** Where the panel with the Sell and Browse buttons lives. */
 export const marketChannel = (ctx: Ctx): string | null =>
   ctx.db.getSetting(CHANNEL_KEY) || null;
+
+/**
+ * Where the individual listings are posted.
+ *
+ * Falls back to the panel channel, so a market set up before this was split
+ * carries on working and everything simply lands in one place.
+ */
+export const listingsChannel = (ctx: Ctx): string | null =>
+  ctx.db.getSetting(LISTINGS_KEY) || ctx.db.getSetting(CHANNEL_KEY) || null;
 
 export function setMarketChannel(ctx: Ctx, channelId: string | null): void {
   ctx.db.setSetting(CHANNEL_KEY, channelId ?? '');
   ctx.db.setSetting(MARKET_MESSAGE_KEY, '');
+}
+
+/**
+ * Points listings at a channel of their own.
+ *
+ * Every open listing forgets where it was posted, because it was posted
+ * somewhere else. The old messages are left where they are — deleting other
+ * people's messages is not something to do quietly — but they are stale, and
+ * `/admin market refresh` puts live ones in the new channel.
+ */
+export function setListingsChannel(ctx: Ctx, channelId: string | null): number {
+  ctx.db.setSetting(LISTINGS_KEY, channelId ?? '');
+  return ctx.db.clearListingMessages();
 }
 
 /**
@@ -396,12 +420,18 @@ export function buildMarketPanel(ctx: Ctx): EmbedBuilder {
   const fee = marketFee(ctx);
   const open = ctx.db.openListings(1000).length;
 
+  // Only worth pointing at when they are two different places; on a
+  // single-channel market the listings are directly below this.
+  const listings = listingsChannel(ctx);
+  const elsewhere = listings && listings !== marketChannel(ctx) ? listings : null;
+
   return new EmbedBuilder()
     .setColor(COLORS.info)
     .setTitle('🦖  Dinosaur market')
     .setDescription(
       `Sell a stored dinosaur to another player on ${SERVER}, or buy one of theirs.\n\n`
-      + `**${open}** ${open === 1 ? 'listing is' : 'listings are'} open right now.`,
+      + `**${open}** ${open === 1 ? 'listing is' : 'listings are'} open right now`
+      + (elsewhere ? `, each in its own message in <#${elsewhere}>.` : '.'),
     )
     .addFields(
       {
@@ -412,7 +442,8 @@ export function buildMarketPanel(ctx: Ctx): EmbedBuilder {
       },
       {
         name: '💰  Buying one',
-        value: 'Press **Buy** on a listing. The points come out of your balance '
+        value: `Press **Buy** on a listing${elsewhere ? ` in <#${elsewhere}>` : ''}. `
+          + 'The points come out of your balance '
           + 'and the dinosaur lands in your archive — you need a free slot for it.'
           + (fee > 0 ? `\n\nThe server takes **${fee}%** of each sale.` : ''),
       },
@@ -686,7 +717,7 @@ async function postListing(
   interaction: ModalSubmitInteraction,
   listing: Listing,
 ): Promise<void> {
-  const channelId = marketChannel(ctx);
+  const channelId = listingsChannel(ctx);
   if (!channelId) return;
 
   const channel = await interaction.client.channels.fetch(channelId).catch(() => null);
@@ -713,7 +744,7 @@ export async function refreshMarket(
   ctx: Ctx,
   client: Client,
 ): Promise<{ posted: number; redrawn: number; missing: boolean }> {
-  const channelId = marketChannel(ctx);
+  const channelId = listingsChannel(ctx);
   if (!channelId) return { posted: 0, redrawn: 0, missing: true };
 
   const channel = await client.channels.fetch(channelId).catch(() => null);
@@ -758,7 +789,7 @@ export async function refreshMarket(
 async function refreshListing(ctx: Ctx, client: Client, listing: Listing): Promise<void> {
   if (!listing.messageId) return;
 
-  const channelId = marketChannel(ctx);
+  const channelId = listingsChannel(ctx);
   if (!channelId) return;
 
   const channel = await client.channels.fetch(channelId).catch(() => null);

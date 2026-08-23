@@ -15,7 +15,8 @@ const load = (f) => import(pathToFileURL(path.join(root, 'dist', f)).href);
 const {
   listForSale, buyListing, cancelListing, sellerTakes, marketFee, setMarketFee,
   buildListingEmbed, buildMarketPanel, buildSellPicker, buildBrowseEmbed,
-  describeListing, listingRows, ESCROW,
+  describeListing, listingRows, ESCROW, listingsChannel, setListingsChannel,
+  marketChannel, setMarketChannel,
 } = await load('market.js');
 const { Database } = await load('db.js');
 
@@ -350,6 +351,42 @@ function makeCtx(overrides = {}) {
     /leaves your archive|out of your archive/.test(JSON.stringify(panel.fields ?? [])));
   check('and that both parties can be offline',
     /offline/.test(JSON.stringify(panel.fields ?? [])));
+}
+
+// ---- two channels -----------------------------------------------------------
+//
+// The panel and the listings can live apart: a channel full of Buy buttons is
+// not one anybody wants a panel buried in.
+
+{
+  const ctx = makeCtx();
+
+  setMarketChannel(ctx, '111');
+  check('listings fall back to the panel channel', listingsChannel(ctx) === '111');
+  // A market set up before the split has to carry on working untouched.
+  check('and the panel does not point anywhere else in that case',
+    !/<#/.test(buildMarketPanel(ctx).toJSON().description ?? ''));
+
+  const listed = await listForSale(ctx, SELLER, 'rex', 900);
+  db.setListingMessage(listed.listing.id, '999');
+
+  const forgotten = setListingsChannel(ctx, '222');
+  check('listings can be pointed at their own channel', listingsChannel(ctx) === '222');
+  check('the panel stays where it was', marketChannel(ctx) === '111');
+  // The old messages are in a channel the bot no longer draws in, so editing
+  // them would be editing something nobody is looking at.
+  check('open listings forget where they were posted', forgotten >= 1, String(forgotten));
+  check('and really do forget', db.listing(listed.listing.id).messageId === null);
+
+  const panel = buildMarketPanel(ctx).toJSON();
+  check('the panel now says where to look',
+    /<#222>/.test(panel.description ?? ''), panel.description);
+  check('and the buying instructions point there too',
+    /<#222>/.test(JSON.stringify(panel.fields ?? [])));
+
+  await cancelListing(ctx, listed.listing.id, SELLER);
+  setListingsChannel(ctx, null);
+  setMarketChannel(ctx, null);
 }
 
 db.close();
