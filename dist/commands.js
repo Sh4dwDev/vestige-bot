@@ -38,7 +38,7 @@ import { buildPrimeDebugEmbed, buildPrimeEmbed } from './prime.js';
 import { activeTryout, startTryout } from './tryout.js';
 import { activeHunt, buildHuntEmbed, huntAnnounce, huntChannel, saveHunt, setHuntChannel, } from './hunt.js';
 import { activeContest, buildContestEmbed, contestAnnounce, contestChannel, hud, inside, saveContest, setContestChannel, } from './contest.js';
-import { buildReferralEmbed, referralMinutes, referralReward, referralWeeklyCap, referralWelcome, setReferralAmounts, setReferralsEnabled, } from './referrals.js';
+import { buildReferralEmbed, referralMinutes, referralReward, referralWeeklyCap, referralWelcome, setReferralAmounts, repairReferrals, setReferralsEnabled, } from './referrals.js';
 import { enforcementEnabled, enforcementFault, restoreAllPlayables, setEnforcement, syncPlayables, } from './enforce.js';
 import { handleInGame, handleModeration } from './moderation.js';
 import { buildFounderPanel, founderLimit, FOUNDER_MESSAGE_KEY, founderRows, setFounderChannel, setFounderLimit, skinById, } from './founders.js';
@@ -521,6 +521,7 @@ export const commandData = [
         .addSubcommand((c) => c.setName('on').setDescription('Start crediting people for invites'))
         .addSubcommand((c) => c.setName('off').setDescription('Stop crediting invites'))
         .addSubcommand((c) => c.setName('status').setDescription('Settings and totals'))
+        .addSubcommand((c) => c.setName('repair').setDescription('Attach referrals the old check wrongly rejected'))
         .addSubcommand((c) => c.setName('set').setDescription('What a referral is worth')
         .addIntegerOption((o) => o.setName('reward').setDescription('Points to the inviter')
         .setMinValue(0).setMaxValue(100_000))
@@ -2437,6 +2438,22 @@ async function handleNest(ctx, i, action) {
 }
 // ------------------------------------------------------------ referrals --
 async function handleReferrals(ctx, i, action) {
+    if (action === 'repair') {
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        const done = repairReferrals(ctx);
+        await i.editReply({
+            embeds: [embed(COLORS.good, 'Referrals repaired', `**${done.attached}** now have a Steam account attached and will pay as `
+                    + 'soon as the invitee has the playtime.\n\n'
+                    + `• **${done.unlinked}** have not linked yet — nothing owed, and they `
+                    + 'will be caught properly from now on\n'
+                    + `• **${done.existing}** were already playing here before the invite\n`
+                    + `• **${done.refused}** were refused (already referred, or self)\n\n`
+                    + 'The old check asked whether somebody had ever been seen in game — '
+                    + 'but linking happens by typing a code **in game**, so being in game '
+                    + 'was itself disqualifying and no referral could ever pass.')],
+        });
+        return;
+    }
     if (action === 'on' || action === 'off') {
         const on = action === 'on';
         setReferralsEnabled(ctx, on);

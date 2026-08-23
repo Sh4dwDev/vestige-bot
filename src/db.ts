@@ -133,9 +133,13 @@ CREATE TABLE IF NOT EXISTS points (
 -- reports people who have often just disconnected, so it cannot ask the server
 -- who they were - and a row of Steam ID fragments is unreadable.
 CREATE TABLE IF NOT EXISTS player_names (
-  steam_id TEXT PRIMARY KEY,
-  name     TEXT NOT NULL,
-  seen_at  TEXT NOT NULL
+  steam_id   TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  seen_at    TEXT NOT NULL,
+  -- Written once and never updated. seen_at is the LAST sighting, which cannot
+  -- answer "were they here before they were invited" — and that question is the
+  -- whole of whether a referral is real.
+  first_seen TEXT
 );
 
 -- One row per poll. The peak panels are built from this; nothing else records
@@ -332,6 +336,14 @@ export class Database {
         // Already present.
       }
     }
+
+    // Fourth time. Referrals rejected every legitimate invitee because the only
+    // sighting recorded was the latest one, and linking requires being in game.
+    try {
+      this.#db.exec('ALTER TABLE player_names ADD COLUMN first_seen TEXT');
+    } catch {
+      // Already present.
+    }
   }
 
   /**
@@ -360,15 +372,47 @@ export class Database {
   rememberNames(players: Array<{ steamId: string; name: string }>): void {
     const now = new Date().toISOString();
     const stmt = this.#db.prepare(
-      `INSERT INTO player_names (steam_id, name, seen_at) VALUES (?, ?, ?)
+      `INSERT INTO player_names (steam_id, name, seen_at, first_seen)
+       VALUES (?, ?, ?, ?)
        ON CONFLICT (steam_id) DO UPDATE SET name = excluded.name,
-                                            seen_at = excluded.seen_at`,
+                                            seen_at = excluded.seen_at,
+       -- Never overwritten. COALESCE keeps the earliest known sighting, and
+       -- fills it in for rows that predate the column.
+                                            first_seen = COALESCE(
+                                              player_names.first_seen,
+                                              excluded.first_seen)`,
     );
     for (const player of players) {
       const name = player.name?.trim();
       if (!name || !player.steamId) continue;
-      stmt.run(player.steamId, name, now);
+      stmt.run(player.steamId, name, now, now);
     }
+  }
+
+  /**
+   * When this account was first seen in game, or null when it predates the
+   * column and has not been seen since.
+   */
+  firstSeen(steamId: string): string | null {
+    const row = this.#db
+      .prepare('SELECT first_seen FROM player_names WHERE steam_id = ?')
+      .get(steamId) as Record<string, unknown> | undefined;
+    const value = row?.['first_seen'];
+    return typeof value === 'string' && value !== '' ? value : null;
+  }
+
+  /** Referrals that never got a Steam account attached, oldest first. */
+  unattachedReferrals(): Array<{ inviteeDiscord: string; inviterDiscord: string; joinedAt: string }> {
+    return (this.#db
+      .prepare(`SELECT invitee_discord, inviter_discord, joined_at FROM referrals
+                WHERE invitee_steam IS NULL AND paid_at IS NULL
+                ORDER BY joined_at ASC`)
+      .all() as Array<Record<string, unknown>>)
+      .map((r) => ({
+        inviteeDiscord: String(r['invitee_discord']),
+        inviterDiscord: String(r['inviter_discord']),
+        joinedAt: String(r['joined_at']),
+      }));
   }
 
   gameName(steamId: string): string | null {

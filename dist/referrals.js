@@ -39,6 +39,7 @@ const KEYS = {
     welcome: 'referrals_welcome',
     minutes: 'referrals_minutes',
     weekly: 'referrals_weekly_cap',
+    existing: 'referrals_existing_minutes',
 };
 /** About eight hours of play at the default rate: worth having, not worth farming. */
 const DEFAULT_REWARD = 500;
@@ -46,6 +47,14 @@ const DEFAULT_REWARD = 500;
 const DEFAULT_WELCOME = 250;
 const DEFAULT_MINUTES = 60;
 const DEFAULT_WEEKLY_CAP = 5;
+/**
+ * Playtime that marks somebody out as an existing player rather than a newcomer.
+ *
+ * Only used when there is no first sighting on record. Somebody linking in
+ * their first session has a handful of minutes; two hours means they were
+ * already playing here.
+ */
+const DEFAULT_EXISTING_MINUTES = 120;
 const number = (ctx, key, fallback) => {
     const raw = Number.parseFloat(ctx.db.getSetting(key) ?? '');
     return Number.isFinite(raw) && raw >= 0 ? raw : fallback;
@@ -55,6 +64,8 @@ export const setReferralsEnabled = (ctx, on) => ctx.db.setSetting(KEYS.enabled, 
 export const referralReward = (ctx) => number(ctx, KEYS.reward, DEFAULT_REWARD);
 export const referralWelcome = (ctx) => number(ctx, KEYS.welcome, DEFAULT_WELCOME);
 export const referralMinutes = (ctx) => number(ctx, KEYS.minutes, DEFAULT_MINUTES);
+export const referralExistingMinutes = (ctx) => number(ctx, KEYS.existing, DEFAULT_EXISTING_MINUTES);
+export const setReferralExistingMinutes = (ctx, minutes) => ctx.db.setSetting(KEYS.existing, String(Math.max(0, Math.round(minutes))));
 export const referralWeeklyCap = (ctx) => number(ctx, KEYS.weekly, DEFAULT_WEEKLY_CAP);
 export function setReferralAmounts(ctx, values) {
     if (values.reward !== undefined)
@@ -153,6 +164,37 @@ export async function noteJoin(ctx, member, log) {
  * Steam ID already seen in game, or already carrying playtime, belongs to
  * somebody who was here anyway and was not brought by the person claiming them.
  */
+/**
+ * Was this account playing here *before* the invite?
+ *
+ * The original test asked whether they had ever been seen in game, or had any
+ * playtime at all — and rejected every legitimate invitee, because linking
+ * happens by typing a code **in game**. Being in game is what the check treated
+ * as disqualifying, so nobody could ever satisfy it. Eleven referrals, none
+ * attached, none paid.
+ *
+ * The honest question is about order, not existence:
+ *
+ * - **A first sighting before the invite** is decisive, and exact.
+ * - **No first sighting on record** — the column is newer than they are — falls
+ *   back to how much they have played. Somebody linking in their first session
+ *   has minutes; an established player has hours.
+ */
+export function wasAlreadyPlaying(ctx, steamId, joinedAt) {
+    const first = ctx.db.firstSeen(steamId);
+    if (first !== null) {
+        const seen = Date.parse(first);
+        const invited = Date.parse(joinedAt);
+        // An unparseable date decides nothing; fall through to playtime rather than
+        // guessing in either direction.
+        // `<=`, not `<`: somebody already known at the very moment of the invite
+        // was here first. The boundary errs towards refusing a doubtful referral
+        // rather than paying one.
+        if (Number.isFinite(seen) && Number.isFinite(invited))
+            return seen <= invited;
+    }
+    return ctx.db.pointsFor(steamId).minutes >= referralExistingMinutes(ctx);
+}
 export function noteLink(ctx, discordId, steamId) {
     if (!referralsEnabled(ctx))
         return 'not-referred';
@@ -162,11 +204,7 @@ export function noteLink(ctx, discordId, steamId) {
     const inviterLink = ctx.db.linkFor(referral.inviterDiscord);
     if (inviterLink?.steamId === steamId)
         return 'self';
-    // Seen in game before they were invited, or already carrying playtime: an
-    // existing player, however they arrived in the Discord.
-    const seen = ctx.db.gameName(steamId) !== null;
-    const played = ctx.db.pointsFor(steamId).minutes > 0;
-    if (seen || played)
+    if (wasAlreadyPlaying(ctx, steamId, referral.joinedAt))
         return 'existing';
     return ctx.db.attachReferralSteam(discordId, steamId) ? 'attached' : 'already-referred';
 }
@@ -264,5 +302,45 @@ export function buildReferralEmbed(ctx, counts, top) {
             }]
         : []))
         .setFooter({ text: SIGNATURE });
+}
+/**
+ * Attaches Steam accounts to referrals the broken guard rejected.
+ *
+ * Every referral before this fix was left with no Steam account, so there is
+ * nothing on them to pay against and the poll will never look at them again.
+ * They are not recoverable by waiting — the attach only ever happened at the
+ * moment of linking, and that moment has passed.
+ *
+ * This walks them and does what the link handler should have. It runs the same
+ * checks, so a genuine existing player is still refused and nobody is credited
+ * for somebody who was already here.
+ */
+export function repairReferrals(ctx) {
+    const out = { attached: 0, unlinked: 0, existing: 0, refused: 0 };
+    for (const row of ctx.db.unattachedReferrals()) {
+        const link = ctx.db.linkFor(row.inviteeDiscord);
+        // Still not linked. Nothing is owed yet, and the link handler will catch
+        // them properly now that it works.
+        if (!link) {
+            out.unlinked += 1;
+            continue;
+        }
+        const inviter = ctx.db.linkFor(row.inviterDiscord);
+        if (inviter?.steamId === link.steamId) {
+            out.refused += 1;
+            continue;
+        }
+        if (wasAlreadyPlaying(ctx, link.steamId, row.joinedAt)) {
+            out.existing += 1;
+            continue;
+        }
+        // The unique index still has the last word: an account referred once
+        // already cannot be attached to a second referral.
+        if (ctx.db.attachReferralSteam(row.inviteeDiscord, link.steamId))
+            out.attached += 1;
+        else
+            out.refused += 1;
+    }
+    return out;
 }
 //# sourceMappingURL=referrals.js.map

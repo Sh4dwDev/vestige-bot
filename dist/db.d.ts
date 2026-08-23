@@ -57,6 +57,17 @@ export declare class Database {
         steamId: string;
         name: string;
     }>): void;
+    /**
+     * When this account was first seen in game, or null when it predates the
+     * column and has not been seen since.
+     */
+    firstSeen(steamId: string): string | null;
+    /** Referrals that never got a Steam account attached, oldest first. */
+    unattachedReferrals(): Array<{
+        inviteeDiscord: string;
+        inviterDiscord: string;
+        joinedAt: string;
+    }>;
     gameName(steamId: string): string | null;
     recordCount(online: number): void;
     /** The busiest single reading since a moment, and when it happened. */

@@ -10,7 +10,7 @@ const root = path.resolve(import.meta.dirname, '..');
 const load = (f) => import(pathToFileURL(path.join(root, 'dist', f)).href);
 
 const {
-  collectPayouts, noteLink, whichInviteGrew,
+  collectPayouts, noteLink, whichInviteGrew, repairReferrals,
   referralReward, referralWelcome, referralMinutes, referralWeeklyCap,
   setReferralsEnabled, setReferralAmounts, referralsEnabled,
 } = await load('referrals.js');
@@ -100,17 +100,92 @@ const playedEnough = (ctx, steamId, minutes = 90) => {
   const ctx = fresh();
   ctx.db.saveLink('inviter', '76561190000000020');
 
-  // Already seen in game: they were here before anyone "invited" them.
+  // Seen in game BEFORE the invite: they were here before anyone brought them.
   ctx.db.rememberNames([{ steamId: '76561190000000021', name: 'Regular' }]);
   ctx.db.recordReferral('regular', 'inviter');
-  check('a player already seen in game is not a referral',
+  check('a player seen in game before the invite is not a referral',
     noteLink(ctx, 'regular', '76561190000000021') === 'existing');
 
-  // Already carrying playtime, even if never seen by name.
-  ctx.db.addPoints('76561190000000022', 10, 30);
+  // Hours of playtime and no sighting on record: an established player.
+  ctx.db.addPoints('76561190000000022', 10, 600);
   ctx.db.recordReferral('veteran', 'inviter');
-  check('a player with playtime is not a referral either',
+  check('a player with hours behind them is not a referral either',
     noteLink(ctx, 'veteran', '76561190000000022') === 'existing');
+  ctx.db.close();
+}
+
+{
+  // The bug that made every referral fail. Linking is done by typing a code
+  // IN GAME, so an invitee is always seen in game before they can link — and
+  // the old check treated any sighting at all as proof they were an existing
+  // player. Eleven referrals, none attached, none paid.
+  const ctx = fresh();
+  ctx.db.saveLink('inviter', '76561190000000100');
+  ctx.db.recordReferral('newcomer', 'inviter');
+
+  // A real gap between joining the Discord and turning up on the server.
+  // Timestamps are millisecond precision, and the two happening in the same
+  // millisecond is a test artefact rather than anything that occurs in play.
+  await new Promise((resolve) => { setTimeout(resolve, 5); });
+
+  // Invited first, then turns up and plays a little before linking.
+  ctx.db.rememberNames([{ steamId: '76561190000000101', name: 'Newcomer' }]);
+  ctx.db.addPoints('76561190000000101', 5, 12);
+
+  check('somebody first seen AFTER the invite is a real referral',
+    noteLink(ctx, 'newcomer', '76561190000000101') === 'attached');
+  ctx.db.close();
+}
+
+{
+  // The fallback, for accounts older than the first_seen column: playtime
+  // decides, and a first session is not enough to disqualify anybody.
+  const ctx = fresh();
+  ctx.db.saveLink('inviter', '76561190000000110');
+  ctx.db.recordReferral('shortplay', 'inviter');
+  ctx.db.addPoints('76561190000000111', 5, 20);
+  check('twenty minutes is a first session, not an existing player',
+    noteLink(ctx, 'shortplay', '76561190000000111') === 'attached');
+  ctx.db.close();
+}
+
+{
+  // Repairing what the broken check rejected.
+  const ctx = fresh();
+  ctx.db.saveLink('inviter', '76561190000000120');
+  ctx.db.recordReferral('stuck', 'inviter');
+  ctx.db.saveLink('stuck', '76561190000000121');
+
+  check('a stuck referral has no Steam account', ctx.db.unattachedReferrals().length === 1);
+
+  const done = repairReferrals(ctx);
+  check('and the repair attaches it', done.attached === 1, JSON.stringify(done));
+  check('so it is no longer stuck', ctx.db.unattachedReferrals().length === 0);
+
+  // Running it twice must not double anything.
+  const again = repairReferrals(ctx);
+  check('repairing twice attaches nothing more', again.attached === 0);
+  ctx.db.close();
+}
+
+{
+  // The repair runs the same checks, so it cannot credit somebody who was
+  // genuinely already playing.
+  const ctx = fresh();
+  ctx.db.saveLink('inviter', '76561190000000130');
+  ctx.db.rememberNames([{ steamId: '76561190000000131', name: 'Old hand' }]);
+  ctx.db.recordReferral('oldhand', 'inviter');
+  ctx.db.saveLink('oldhand', '76561190000000131');
+
+  const done = repairReferrals(ctx);
+  check('the repair refuses an existing player', done.attached === 0 && done.existing === 1,
+    JSON.stringify(done));
+
+  // And somebody who never linked is simply waiting, not refused.
+  ctx.db.recordReferral('neverlinked', 'inviter');
+  const waiting = repairReferrals(ctx);
+  check('somebody who never linked is counted as waiting',
+    waiting.unlinked === 1, JSON.stringify(waiting));
   ctx.db.close();
 }
 
