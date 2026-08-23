@@ -99,7 +99,9 @@ export async function listForSale(ctx, sellerSteam, slot, price) {
     }
     let moved;
     try {
-        moved = await ctx.mod.run('transfer', sellerSteam, { slot, to: ESCROW });
+        moved = await ctx.mod.run('transfer', sellerSteam, {
+            from: sellerSteam, slot, to: ESCROW,
+        });
     }
     catch (err) {
         return { ok: false, reason: err instanceof Error ? err.message : String(err) };
@@ -169,7 +171,11 @@ export async function buyListing(ctx, id, buyerSteam) {
     }
     let moved;
     try {
-        moved = await ctx.mod.run('transfer', ESCROW, { slot: listing.slot, to: buyerSteam });
+        // Asked in the buyer's name, not escrow's: the mod requires a real Steam
+        // ID on the request, and escrow is a holding name rather than an account.
+        moved = await ctx.mod.run('transfer', buyerSteam, {
+            from: ESCROW, slot: listing.slot, to: buyerSteam,
+        });
     }
     catch (err) {
         ctx.db.releaseListing(id);
@@ -218,7 +224,9 @@ export async function cancelListing(ctx, id, bySteam) {
     }
     let moved;
     try {
-        moved = await ctx.mod.run('transfer', ESCROW, { slot: listing.slot, to: bySteam });
+        moved = await ctx.mod.run('transfer', bySteam, {
+            from: ESCROW, slot: listing.slot, to: bySteam,
+        });
     }
     catch (err) {
         return { ok: false, reason: err instanceof Error ? err.message : String(err) };

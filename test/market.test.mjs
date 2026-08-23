@@ -71,7 +71,10 @@ function makeCtx(overrides = {}) {
         }
 
         if (verb === 'transfer') {
-          const from = slots[steam] ?? [];
+          // The owner is named in the arguments, because escrow is not a Steam
+          // ID and the mod rejects a request made in its name.
+          const owner = args.from ?? steam;
+          const from = slots[owner] ?? [];
           const at = from.findIndex((s) => s.slot === args.slot);
           if (at < 0) return { ok: false, msg: 'nothing is stored in that slot' };
 

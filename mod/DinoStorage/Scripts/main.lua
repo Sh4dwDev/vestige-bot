@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.40.0"
+local MOD_VERSION = "3.41.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1151,22 +1151,31 @@ local ESCROW = "escrow"
 local function handleTransfer(cmd)
     local slot = cmd.args and cmd.args.slot
     local to = cmd.args and cmd.args.to
+    -- Who it is coming FROM, which is not necessarily who asked. A sale moves a
+    -- dinosaur out of escrow, and escrow is a holding name rather than a Steam
+    -- ID -- so the request cannot be made in its name without failing the
+    -- dispatcher's own check.
+    local from = (cmd.args and cmd.args.from) or cmd.steam
 
     if not slotNameOk(slot) then
         writeResult(cmd.id, "transfer", cmd.steam, false, "that is not a valid slot name")
         return
     end
-    if type(to) ~= "string" or to == "" or to == cmd.steam then
+    if type(from) ~= "string" or from == "" then
+        writeResult(cmd.id, "transfer", cmd.steam, false, "no owner given")
+        return
+    end
+    if type(to) ~= "string" or to == "" or to == from then
         writeResult(cmd.id, "transfer", cmd.steam, false, "no destination given")
         return
     end
     -- Restoring mid-transfer would leave the file moved and the dinosaur alive.
-    if busy(cmd.steam) or busy(to) then
+    if busy(from) or busy(to) then
         writeResult(cmd.id, "transfer", cmd.steam, false, "an action is still finishing")
         return
     end
 
-    local body = readAll(savedDir .. slotFile(cmd.steam, slot))
+    local body = readAll(savedDir .. slotFile(from, slot))
     if body == nil then
         writeResult(cmd.id, "transfer", cmd.steam, false, "nothing is stored in that slot")
         return
@@ -1218,7 +1227,7 @@ local function handleTransfer(cmd)
 
     local entries, kept = readIndex(), {}
     for _, entry in ipairs(entries) do
-        if not (entry.steam == cmd.steam and entry.slot == slot) then
+        if not (entry.steam == from and entry.slot == slot) then
             kept[#kept + 1] = entry
         end
     end
@@ -1234,10 +1243,10 @@ local function handleTransfer(cmd)
         return
     end
 
-    os.remove(savedDir .. slotFile(cmd.steam, slot))
+    os.remove(savedDir .. slotFile(from, slot))
 
     log(string.format("transfer: %s %s -> %s %s (%s)",
-        cmd.steam, slot, to, target, tostring(parsed.species)))
+        from, slot, to, target, tostring(parsed.species)))
     writeResult(cmd.id, "transfer", cmd.steam, true, "moved",
         string.format('{"slot":"%s","to":"%s","species":"%s"}',
             jsonEscape(target), jsonEscape(to), jsonEscape(parsed.species or "Unknown")))
@@ -1247,12 +1256,13 @@ end
 -- The plain list gives species and a date, which is not enough to price one.
 local function handleSlotInfo(cmd)
     local slot = cmd.args and cmd.args.slot
+    local owner = (cmd.args and cmd.args.owner) or cmd.steam
     if not slotNameOk(slot) then
         writeResult(cmd.id, "slotinfo", cmd.steam, false, "that is not a valid slot name")
         return
     end
 
-    local body = readAll(savedDir .. slotFile(cmd.steam, slot))
+    local body = readAll(savedDir .. slotFile(owner, slot))
     if body == nil then
         writeResult(cmd.id, "slotinfo", cmd.steam, false, "nothing is stored in that slot")
         return
