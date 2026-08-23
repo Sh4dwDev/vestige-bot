@@ -42,6 +42,15 @@ export interface Contest {
   startedAt: number;
   /** Steam ID to milliseconds held so far. */
   progress: Record<string, number>;
+  /**
+   * Who was standing on it at the previous tick.
+   *
+   * Positions arrive once a minute, so being seen there once says only that you
+   * arrived at some point in the last minute — not that you were there for it.
+   * Crediting that first sighting handed somebody a full minute for walking
+   * past, and a one-minute contest was won by the first tick after it started.
+   */
+  present?: string[];
 }
 
 export function activeContest(ctx: Ctx): Contest | null {
@@ -94,13 +103,27 @@ export function tickContest(
     .map((p) => p.steam as string);
 
   const contested = holders.length > 1;
-  const next: Contest = { ...contest, progress: { ...contest.progress } };
+  const wasPresent = new Set(contest.present ?? []);
+  const next: Contest = {
+    ...contest,
+    progress: { ...contest.progress },
+    // Recorded every tick, contested or not: leaving somebody out here would
+    // make them start again from zero the moment a rival turned up.
+    present: holders,
+  };
 
+  // Time is only credited between two sightings. The first one establishes that
+  // somebody is there; the second is the first that can prove they stayed. So a
+  // hold rounds up to the next whole tick rather than being handed out for
+  // arriving, which is the honest direction to be wrong in.
+  //
   // Nobody gains while it is contested. That is the whole mechanic: the way to
   // stop somebody taking it is to be standing there too.
   if (holders.length === 1 && elapsedMs > 0) {
     const holder = holders[0] as string;
-    next.progress[holder] = (next.progress[holder] ?? 0) + elapsedMs;
+    if (wasPresent.has(holder)) {
+      next.progress[holder] = (next.progress[holder] ?? 0) + elapsedMs;
+    }
   }
 
   const winner = holders.length === 1

@@ -156,6 +156,7 @@ import {
   wardrobeRows,
 } from './wardrobe.js';
 import { buildPrimeDebugEmbed, buildPrimeEmbed } from './prime.js';
+import { activeTryout, startTryout } from './tryout.js';
 import {
   activeContest,
   buildContestEmbed,
@@ -503,7 +504,7 @@ export const commandData = [
         .addSubcommand((s) =>
           s.setName('grant').setDescription('Give a player a skin they keep')
             .addUserOption((o) =>
-              o.setName('player').setDescription('Who gets it').setRequired(true))
+              o.setName('user').setDescription('Who gets it').setRequired(true))
             .addStringOption((o) =>
               o.setName('preset').setDescription('Which saved preset')
                 .setAutocomplete(true).setRequired(true))
@@ -512,14 +513,14 @@ export const commandData = [
         .addSubcommand((s) =>
           s.setName('revoke').setDescription('Take a skin back off a player')
             .addUserOption((o) =>
-              o.setName('player').setDescription('Who loses it').setRequired(true))
+              o.setName('user').setDescription('Who loses it').setRequired(true))
             .addStringOption((o) =>
               o.setName('preset').setDescription('Which one')
                 .setAutocomplete(true).setRequired(true)))
         .addSubcommand((s) =>
           s.setName('owned').setDescription('What a player owns')
             .addUserOption((o) =>
-              o.setName('player').setDescription('Defaults to you')))
+              o.setName('user').setDescription('Whose skins').setRequired(true)))
         .addSubcommand((s) =>
           s.setName('reset').setDescription('Stop keeping a player’s colours')
             .addUserOption((o) => o.setName('user').setDescription('Whose colours').setRequired(true)))
@@ -681,6 +682,12 @@ export const commandData = [
             .setDescription('Actually block spawning a full species, not just announce it')
             .addBooleanOption((o) =>
               o.setName('on').setDescription('Remove full species from the spawn menu')
+                .setRequired(true)))
+        .addSubcommand((s) =>
+          s.setName('tryout').setDescription('Spawn a hidden species yourself, without offering it')
+            .addStringOption((o) =>
+              o.setName('species')
+                .setDescription('Exactly as the game names it')
                 .setRequired(true)))
         .addSubcommand((s) =>
           s.setName('unlock').setDescription('Put a species in the spawn menu by name')
@@ -2755,6 +2762,69 @@ async function handleSpecies(
 
   const typed = i.options.getString('species', true).trim();
 
+  if (action === 'tryout') {
+    const name = i.options.getString('species', true).trim();
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const link = ctx.db.linkFor(i.user.id);
+    if (!link) {
+      await i.editReply({
+        embeds: [embed(COLORS.warn, 'Link your account first',
+          'The window closes when you are seen playing it, so the bot needs to '
+          + 'know which character is yours.')],
+      });
+      return;
+    }
+
+    if (activeTryout(ctx)) {
+      await i.editReply({
+        embeds: [embed(COLORS.warn, 'One at a time',
+          'A tryout is already open. Wait for it to close, or spawn what it '
+          + 'offered.')],
+      });
+      return;
+    }
+
+    try {
+      await ctx.rcon.addPlayable(name);
+    } catch (err) {
+      await i.editReply({
+        embeds: [embed(COLORS.bad, 'The server refused it',
+          `${describeError(err)}
+
+The spelling has to match the game exactly.`)],
+      });
+      return;
+    }
+
+    const listed = parsePlayables(await ctx.rcon.playables().catch(() => ''));
+    if (!listed.some((sp: string) => sp.toLowerCase() === name.toLowerCase())) {
+      await i.editReply({
+        embeds: [embed(COLORS.warn, 'Not in the menu',
+          `The server took **${name}** without complaining, but it is not there `
+          + 'afterwards — so that class does not exist in this build under that '
+          + 'name. Nothing was left open.')],
+      });
+      return;
+    }
+
+    // Never recorded in the roster: that is what enforcement re-adds from, so
+    // remembering it here would have the cap system put it back a minute later.
+    const tryout = startTryout(ctx, name, link.steamId);
+
+    await i.editReply({
+      embeds: [embed(COLORS.good, `${name} is spawnable — for you, now`,
+        '**Go and spawn it.** The moment you are seen playing it, it comes back '
+        + 'off the menu.\n\n'
+        + `If you do not, it closes on its own <t:${Math.floor(tryout.until / 1000)}:R>.\n\n`
+        + '⚠️ It is in **everybody’s** menu until then — the window is short, '
+        + 'not private. And a live dinosaur cannot be transformed, so this is '
+        + 'the only way in: the game decides species at the spawn screen and the '
+        + 'mod cannot drive that.')],
+    });
+    return;
+  }
+
   if (action === 'unlock') {
     const name = i.options.getString('species', true).trim();
     await i.deferReply({ flags: MessageFlags.Ephemeral });
@@ -4540,7 +4610,7 @@ export async function handleAutocomplete(
     const names = staff ? await knownSpecies(ctx) : await speciesList(ctx);
 
     choices = suggest(names, focused.value).map((name) => ({ name, value: name }));
-  } else if (focused.name === 'preset') {
+  } else if (focused.name === 'preset' || focused.name === 'skin') {
     const typed = focused.value.trim().toLowerCase();
     const saved = new Set(ctx.db.presetNames());
 

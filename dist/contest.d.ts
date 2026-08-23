@@ -17,6 +17,15 @@ export interface Contest {
     startedAt: number;
     /** Steam ID to milliseconds held so far. */
     progress: Record<string, number>;
+    /**
+     * Who was standing on it at the previous tick.
+     *
+     * Positions arrive once a minute, so being seen there once says only that you
+     * arrived at some point in the last minute — not that you were there for it.
+     * Crediting that first sighting handed somebody a full minute for walking
+     * past, and a one-minute contest was won by the first tick after it started.
+     */
+    present?: string[];
 }
 export declare function activeContest(ctx: Ctx): Contest | null;
 export declare const saveContest: (ctx: Ctx, contest: Contest | null) => void;

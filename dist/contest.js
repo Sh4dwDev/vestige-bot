@@ -50,12 +50,26 @@ export function tickContest(contest, players, elapsedMs) {
         .filter((p) => p.steam && inside(contest, p))
         .map((p) => p.steam);
     const contested = holders.length > 1;
-    const next = { ...contest, progress: { ...contest.progress } };
+    const wasPresent = new Set(contest.present ?? []);
+    const next = {
+        ...contest,
+        progress: { ...contest.progress },
+        // Recorded every tick, contested or not: leaving somebody out here would
+        // make them start again from zero the moment a rival turned up.
+        present: holders,
+    };
+    // Time is only credited between two sightings. The first one establishes that
+    // somebody is there; the second is the first that can prove they stayed. So a
+    // hold rounds up to the next whole tick rather than being handed out for
+    // arriving, which is the honest direction to be wrong in.
+    //
     // Nobody gains while it is contested. That is the whole mechanic: the way to
     // stop somebody taking it is to be standing there too.
     if (holders.length === 1 && elapsedMs > 0) {
         const holder = holders[0];
-        next.progress[holder] = (next.progress[holder] ?? 0) + elapsedMs;
+        if (wasPresent.has(holder)) {
+            next.progress[holder] = (next.progress[holder] ?? 0) + elapsedMs;
+        }
     }
     const winner = holders.length === 1
         && (next.progress[holders[0]] ?? 0) >= contest.holdMs

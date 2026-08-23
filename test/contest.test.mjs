@@ -44,22 +44,51 @@ const at = (steam, x, y) => ({ steam, species: 'Rex', growth: 1, female: false, 
 }
 
 // ---- holding ----------------------------------------------------------------
+//
+// Reported live: a one-minute contest was won one second after it started.
+// Positions arrive once a minute, so being seen on it once says only that you
+// arrived at some point in the last minute - and crediting that first sighting
+// paid a full minute for walking past. Time is only credited between two
+// sightings now, which rounds a hold up to the next whole tick rather than
+// handing it out for turning up.
 
 {
   const c = base();
-  const one = tickContest(c, [at('a', 100_000, 200_000)], MINUTE);
-  check('one player alone gains time', one.contest.progress['a'] === MINUTE);
-  check('and is not contested', one.contested === false);
-  check('and has not won yet', one.winner === null);
+  const first = tickContest(c, [at('a', 100_000, 200_000)], MINUTE);
+  check('the first sighting credits nothing', first.contest.progress['a'] === undefined,
+    JSON.stringify(first.contest.progress));
+  check('but it is remembered for next time', first.contest.present.includes('a'));
+  check('and nobody has won on one tick', first.winner === null);
 
-  const two = tickContest(one.contest, [at('a', 100_000, 200_000)], 4 * MINUTE);
-  check('holding long enough wins it', two.winner === 'a', JSON.stringify(two.winner));
+  const second = tickContest(first.contest, [at('a', 100_000, 200_000)], MINUTE);
+  check('the second sighting credits the gap', second.contest.progress['a'] === MINUTE);
+}
+
+{
+  // The exact reported failure: one tick of a 60s poll on a 60s hold.
+  const short = { ...base(), holdMs: MINUTE };
+  const once = tickContest(short, [at('a', 100_000, 200_000)], MINUTE);
+  check('a one-minute hold is not won by the first tick', once.winner === null);
+
+  const twice = tickContest(once.contest, [at('a', 100_000, 200_000)], MINUTE);
+  check('it takes standing there across two readings', twice.winner === 'a');
+}
+
+{
+  const c = base();
+  let state = tickContest(c, [at('a', 100_000, 200_000)], MINUTE).contest;
+  for (let n = 0; n < 5; n += 1) {
+    state = tickContest(state, [at('a', 100_000, 200_000)], MINUTE).contest;
+  }
+  const done = tickContest(state, [at('a', 100_000, 200_000)], MINUTE);
+  check('holding long enough still wins it', done.winner === 'a');
 }
 
 {
   // The mechanic: standing there too is how you stop somebody.
   const c = base();
-  const held = tickContest(c, [at('a', 100_000, 200_000)], 2 * MINUTE).contest;
+  let held = tickContest(c, [at('a', 100_000, 200_000)], MINUTE).contest;
+  held = tickContest(held, [at('a', 100_000, 200_000)], 2 * MINUTE).contest;
 
   const fight = tickContest(held, [
     at('a', 100_000, 200_000),
@@ -71,20 +100,31 @@ const at = (steam, x, y) => ({ steam, species: 'Rex', growth: 1, female: false, 
   check('so nobody wins by waiting it out', fight.winner === null);
   check('and the challenger banks nothing either',
     fight.contest.progress['b'] === undefined);
+
+  // Both were there, so neither has to re-establish presence when one leaves.
+  const alone = tickContest(fight.contest, [at('a', 100_000, 200_000)], MINUTE);
+  check('the survivor carries straight on',
+    alone.contest.progress['a'] === 3 * MINUTE, JSON.stringify(alone.contest.progress));
 }
 
 {
   // Progress is kept when somebody leaves, deliberately: positions arrive every
-  // few seconds and a death or a dropped read should not cost the whole hold.
+  // minute and a death or a dropped read should not cost the whole hold.
   const c = base();
-  const held = tickContest(c, [at('a', 100_000, 200_000)], 3 * MINUTE).contest;
+  let held = tickContest(c, [at('a', 100_000, 200_000)], MINUTE).contest;
+  held = tickContest(held, [at('a', 100_000, 200_000)], 3 * MINUTE).contest;
   const away = tickContest(held, [at('a', 900_000, 900_000)], MINUTE);
 
   check('walking away does not wipe progress', away.contest.progress['a'] === 3 * MINUTE);
   check('but standing elsewhere gains nothing', away.holders.length === 0);
+  check('and leaving means being seen again before it counts',
+    away.contest.present.length === 0);
 
-  const back = tickContest(away.contest, [at('a', 100_000, 200_000)], 2 * MINUTE);
-  check('coming back finishes the job', back.winner === 'a');
+  let back = tickContest(away.contest, [at('a', 100_000, 200_000)], MINUTE).contest;
+  check('so the tick after coming back is still nothing',
+    back.progress['a'] === 3 * MINUTE);
+  back = tickContest(back, [at('a', 100_000, 200_000)], 2 * MINUTE).contest;
+  check('and then it resumes', back.progress['a'] === 5 * MINUTE);
 }
 
 {
@@ -104,6 +144,15 @@ const at = (steam, x, y) => ({ steam, species: 'Rex', growth: 1, female: false, 
     at('a', 100_000, 200_000), at('b', 101_000, 200_000), at('c', 102_000, 200_000),
   ], 10 * MINUTE);
   check('a crowd freezes it just as two do', crowd.contested && crowd.winner === null);
+
+  // Even somebody who had been holding it alone stops gaining.
+  let solo = tickContest(base(), [at('a', 100_000, 200_000)], MINUTE).contest;
+  solo = tickContest(solo, [at('a', 100_000, 200_000)], MINUTE).contest;
+  const joined = tickContest(solo, [
+    at('a', 100_000, 200_000), at('b', 101_000, 200_000),
+  ], 10 * MINUTE);
+  check('a rival arriving freezes an existing hold',
+    joined.contest.progress['a'] === MINUTE, JSON.stringify(joined.contest.progress));
 }
 
 // ---- the leader --------------------------------------------------------------
@@ -129,6 +178,8 @@ const at = (steam, x, y) => ({ steam, species: 'Rex', growth: 1, female: false, 
   check('standing nowhere near it pays nothing', nothing.winner === null);
   check('and the contest is still running', activeContest(ctx) !== null);
 
+  // First sighting establishes presence and pays nothing.
+  advanceContest(ctx, [at(S, 100_000, 200_000)], MINUTE);
   const won = advanceContest(ctx, [at(S, 100_000, 200_000)], 2 * MINUTE);
   check('holding it to the end pays out', won.winner === S);
   check('the points land', db.pointsFor(S).balance === 750,

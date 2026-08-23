@@ -53,6 +53,7 @@ import { enforcementEnabled, restoreAllPlayables } from './enforce.js';
 import { refreshStatusPanel } from './status.js';
 import { handlePanelInteraction } from './panel.js';
 import { handleWardrobe } from './wardrobe.js';
+import { advanceTryout } from './tryout.js';
 import {
   activeContest,
   advanceContest,
@@ -589,6 +590,8 @@ function startServerPoll(ctx: Ctx, client: Client<true>): void {
         const live = await ctx.mod.players();
         awardOnline(ctx, live, elapsed);
         await runContest(ctx, client, live, elapsed, log);
+        // Closes the hidden-species window the instant the admin is seen on it.
+        await advanceTryout(ctx, live, log);
       } catch (err) {
         log(`points: award failed: ${describeError(err)}`);
       }

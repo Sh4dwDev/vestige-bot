@@ -30,6 +30,7 @@ import { applyCaps, planCaps } from './capplan.js';
 import { postPeak, REFRESH_MINUTES, setPeaksChannel } from './peaks.js';
 import { buildWardrobePanel, setWardrobeChannel, WARDROBE_MESSAGE_KEY, wardrobeRows, } from './wardrobe.js';
 import { buildPrimeDebugEmbed, buildPrimeEmbed } from './prime.js';
+import { activeTryout, startTryout } from './tryout.js';
 import { activeContest, buildContestEmbed, contestAnnounce, contestChannel, hud, inside, saveContest, setContestChannel, } from './contest.js';
 import { buildReferralEmbed, referralMinutes, referralReward, referralWeeklyCap, referralWelcome, setReferralAmounts, setReferralsEnabled, } from './referrals.js';
 import { enforcementEnabled, enforcementFault, restoreAllPlayables, setEnforcement, syncPlayables, } from './enforce.js';
@@ -223,16 +224,16 @@ export const commandData = [
         .setAutocomplete(true).setRequired(true)))
         .addSubcommand((s) => s.setName('presets').setDescription('List saved presets'))
         .addSubcommand((s) => s.setName('grant').setDescription('Give a player a skin they keep')
-        .addUserOption((o) => o.setName('player').setDescription('Who gets it').setRequired(true))
+        .addUserOption((o) => o.setName('user').setDescription('Who gets it').setRequired(true))
         .addStringOption((o) => o.setName('preset').setDescription('Which saved preset')
         .setAutocomplete(true).setRequired(true))
         .addStringOption((o) => o.setName('reason').setDescription('Shown to them, e.g. "Winter event"')))
         .addSubcommand((s) => s.setName('revoke').setDescription('Take a skin back off a player')
-        .addUserOption((o) => o.setName('player').setDescription('Who loses it').setRequired(true))
+        .addUserOption((o) => o.setName('user').setDescription('Who loses it').setRequired(true))
         .addStringOption((o) => o.setName('preset').setDescription('Which one')
         .setAutocomplete(true).setRequired(true)))
         .addSubcommand((s) => s.setName('owned').setDescription('What a player owns')
-        .addUserOption((o) => o.setName('player').setDescription('Defaults to you')))
+        .addUserOption((o) => o.setName('user').setDescription('Whose skins').setRequired(true)))
         .addSubcommand((s) => s.setName('reset').setDescription('Stop keeping a player’s colours')
         .addUserOption((o) => o.setName('user').setDescription('Whose colours').setRequired(true)))
         .addSubcommand((s) => s.setName('forget').setDescription('Delete a saved preset')
@@ -329,6 +330,10 @@ export const commandData = [
         .addSubcommand((s) => s.setName('enforce')
         .setDescription('Actually block spawning a full species, not just announce it')
         .addBooleanOption((o) => o.setName('on').setDescription('Remove full species from the spawn menu')
+        .setRequired(true)))
+        .addSubcommand((s) => s.setName('tryout').setDescription('Spawn a hidden species yourself, without offering it')
+        .addStringOption((o) => o.setName('species')
+        .setDescription('Exactly as the game names it')
         .setRequired(true)))
         .addSubcommand((s) => s.setName('unlock').setDescription('Put a species in the spawn menu by name')
         .addStringOption((o) => o.setName('species')
@@ -1921,6 +1926,58 @@ async function handleSpecies(ctx, i, action) {
         return;
     }
     const typed = i.options.getString('species', true).trim();
+    if (action === 'tryout') {
+        const name = i.options.getString('species', true).trim();
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        const link = ctx.db.linkFor(i.user.id);
+        if (!link) {
+            await i.editReply({
+                embeds: [embed(COLORS.warn, 'Link your account first', 'The window closes when you are seen playing it, so the bot needs to '
+                        + 'know which character is yours.')],
+            });
+            return;
+        }
+        if (activeTryout(ctx)) {
+            await i.editReply({
+                embeds: [embed(COLORS.warn, 'One at a time', 'A tryout is already open. Wait for it to close, or spawn what it '
+                        + 'offered.')],
+            });
+            return;
+        }
+        try {
+            await ctx.rcon.addPlayable(name);
+        }
+        catch (err) {
+            await i.editReply({
+                embeds: [embed(COLORS.bad, 'The server refused it', `${describeError(err)}
+
+The spelling has to match the game exactly.`)],
+            });
+            return;
+        }
+        const listed = parsePlayables(await ctx.rcon.playables().catch(() => ''));
+        if (!listed.some((sp) => sp.toLowerCase() === name.toLowerCase())) {
+            await i.editReply({
+                embeds: [embed(COLORS.warn, 'Not in the menu', `The server took **${name}** without complaining, but it is not there `
+                        + 'afterwards — so that class does not exist in this build under that '
+                        + 'name. Nothing was left open.')],
+            });
+            return;
+        }
+        // Never recorded in the roster: that is what enforcement re-adds from, so
+        // remembering it here would have the cap system put it back a minute later.
+        const tryout = startTryout(ctx, name, link.steamId);
+        await i.editReply({
+            embeds: [embed(COLORS.good, `${name} is spawnable — for you, now`, '**Go and spawn it.** The moment you are seen playing it, it comes back '
+                    + 'off the menu.\n\n'
+                    + `If you do not, it closes on its own <t:${Math.floor(tryout.until / 1000)}:R>.\n\n`
+                    + '⚠️ It is in **everybody’s** menu until then — the window is short, '
+                    + 'not private. And a live dinosaur cannot be transformed, so this is '
+                    + 'the only way in: the game decides species at the spawn screen and the '
+                    + 'mod cannot drive that.')],
+        });
+        return;
+    }
     if (action === 'unlock') {
         const name = i.options.getString('species', true).trim();
         await i.deferReply({ flags: MessageFlags.Ephemeral });
@@ -3394,7 +3451,7 @@ export async function handleAutocomplete(ctx, i) {
         const names = staff ? await knownSpecies(ctx) : await speciesList(ctx);
         choices = suggest(names, focused.value).map((name) => ({ name, value: name }));
     }
-    else if (focused.name === 'preset') {
+    else if (focused.name === 'preset' || focused.name === 'skin') {
         const typed = focused.value.trim().toLowerCase();
         const saved = new Set(ctx.db.presetNames());
         // Saved first — an admin's own work is what they are usually reaching for —
