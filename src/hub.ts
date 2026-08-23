@@ -27,7 +27,14 @@ import {
 } from './commands.js';
 import { buildKillsEmbed } from './kills.js';
 import { showPanel } from './panel.js';
-import { buildBalanceEmbed, buildLeaderboardEmbed, ratePerHour } from './points.js';
+import {
+  buildBalanceEmbed,
+  buildLeaderboardEmbed,
+  ratePerHour,
+  weekendActive,
+  weekendBonus,
+  weekendWindow,
+} from './points.js';
 import { buildPopulationEmbed } from './population.js';
 import { clearRequest, requestFor, runAccepted } from './teleport.js';
 
@@ -380,7 +387,9 @@ export async function handleHubInteraction(
     }
     const { balance, minutes } = ctx.db.pointsFor(link.steamId);
     await interaction.reply({
-      embeds: [buildBalanceEmbed(balance, minutes, ratePerHour(ctx))],
+      embeds: [buildBalanceEmbed(balance, minutes, ratePerHour(ctx), {
+        bonus: weekendBonus(ctx), active: weekendActive(ctx), window: weekendWindow(ctx),
+      })],
       flags: MessageFlags.Ephemeral,
     });
     return true;

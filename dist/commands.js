@@ -19,7 +19,7 @@ import { addRequest, askEmbed, askRows, cooldownMinutes, delaySeconds, requestFo
 import { buildHubEmbed, hubRows, HUB_MESSAGE_KEY, setHubChannel } from './hub.js';
 import { buildKillsEmbed, setKillfeedChannel } from './kills.js';
 import { postOrEdit } from './pinned.js';
-import { buildBalanceEmbed, buildLeaderboardEmbed, display, ratePerHour, setLinkBonus, setRatePerHour, } from './points.js';
+import { buildBalanceEmbed, buildLeaderboardEmbed, describeWindow, display, ratePerHour, setLinkBonus, setRatePerHour, setWeekendBonus, setWeekendWindow, weekendActive, weekendBonus, weekendWindow, } from './points.js';
 import { nextRestart, restartNow, restartSettings, setRestartAnnounce, setRestartInterval, setRestartsEnabled, WARNINGS, } from './restarts.js';
 import { cleanupSettings, clearAI, nextCleanup, setCleanupAI, setCleanupEnabled, setCleanupHours, wipeNow, } from './cleanup.js';
 import { backupConfig, lastBackup, listSnapshots, markBackup, restoreSnapshot, runBackup, } from './backup.js';
@@ -373,6 +373,17 @@ export const commandData = [
         .addSubcommand((s) => s.setName('set').setDescription('Set someone’s balance exactly')
         .addUserOption((o) => o.setName('user').setDescription('Who').setRequired(true))
         .addNumberOption((o) => o.setName('amount').setDescription('New balance').setMinValue(0).setRequired(true)))
+        .addSubcommand((s) => s.setName('weekend').setDescription('Extra points per hour at the weekend')
+        .addIntegerOption((o) => o.setName('perhour').setDescription('Added flat, not multiplied. 0 turns it off')
+        .setMinValue(0).setMaxValue(10_000).setRequired(true))
+        .addIntegerOption((o) => o.setName('startday').setDescription('0 Sun to 6 Sat. Default 5, Friday')
+        .setMinValue(0).setMaxValue(6))
+        .addIntegerOption((o) => o.setName('starthour').setDescription('Norwegian time. Default 18')
+        .setMinValue(0).setMaxValue(23))
+        .addIntegerOption((o) => o.setName('endday').setDescription('0 Sun to 6 Sat. Default 1, Monday')
+        .setMinValue(0).setMaxValue(6))
+        .addIntegerOption((o) => o.setName('endhour').setDescription('Norwegian time. Default 6')
+        .setMinValue(0).setMaxValue(23)))
         .addSubcommand((s) => s.setName('linkbonus').setDescription('One-off points for linking an account')
         .addIntegerOption((o) => o.setName('points').setDescription('0 turns it off')
         .setMinValue(0).setMaxValue(100_000).setRequired(true)))
@@ -759,11 +770,36 @@ async function handlePoints(ctx, i) {
     }
     const { balance, minutes } = ctx.db.pointsFor(link.steamId);
     await i.reply({
-        embeds: [buildBalanceEmbed(balance, minutes, ratePerHour(ctx))],
+        embeds: [buildBalanceEmbed(balance, minutes, ratePerHour(ctx), {
+                bonus: weekendBonus(ctx), active: weekendActive(ctx), window: weekendWindow(ctx),
+            })],
         flags: MessageFlags.Ephemeral,
     });
 }
 async function handleAdminPoints(ctx, i, action) {
+    if (action === 'weekend') {
+        const perHour = i.options.getInteger('perhour', true);
+        setWeekendBonus(ctx, perHour);
+        const current = weekendWindow(ctx);
+        const window = {
+            startDay: i.options.getInteger('startday') ?? current.startDay,
+            startHour: i.options.getInteger('starthour') ?? current.startHour,
+            endDay: i.options.getInteger('endday') ?? current.endDay,
+            endHour: i.options.getInteger('endhour') ?? current.endHour,
+        };
+        setWeekendWindow(ctx, window);
+        await i.reply({
+            embeds: [embed(COLORS.good, perHour > 0 ? 'Weekend bonus set' : 'Weekend bonus off', perHour === 0
+                    ? 'Weekends now pay the same as any other day.'
+                    : `**+${perHour} points an hour** during ${describeWindow(window)}.\n\n` +
+                        'Added on top rather than multiplied, so it does not scale with tier ' +
+                        '— everybody gets the same for turning up, which helps the lower ' +
+                        'tiers most in proportion.\n\n' +
+                        `Right now it is **${weekendActive(ctx) ? 'on' : 'off'}**.`)],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
     if (action === 'linkbonus') {
         const points = i.options.getInteger('points', true);
         setLinkBonus(ctx, points);

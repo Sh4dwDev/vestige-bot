@@ -26,9 +26,42 @@ export declare function awardFor(elapsedMs: number, rate: number): {
 export declare function awardOnline(ctx: Ctx, players: PlayerRow[], elapsedMs: number): number;
 /** Floored: showing 41.7 points invites arguments about rounding. */
 export declare const display: (balance: number) => number;
-export declare function buildBalanceEmbed(balance: number, minutes: number, rate: number): EmbedBuilder;
+export declare function buildBalanceEmbed(balance: number, minutes: number, rate: number, 
+/** Told to the player: a bonus nobody knows about changes nobody's behaviour. */
+weekend?: {
+    bonus: number;
+    active: boolean;
+    window: WeekendWindow;
+}): EmbedBuilder;
 export declare function buildLeaderboardEmbed(rows: Array<{
     steamId: string;
     balance: number;
     minutes: number;
 }>, nameFor: (steamId: string) => string): EmbedBuilder;
+export interface WeekendWindow {
+    startDay: number;
+    startHour: number;
+    endDay: number;
+    endHour: number;
+}
+export declare function weekendBonus(ctx: Ctx): number;
+export declare function setWeekendBonus(ctx: Ctx, perHour: number): void;
+export declare function weekendWindow(ctx: Ctx): WeekendWindow;
+export declare function setWeekendWindow(ctx: Ctx, window: WeekendWindow): void;
+/** Day and hour in Oslo, whatever the host's clock is set to. */
+export declare function osloTime(at: Date): {
+    day: number;
+    hour: number;
+    minute: number;
+};
+/**
+ * Whether a moment falls in the weekend window.
+ *
+ * Compared as minutes-into-the-week so a window that runs past Sunday midnight
+ * is one comparison rather than a special case. Friday evening to Monday
+ * morning wraps the end of the week, which is the normal shape here, not the
+ * exception.
+ */
+export declare function isWeekend(at: Date, window: WeekendWindow): boolean;
+export declare const weekendActive: (ctx: Ctx, at?: Date) => boolean;
+export declare const describeWindow: (window: WeekendWindow) => string;

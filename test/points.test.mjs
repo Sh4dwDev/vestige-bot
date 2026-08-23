@@ -8,7 +8,11 @@ import { pathToFileURL } from 'node:url';
 const root = path.resolve(import.meta.dirname, '..');
 const load = (f) => import(pathToFileURL(path.join(root, 'dist', f)).href);
 
-const { awardFor, display, buildLeaderboardEmbed, buildBalanceEmbed } = await load('points.js');
+const {
+  awardFor, display, buildLeaderboardEmbed, buildBalanceEmbed,
+  isWeekend, osloTime, describeWindow, weekendActive, setWeekendBonus, setWeekendWindow,
+  weekendWindow, weekendBonus,
+} = await load('points.js');
 const { Database } = await load('db.js');
 
 const results = [];
@@ -107,6 +111,90 @@ fs.rmSync(path.dirname(file), { recursive: true, force: true });
   check('a balance is shown floored and grouped', /1,234/.test(balance.description ?? ''),
     balance.description);
   check('playtime reads in hours and minutes', /2h 5m/.test(balance.description ?? ''));
+}
+
+// ---- the weekend bonus -----------------------------------------------------
+//
+// A flat amount per hour rather than a multiplier. Tier multipliers already
+// reach x3, so doubling at the weekend would have a Rex earning six times a
+// Dryosaurus - widening the gap the tiers set rather than respecting it.
+
+const WINDOW = { startDay: 5, startHour: 18, endDay: 1, endHour: 6 };
+const oslo = (iso) => new Date(iso);
+
+{
+  // Times given in UTC; the window is Norwegian, so these differ by the offset.
+  check('Friday before six is still a weekday',
+    !isWeekend(oslo('2026-08-21T15:00:00Z'), WINDOW));
+  check('Friday evening starts it', isWeekend(oslo('2026-08-21T16:30:00Z'), WINDOW));
+  check('Saturday counts', isWeekend(oslo('2026-08-22T10:00:00Z'), WINDOW));
+  check('so does late Sunday', isWeekend(oslo('2026-08-23T21:00:00Z'), WINDOW));
+  check('Monday before six still counts', isWeekend(oslo('2026-08-24T03:30:00Z'), WINDOW));
+  check('Monday after six does not', !isWeekend(oslo('2026-08-24T05:00:00Z'), WINDOW));
+  check('midweek is never in it', !isWeekend(oslo('2026-08-19T10:00:00Z'), WINDOW));
+}
+
+{
+  // Norway moves twice a year. A fixed +1 would shift the whole window for half
+  // the year, so the zone is read through Intl instead.
+  const winter = oslo('2026-01-16T17:30:00Z');   // 18:30 Oslo, CET
+  const summer = oslo('2026-08-21T16:30:00Z');   // 18:30 Oslo, CEST
+  check('the window holds in winter', isWeekend(winter, WINDOW));
+  check('and in summer', isWeekend(summer, WINDOW));
+  check('the same UTC hour is not in both',
+    isWeekend(oslo('2026-01-16T16:30:00Z'), WINDOW) === false,
+    'winter 17:30 Oslo');
+}
+
+{
+  const t = osloTime(oslo('2026-08-22T10:00:00Z'));
+  check('Oslo time is read as Oslo, not UTC', t.day === 6 && t.hour === 12,
+    `day ${t.day} hour ${t.hour}`);
+}
+
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vesta-wk-'));
+  const db = new Database(path.join(dir, 'wk.sqlite'));
+  const ctx = { db };
+
+  check('there is a bonus by default', weekendBonus(ctx) > 0);
+  check('and it defaults to Friday evening', weekendWindow(ctx).startDay === 5);
+
+  setWeekendBonus(ctx, 0);
+  check('zero turns it off entirely', weekendActive(ctx, oslo('2026-08-22T10:00:00Z')) === false);
+
+  setWeekendBonus(ctx, 30);
+  check('and setting it back turns it on',
+    weekendActive(ctx, oslo('2026-08-22T10:00:00Z')) === true);
+  check('but only inside the window',
+    weekendActive(ctx, oslo('2026-08-19T10:00:00Z')) === false);
+
+  setWeekendWindow(ctx, { startDay: 3, startHour: 0, endDay: 4, endHour: 0 });
+  check('a custom window is honoured',
+    weekendActive(ctx, oslo('2026-08-19T10:00:00Z')) === true, 'Wednesday');
+
+  db.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+{
+  check('the window reads as something a player would understand',
+    describeWindow(WINDOW) === 'Friday 18:00 to Monday 06:00, Norwegian time',
+    describeWindow(WINDOW));
+
+  const on = buildBalanceEmbed(100, 60, 60,
+    { bonus: 30, active: true, window: WINDOW }).toJSON();
+  check('an active bonus is announced on the balance',
+    /Weekend bonus is on/.test(on.description ?? ''));
+
+  const off = buildBalanceEmbed(100, 60, 60,
+    { bonus: 30, active: false, window: WINDOW }).toJSON();
+  check('and when it is not on, it says when it will be',
+    /Friday 18:00/.test(off.description ?? ''));
+
+  const none = buildBalanceEmbed(100, 60, 60).toJSON();
+  check('a server without one says nothing about it',
+    !/[Ww]eekend/.test(none.description ?? ''));
 }
 
 const failed = results.filter((r) => !r).length;

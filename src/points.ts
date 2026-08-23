@@ -97,14 +97,18 @@ export function awardOnline(ctx: Ctx, players: PlayerRow[], elapsedMs: number): 
   const { points, minutes } = awardFor(elapsedMs, ratePerHour(ctx));
   if (points <= 0 || players.length === 0) return 0;
 
+  // The same for everybody, and added rather than multiplied — see the note on
+  // weekendBonus. Worked out once per tick, not once per player.
+  const bonus = weekendActive(ctx) ? (minutes / 60) * weekendBonus(ctx) : 0;
+
   let paid = 0;
   for (const player of players) {
     if (!player.steam) continue;
     // Tier sets the base rate; an endangered event multiplies on top, so
     // taking the unpopular species and surviving on it actually pays.
-    const scaled = points
+    const scaled = (points
       * multiplierFor(ctx, tierOf(ctx, player.species))
-      * playMultiplier(ctx, player.species);
+      * playMultiplier(ctx, player.species)) + bonus;
     ctx.db.addPoints(player.steam, scaled, minutes);
     paid += scaled;
   }
@@ -123,6 +127,8 @@ export function buildBalanceEmbed(
   balance: number,
   minutes: number,
   rate: number,
+  /** Told to the player: a bonus nobody knows about changes nobody's behaviour. */
+  weekend?: { bonus: number; active: boolean; window: WeekendWindow },
 ): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(0x5865f2)
@@ -131,7 +137,14 @@ export function buildBalanceEmbed(
       `## ${display(balance).toLocaleString()}\n` +
       `Earned over **${hours(minutes)}** on ${SERVER}.\n\n` +
       `You earn **${rate}** points an hour just by playing, more on higher tiers ` +
-      'and for kills.\n\nSpend them with `/shop` on a **fully grown** dinosaur, ' +
+      'and for kills.\n' +
+      (weekend && weekend.bonus > 0
+        ? (weekend.active
+          ? `🎉 **Weekend bonus is on** — +${weekend.bonus} an hour on top, ` +
+            'the same for everybody.\n'
+          : `🗓️ **+${weekend.bonus} an hour** during ${describeWindow(weekend.window)}.\n`)
+        : '') +
+      '\nSpend them with `/shop` on a **fully grown** dinosaur, ' +
       'delivered into your archive.',
     )
     .setFooter({ text: SIGNATURE })
@@ -162,3 +175,123 @@ export function buildLeaderboardEmbed(
 
   return embed;
 }
+
+// -------------------------------------------------------------- weekends --
+
+/**
+ * Extra points for playing at the weekend.
+ *
+ * **A flat bonus per hour, not a multiplier.** Tier multipliers already reach
+ * x3, so doubling everything at the weekend would mean a Rex earning six times
+ * a Dryosaurus — widening the gap the tiers deliberately set rather than
+ * respecting it. Adding the same amount to everybody rewards turning up, which
+ * is the thing actually worth encouraging, and it helps the low tiers most in
+ * proportion — they are the ones who need a reason.
+ *
+ * Applied after the tier and event multipliers, so nothing scales it.
+ *
+ * Times are **Europe/Oslo**, read through Intl rather than a fixed offset,
+ * because Norway moves twice a year and a hardcoded +1 would silently shift the
+ * whole window for half of it.
+ */
+
+const ZONE = 'Europe/Oslo';
+
+const DEFAULT_WINDOW = {
+  /** Friday evening. 0 is Sunday, matching getDay. */
+  startDay: 5,
+  startHour: 18,
+  /** Monday morning. */
+  endDay: 1,
+  endHour: 6,
+};
+
+/** Half the base rate: noticeable, and not enough to make weekdays pointless. */
+const DEFAULT_BONUS_PER_HOUR = 30;
+
+export interface WeekendWindow {
+  startDay: number;
+  startHour: number;
+  endDay: number;
+  endHour: number;
+}
+
+export function weekendBonus(ctx: Ctx): number {
+  const raw = Number.parseFloat(ctx.db.getSetting('weekend_bonus') ?? '');
+  return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_BONUS_PER_HOUR;
+}
+
+export function setWeekendBonus(ctx: Ctx, perHour: number): void {
+  ctx.db.setSetting('weekend_bonus', String(perHour));
+}
+
+export function weekendWindow(ctx: Ctx): WeekendWindow {
+  try {
+    const raw = ctx.db.getSetting('weekend_window');
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<WeekendWindow>;
+      if ([parsed.startDay, parsed.startHour, parsed.endDay, parsed.endHour]
+        .every((n) => typeof n === 'number')) {
+        return parsed as WeekendWindow;
+      }
+    }
+  } catch {
+    // Fall through to the default rather than refusing to pay anybody.
+  }
+  return DEFAULT_WINDOW;
+}
+
+export function setWeekendWindow(ctx: Ctx, window: WeekendWindow): void {
+  ctx.db.setSetting('weekend_window', JSON.stringify(window));
+}
+
+const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
+
+/** Day and hour in Oslo, whatever the host's clock is set to. */
+export function osloTime(at: Date): { day: number; hour: number; minute: number } {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: ZONE,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(at);
+
+  const get = (type: string): string => parts.find((p) => p.type === type)?.value ?? '';
+  const day = DAYS.indexOf(get('weekday').toLowerCase().slice(0, 3) as typeof DAYS[number]);
+
+  return {
+    day: day < 0 ? at.getUTCDay() : day,
+    // Midnight comes back as 24 in some locales, which would sort after 23.
+    hour: Number.parseInt(get('hour'), 10) % 24,
+    minute: Number.parseInt(get('minute'), 10) || 0,
+  };
+}
+
+/**
+ * Whether a moment falls in the weekend window.
+ *
+ * Compared as minutes-into-the-week so a window that runs past Sunday midnight
+ * is one comparison rather than a special case. Friday evening to Monday
+ * morning wraps the end of the week, which is the normal shape here, not the
+ * exception.
+ */
+export function isWeekend(at: Date, window: WeekendWindow): boolean {
+  const { day, hour, minute } = osloTime(at);
+  const now = (day * 1440) + (hour * 60) + minute;
+  const start = (window.startDay * 1440) + (window.startHour * 60);
+  const end = (window.endDay * 1440) + (window.endHour * 60);
+
+  return start <= end ? now >= start && now < end : now >= start || now < end;
+}
+
+export const weekendActive = (ctx: Ctx, at = new Date()): boolean =>
+  weekendBonus(ctx) > 0 && isWeekend(at, weekendWindow(ctx));
+
+export const describeWindow = (window: WeekendWindow): string => {
+  const name = (d: number): string =>
+    ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d] ?? '?';
+  const clock = (h: number): string => `${String(h).padStart(2, '0')}:00`;
+  return `${name(window.startDay)} ${clock(window.startHour)} to `
+    + `${name(window.endDay)} ${clock(window.endHour)}, Norwegian time`;
+};
