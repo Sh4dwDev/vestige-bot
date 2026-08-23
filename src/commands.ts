@@ -160,6 +160,7 @@ import {
   wardrobeRows,
 } from './wardrobe.js';
 import { setGameLogEnabled, skipToEnd } from './gamelog.js';
+import { setNoticeStyle } from './tell.js';
 import {
   type AuditOutcome,
   describeOptions,
@@ -252,6 +253,7 @@ import { setSpeciesChannel } from './species.js';
 import { refreshStatusPanel, setStatusChannel } from './status.js';
 import { buildPopulationEmbed, tally } from './population.js';
 import type { EvrimaRcon } from './rcon.js';
+import { tell } from './tell.js';
 
 export interface Ctx {
   config: Config;
@@ -411,21 +413,29 @@ export const commandData = [
             .addUserOption((o) => o.setName('user').setDescription('Discord member').setRequired(true)))
         .addSubcommand((s) => s.setName('list').setDescription('Show bot admins'))
         .addSubcommand((s) =>
-          s.setName('log').setDescription('Where staff actions are recorded')
+          s.setName('log').setDescription('Where staff actions go')
             .addChannelOption((o) =>
-              o.setName('channel').setDescription('Leave empty to stop logging')
+              o.setName('channel').setDescription('The log channel')
                 .addChannelTypes(ChannelType.GuildText)))
         .addSubcommand((s) =>
-          s.setName('logoff').setDescription('Stop recording staff actions'))
+          s.setName('logoff').setDescription('Stop the staff log'))
         .addSubcommand((s) =>
-          s.setName('gamelog').setDescription('Also forward the game own command log')
+          s.setName('notices').setDescription('How on-screen notices are shown')
+            .addStringOption((o) =>
+              o.setName('style').setDescription('banner leaves prime alone').setRequired(true)
+                .addChoices(
+                  { name: 'Banner (keeps prime visible)', value: 'banner' },
+                  { name: 'Persistent (hides prime)', value: 'persistent' },
+                )))
+        .addSubcommand((s) =>
+          s.setName('gamelog').setDescription('Also forward the game log')
             .addBooleanOption((o) =>
               o.setName('on').setDescription('Needs a log channel set').setRequired(true))),
     )
     .addSubcommandGroup((g) =>
       g.setName('population').setDescription('The self-updating population panel')
         .addSubcommand((s) =>
-          s.setName('channel').setDescription('Put the live population panel in a channel')
+          s.setName('channel').setDescription('Put the population panel somewhere')
             .addChannelOption((o) =>
               o.setName('channel').setDescription('Where it should live')
                 .addChannelTypes(ChannelType.GuildText).setRequired(true)))
@@ -610,7 +620,7 @@ export const commandData = [
               o.setName('multiplier').setDescription('1 is default, 2 is twice as fast')
                 .setMinValue(0.1).setMaxValue(20).setRequired(true)))
         .addSubcommand((s) =>
-          s.setName('every').setDescription('Clear corpses automatically on a schedule')
+          s.setName('every').setDescription('Clear corpses on a schedule')
             .addIntegerOption((o) =>
               o.setName('hours').setDescription('e.g. 3 — corpses are cleared this often')
                 .setMinValue(1).setMaxValue(24).setRequired(true)))
@@ -663,14 +673,14 @@ export const commandData = [
             .addUserOption((o) => o.setName('user').setDescription('Who').setRequired(true))
             .addStringOption((o) => o.setName('reason').setDescription('Shown to them on screen')))
         .addSubcommand((c) =>
-          c.setName('ban').setDescription('Ban a Steam account from the game server')
+          c.setName('ban').setDescription('Ban a Steam account')
             .addUserOption((o) => o.setName('user').setDescription('Who').setRequired(true))
             .addStringOption((o) => o.setName('reason').setDescription('Why'))
             .addIntegerOption((o) =>
               o.setName('hours').setDescription('0 or blank is permanent')
                 .setMinValue(0).setMaxValue(8760)))
         .addSubcommand((c) =>
-          c.setName('whitelist').setDescription('Whitelist on, off, or add and remove people')
+          c.setName('whitelist').setDescription('Whitelist on, off, add, remove')
             .addStringOption((o) =>
               o.setName('mode').setDescription('What to do').setRequired(true)
                 .addChoices(
@@ -724,7 +734,7 @@ export const commandData = [
         .addSubcommand((s) => s.setName('list').setDescription('Show every cap and its state'))
         .addSubcommand((s) =>
           s.setName('preset')
-            .setDescription('Balanced caps for every species, scaled to slots'))
+            .setDescription('Balanced caps, scaled to slots'))
         .addSubcommand((s) =>
           s.setName('enforce')
             .setDescription('Actually block spawning a full species')
@@ -732,7 +742,7 @@ export const commandData = [
               o.setName('on').setDescription('Remove full species from the spawn menu')
                 .setRequired(true)))
         .addSubcommand((s) =>
-          s.setName('tryout').setDescription('Play a hidden species without offering it')
+          s.setName('tryout').setDescription('Play a hidden species yourself')
             .addStringOption((o) =>
               o.setName('species')
                 .setDescription('Exactly as the game names it')
@@ -809,7 +819,7 @@ export const commandData = [
               o.setName('reward').setDescription('Points for the kill. Default 1500')
                 .setMinValue(0).setMaxValue(100_000))
             .addIntegerOption((o) =>
-              o.setName('reveal').setDescription('Minutes between position calls. Default 3')
+              o.setName('reveal').setDescription('Minutes between calls. Default 3')
                 .setMinValue(1).setMaxValue(60))
             .addStringOption((o) =>
               o.setName('skin').setDescription('A skin the killer also keeps')
@@ -848,7 +858,7 @@ export const commandData = [
               o.setName('reward').setDescription('Points for the winner. Default 750')
                 .setMinValue(0).setMaxValue(100_000))
             .addIntegerOption((o) =>
-              o.setName('radius').setDescription('How close counts, in HUD units. Default 30')
+              o.setName('radius').setDescription('How close counts. Default 30')
                 .setMinValue(5).setMaxValue(500))
             .addStringOption((o) =>
               o.setName('name').setDescription('What to call it'))
@@ -857,7 +867,7 @@ export const commandData = [
                 .setAutocomplete(true))
             .addBooleanOption((o) =>
               o.setName('shared').setDescription(
-                'Everybody on it wins together. Default off')))
+                'Everybody on it wins. Default off')))
         .addSubcommand((c) => c.setName('status').setDescription('How the current one is going'))
         .addSubcommand((c) => c.setName('stop').setDescription('Call it off, paying nobody'))
         .addSubcommand((c) =>
@@ -895,7 +905,7 @@ export const commandData = [
         .addSubcommand((s) =>
           s.setName('weekend').setDescription('Extra points per hour at the weekend')
             .addIntegerOption((o) =>
-              o.setName('perhour').setDescription('Added flat, not multiplied. 0 turns it off')
+              o.setName('perhour').setDescription('Added flat. 0 turns it off')
                 .setMinValue(0).setMaxValue(10_000).setRequired(true))
             .addIntegerOption((o) =>
               o.setName('startday').setDescription('0 Sun to 6 Sat. Default 5, Friday')
@@ -1058,7 +1068,7 @@ export const commandData = [
     )
     .addSubcommandGroup((g) =>
       g.setName('nesting').setDescription('Points for hatching a nest')
-        .addSubcommand((c) => c.setName('on').setDescription('Pay parents when a nest hatches'))
+        .addSubcommand((c) => c.setName('on').setDescription('Pay parents for a hatched nest'))
         .addSubcommand((c) => c.setName('off').setDescription('Stop paying for nests'))
         .addSubcommand((c) =>
           c.setName('reward').setDescription('Points each parent gets')
@@ -1066,12 +1076,12 @@ export const commandData = [
               o.setName('points').setDescription('Default 400')
                 .setMinValue(0).setMaxValue(100_000).setRequired(true)))
         .addSubcommand((c) =>
-          c.setName('radius').setDescription('How close a parent must be, in HUD')
+          c.setName('radius').setDescription('How close a parent must be')
             .addIntegerOption((o) =>
               o.setName('hud').setDescription('Default 20')
                 .setMinValue(1).setMaxValue(200).setRequired(true)))
         .addSubcommand((c) =>
-          c.setName('condition').setDescription('Which prime flag means nested in')
+          c.setName('condition').setDescription('Which prime flag is nested in')
             .addIntegerOption((o) =>
               o.setName('index').setDescription('Default 2')
                 .setMinValue(1).setMaxValue(10).setRequired(true)))
@@ -1080,16 +1090,16 @@ export const commandData = [
     .addSubcommandGroup((g) =>
       g.setName('market').setDescription('Players buying and selling dinosaurs')
         .addSubcommand((c) =>
-          c.setName('panel').setDescription('Put the market panel in a channel')
+          c.setName('panel').setDescription('Put the market panel somewhere')
             .addChannelOption((o) =>
-              o.setName('channel').setDescription('Where the Sell and Browse buttons live')
+              o.setName('channel').setDescription('Where the buttons live')
                 .addChannelTypes(ChannelType.GuildText).setRequired(true))
             .addChannelOption((o) =>
               o.setName('listings').setDescription(
                 'Where listings go. Defaults to the panel channel')
                 .addChannelTypes(ChannelType.GuildText)))
         .addSubcommand((c) =>
-          c.setName('listings').setDescription('Move listings to a channel of their own')
+          c.setName('listings').setDescription('Give listings their own channel')
             .addChannelOption((o) =>
               o.setName('channel').setDescription('Where each listing is posted')
                 .addChannelTypes(ChannelType.GuildText).setRequired(true)))
@@ -1824,7 +1834,7 @@ export async function completePurchase(
 
     // On screen as well as in Discord: someone shopping on their phone mid-game
     // should not have to alt-tab to find out it landed.
-    await ctx.mod.notify(link.steamId, `${purchase.species} delivered to your archive`);
+    await tell(ctx, link.steamId, `${purchase.species} delivered to your archive`);
 
     ctx.db.recordPurchase({
       discordId: interaction.user.id,
@@ -2057,7 +2067,7 @@ async function handleGive(ctx: Ctx, i: ChatInputCommandInteraction): Promise<voi
 
     // If they happen to be online, tell them on screen. A gift they never
     // noticed sits in the archive unclaimed.
-    if (result.ok) await ctx.mod.notify(link.steamId, `A ${species} was added to your archive`);
+    if (result.ok) await tell(ctx, link.steamId, `A ${species} was added to your archive`);
 
     await i.editReply({
       embeds: [result.ok
@@ -5076,6 +5086,29 @@ async function handleBotAdmin(
         + 'engine from Lua, which has taken this server down before.\n\n'
         + 'Make it a channel staff cannot delete from, or the log is only as '
         + 'trustworthy as the person being logged.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (action === 'notices') {
+    const style = i.options.getString('style', true) === 'persistent'
+      ? 'persistent'
+      : 'banner';
+    setNoticeStyle(ctx, style);
+
+    await i.reply({
+      embeds: [embed(COLORS.good, 'Notice style set',
+        style === 'banner'
+          ? 'Notices now use the brief announcement banner.\n\n'
+            + 'The persistent notice is literally the widget the game draws the '
+            + 'prime conditions in — one slot, last writer wins — so anything '
+            + 'the bot put there hid the checklist until a condition next '
+            + 'changed. The banner leaves it alone.'
+          : 'Notices now stay on screen until something replaces them.\n\n'
+            + '⚠️ That is the same widget as the prime conditions list, so each '
+            + 'notice hides it until the game redraws. Cleanup warnings use this '
+            + 'deliberately either way.')],
       flags: MessageFlags.Ephemeral,
     });
     return;

@@ -1,6 +1,7 @@
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { SIGNATURE } from './brand.js';
 import { describeError } from './commands.js';
+import { tell } from './tell.js';
 /**
  * Staff tools: moderation over RCON, and the small in-game favours admins get
  * asked for constantly.
@@ -76,7 +77,7 @@ export async function handleModeration(ctx, i, action) {
             // Told first, then removed: being dropped with no explanation is how a
             // kick turns into a Discord argument.
             if (reason)
-                await ctx.mod.notify(target.steamId, `Kicked: ${reason}`);
+                await tell(ctx, target.steamId, `Kicked: ${reason}`);
             const reply = await ctx.rcon.kick(target.steamId);
             await i.editReply({
                 embeds: [embed(COLORS.good, 'Kicked', `${target.label} has been removed. They can rejoin straight away.` +
@@ -152,7 +153,7 @@ export async function handleModeration(ctx, i, action) {
             if (!target)
                 return;
             const message = i.options.getString('message', true);
-            const shown = await ctx.mod.notify(target.steamId, message);
+            const shown = await tell(ctx, target.steamId, message);
             await i.editReply({
                 embeds: [shown
                         ? embed(COLORS.good, 'Told them', `${target.label} sees this on screen:\n\n> ${message}`)
@@ -199,7 +200,7 @@ export async function handleInGame(ctx, i, action) {
                         : embed(COLORS.bad, 'Could not heal them', result.msg)],
             });
             if (result.ok)
-                await ctx.mod.notify(target.steamId, 'An admin has healed you.');
+                await tell(ctx, target.steamId, 'An admin has healed you.');
             await audit(ctx, i, 'Player healed', target.label);
             return;
         }

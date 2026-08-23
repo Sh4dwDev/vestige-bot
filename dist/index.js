@@ -38,6 +38,7 @@ import { advanceTryout } from './tryout.js';
 import { activeHunt, buildHuntEmbed, caughtAnnounce, claimHunt, huntChannel, huntStep, proximityStep, markRevealed, revealAnnounce, saveHunt, survivedAnnounce, } from './hunt.js';
 import { activeContest, advanceContest, buildContestWonEmbed, contestChannel, enterNotice, leaveNotice, winnersAnnounce, } from './contest.js';
 import { EvrimaRcon } from './rcon.js';
+import { tell } from './tell.js';
 const log = (message) => {
     console.log(`${new Date().toISOString()} ${message}`);
 };
@@ -454,10 +455,10 @@ async function runContest(ctx, client, players, elapsedMs, log) {
     // Not awaited as a group so one player's failed notice cannot delay the rest,
     // and never allowed to throw: a missing notice must not stop a payout.
     for (const steam of outcome.entered) {
-        void ctx.mod.notify(steam, enterNotice(contest, outcome.progress[steam] ?? 0));
+        void tell(ctx, steam, enterNotice(contest, outcome.progress[steam] ?? 0));
     }
     for (const steam of outcome.left) {
-        void ctx.mod.notify(steam, leaveNotice(contest, outcome.progress[steam] ?? 0));
+        void tell(ctx, steam, leaveNotice(contest, outcome.progress[steam] ?? 0));
     }
     if (outcome.winners.length === 0)
         return;
@@ -546,7 +547,7 @@ async function runHunt(ctx, client, players, log) {
     if (near.notices.length > 0) {
         saveHunt(ctx, near.hunt);
         for (const notice of near.notices)
-            void ctx.mod.notify(notice.steam, notice.text);
+            void tell(ctx, notice.steam, notice.text);
     }
     const step = huntStep(near.hunt, players, Date.now());
     if (step.kind === 'waiting')
@@ -582,7 +583,7 @@ async function sendInvite(ctx, steamId) {
     // is gone in about a second — which is useless for a link somebody has to
     // read and type out. The notification stays on screen until dismissed.
     try {
-        await ctx.mod.notify(steamId, `Discord: ${ctx.config.discordInvite}`);
+        await tell(ctx, steamId, `Discord: ${ctx.config.discordInvite}`);
         log(`discord: sent invite to ${steamId}`);
         return;
     }

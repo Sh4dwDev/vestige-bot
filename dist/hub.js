@@ -8,6 +8,7 @@ import { showPanel } from './panel.js';
 import { buildBalanceEmbed, buildLeaderboardEmbed, ratePerHour, weekendActive, weekendBonus, weekendWindow, } from './points.js';
 import { buildPopulationEmbed } from './population.js';
 import { clearRequest, requestFor, runAccepted } from './teleport.js';
+import { tell } from './tell.js';
 /**
  * One panel in a channel, with everything behind category buttons.
  *
@@ -113,7 +114,7 @@ export async function handleHubInteraction(ctx, interaction) {
                         .setDescription('They have not been moved.')],
                 components: [],
             });
-            await ctx.mod.notify(request.fromSteam, 'Your travel request was declined');
+            await tell(ctx, request.fromSteam, 'Your travel request was declined');
             return true;
         }
         request.accepted = true;

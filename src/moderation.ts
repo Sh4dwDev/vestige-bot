@@ -2,6 +2,7 @@ import { EmbedBuilder, MessageFlags, type ChatInputCommandInteraction } from 'di
 
 import { SIGNATURE } from './brand.js';
 import { describeError, type Ctx } from './commands.js';
+import { tell } from './tell.js';
 
 /**
  * Staff tools: moderation over RCON, and the small in-game favours admins get
@@ -102,7 +103,7 @@ export async function handleModeration(
 
       // Told first, then removed: being dropped with no explanation is how a
       // kick turns into a Discord argument.
-      if (reason) await ctx.mod.notify(target.steamId, `Kicked: ${reason}`);
+      if (reason) await tell(ctx, target.steamId, `Kicked: ${reason}`);
       const reply = await ctx.rcon.kick(target.steamId);
 
       await i.editReply({
@@ -195,7 +196,7 @@ export async function handleModeration(
       if (!target) return;
       const message = i.options.getString('message', true);
 
-      const shown = await ctx.mod.notify(target.steamId, message);
+      const shown = await tell(ctx, target.steamId, message);
       await i.editReply({
         embeds: [shown
           ? embed(COLORS.good, 'Told them',
@@ -252,7 +253,7 @@ export async function handleInGame(
             'Growth and mutations are untouched.')
           : embed(COLORS.bad, 'Could not heal them', result.msg)],
       });
-      if (result.ok) await ctx.mod.notify(target.steamId, 'An admin has healed you.');
+      if (result.ok) await tell(ctx, target.steamId, 'An admin has healed you.');
       await audit(ctx, i, 'Player healed', target.label);
       return;
     }

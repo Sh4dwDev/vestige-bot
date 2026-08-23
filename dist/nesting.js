@@ -1,3 +1,4 @@
+import { tell } from './tell.js';
 /**
  * Points for successfully nesting.
  *
@@ -166,7 +167,7 @@ export async function runNesting(ctx, players, log) {
         }
         for (const parent of parents) {
             ctx.db.addPoints(parent, settings.parentPoints, 0);
-            void ctx.mod.notify(parent, parentNotice(hatchling.species, settings.parentPoints));
+            void tell(ctx, parent, parentNotice(hatchling.species, settings.parentPoints));
         }
         log(`nesting: ${hatchling.species} hatched, paid ${parents.length} parent(s) `
             + `${settings.parentPoints} each`);

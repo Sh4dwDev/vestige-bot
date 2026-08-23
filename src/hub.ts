@@ -37,6 +37,7 @@ import {
 } from './points.js';
 import { buildPopulationEmbed } from './population.js';
 import { clearRequest, requestFor, runAccepted } from './teleport.js';
+import { tell } from './tell.js';
 
 /**
  * One panel in a channel, with everything behind category buttons.
@@ -186,7 +187,7 @@ export async function handleHubInteraction(
           .setDescription('They have not been moved.')],
         components: [],
       });
-      await ctx.mod.notify(request.fromSteam, 'Your travel request was declined');
+      await tell(ctx, request.fromSteam, 'Your travel request was declined');
       return true;
     }
 

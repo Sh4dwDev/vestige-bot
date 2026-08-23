@@ -8,6 +8,7 @@ import {
 
 import { SERVER, SIGNATURE } from './brand.js';
 import type { Ctx } from './commands.js';
+import { tell } from './tell.js';
 
 /**
  * Teleporting to a friend, with their consent.
@@ -115,8 +116,8 @@ export async function runAccepted(
 
   // The on-screen notice stays up for the whole countdown, which is the point:
   // "hold still for 45s" is useless if it vanishes after one.
-  await ctx.mod.notify(request.fromSteam, `Travelling in ${wait}s — hold still`);
-  await ctx.mod.notify(request.toSteam, 'Your friend is on the way');
+  await tell(ctx, request.fromSteam, `Travelling in ${wait}s — hold still`);
+  await tell(ctx, request.toSteam, 'Your friend is on the way');
 
   await new Promise((resolve) => setTimeout(resolve, wait * 1000));
 
@@ -136,7 +137,7 @@ export async function runAccepted(
   if (ok) ctx.db.startCooldown(request.fromSteam, 'teleport');
   log(`teleport: ${request.fromSteam} -> ${request.toSteam} ok=${ok} ${message}`);
 
-  await ctx.mod.notify(request.fromSteam, message);
+  await tell(ctx, request.fromSteam, message);
 
   // Tell them in Discord too: the in-game notice vanishes in about a second.
   const user = await client.users.fetch(request.fromDiscord).catch(() => null);

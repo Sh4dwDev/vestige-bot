@@ -1,4 +1,6 @@
 import { isDue, nextRestart, restartSettings, TICK_MS } from './restarts.js';
+import { toPlainAscii } from './bridge.js';
+import { tellEveryone } from './tell.js';
 /**
  * Periodic tidying, between restarts.
  *
@@ -184,7 +186,15 @@ export function startCleanupScheduler(ctx, log) {
             const at = Math.max(...dueWarnings);
             for (const w of dueWarnings)
                 warned.add(w);
-            await ctx.rcon.announce(cleanupWarning(at)).catch(() => undefined);
+            const warning = cleanupWarning(at);
+            await ctx.rcon.announce(warning).catch(() => undefined);
+            // On screen as well as in chat, and persistently: a cleanup warning is
+            // exactly the case the prime widget is worth taking. Chat scrolls, and
+            // somebody mid-meal on a body about to vanish needs it in front of them.
+            const told = await tellEveryone(ctx, toPlainAscii(warning), { persist: true })
+                .catch(() => 0);
+            if (told > 0)
+                log(`cleanup: warned ${told} player(s) on screen`);
         }
         if (!swept && isDue(now, due)) {
             swept = true;

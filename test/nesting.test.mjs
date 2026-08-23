@@ -146,6 +146,13 @@ function makeCtx({ nested = true, throws = false } = {}) {
       },
       notify: async (steam, text) => { notices.push({ steam, text }); return true; },
     },
+    // Notices go through tell(), which defaults to the brief banner rather than
+    // the persistent widget — that widget is the game's prime checklist, and
+    // squatting it is the bug tell() exists to avoid.
+    rcon: {
+      directMessage: async (steam, text) => { notices.push({ steam, text }); },
+      players: async () => [],
+    },
   };
 }
 

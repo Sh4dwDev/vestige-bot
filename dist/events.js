@@ -2,6 +2,7 @@ import { EmbedBuilder } from 'discord.js';
 import { SIGNATURE } from './brand.js';
 import { tally } from './population.js';
 import { speciesChannel } from './species.js';
+import { tell } from './tell.js';
 /**
  * Population events: the island pushing back on its own imbalance.
  *
@@ -213,7 +214,7 @@ export async function tellPlayersInEvents(ctx, players, log) {
         if (now - (told.get(key) ?? 0) < REMIND_MS)
             continue;
         told.set(key, now);
-        await ctx.mod.notify(player.steam, personalMessage(player.species, settings.rareBonus));
+        await tell(ctx, player.steam, personalMessage(player.species, settings.rareBonus));
         log(`event: told ${player.steam} they are an endangered ${player.species}`);
     }
 }

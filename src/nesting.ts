@@ -1,5 +1,6 @@
 import type { PlayerRow } from './bridge.js';
 import type { Ctx } from './commands.js';
+import { tell } from './tell.js';
 
 /**
  * Points for successfully nesting.
@@ -238,7 +239,7 @@ export async function runNesting(
 
     for (const parent of parents) {
       ctx.db.addPoints(parent, settings.parentPoints, 0);
-      void ctx.mod.notify(parent, parentNotice(hatchling.species, settings.parentPoints));
+      void tell(ctx, parent, parentNotice(hatchling.species, settings.parentPoints));
     }
 
     log(`nesting: ${hatchling.species} hatched, paid ${parents.length} parent(s) `

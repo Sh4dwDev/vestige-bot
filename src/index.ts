@@ -82,6 +82,7 @@ import {
   winnersAnnounce,
 } from './contest.js';
 import { EvrimaRcon } from './rcon.js';
+import { tell } from './tell.js';
 
 const log = (message: string): void => {
   console.log(`${new Date().toISOString()} ${message}`);
@@ -540,10 +541,10 @@ async function runContest(
   // Not awaited as a group so one player's failed notice cannot delay the rest,
   // and never allowed to throw: a missing notice must not stop a payout.
   for (const steam of outcome.entered) {
-    void ctx.mod.notify(steam, enterNotice(contest, outcome.progress[steam] ?? 0));
+    void tell(ctx, steam, enterNotice(contest, outcome.progress[steam] ?? 0));
   }
   for (const steam of outcome.left) {
-    void ctx.mod.notify(steam, leaveNotice(contest, outcome.progress[steam] ?? 0));
+    void tell(ctx, steam, leaveNotice(contest, outcome.progress[steam] ?? 0));
   }
 
   if (outcome.winners.length === 0) return;
@@ -651,7 +652,7 @@ async function runHunt(
   const near = proximityStep(hunt, players);
   if (near.notices.length > 0) {
     saveHunt(ctx, near.hunt);
-    for (const notice of near.notices) void ctx.mod.notify(notice.steam, notice.text);
+    for (const notice of near.notices) void tell(ctx, notice.steam, notice.text);
   }
 
   const step = huntStep(near.hunt, players, Date.now());
@@ -695,7 +696,7 @@ async function sendInvite(ctx: Ctx, steamId: string): Promise<void> {
   // is gone in about a second — which is useless for a link somebody has to
   // read and type out. The notification stays on screen until dismissed.
   try {
-    await ctx.mod.notify(steamId, `Discord: ${ctx.config.discordInvite}`);
+    await tell(ctx, steamId, `Discord: ${ctx.config.discordInvite}`);
     log(`discord: sent invite to ${steamId}`);
     return;
   } catch (err) {
