@@ -55,6 +55,7 @@ import { enforcementEnabled, restoreAllPlayables } from './enforce.js';
 import { refreshStatusPanel } from './status.js';
 import { handlePanelInteraction } from './panel.js';
 import { handleMarket } from './market.js';
+import { runNesting } from './nesting.js';
 import { handleWardrobe } from './wardrobe.js';
 import { advanceTryout } from './tryout.js';
 import {
@@ -756,6 +757,9 @@ function startServerPoll(ctx: Ctx, client: Client<true>): void {
         // a minute is far too coarse for a notice that says "you are on it".
         // Closes the hidden-species window the instant the admin is seen on it.
         await advanceTryout(ctx, live, log);
+        // Cheap: reads prime flags only for a player small enough to have just
+        // hatched and not already asked about, which is normally nobody.
+        await runNesting(ctx, live, log);
         // After awardOnline, so the minute just played counts towards the hour.
         await awardEarlyMembers(ctx, client, live, log);
       } catch (err) {

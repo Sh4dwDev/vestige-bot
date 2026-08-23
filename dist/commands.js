@@ -29,6 +29,7 @@ import { ANCHORS, boundsAreManual, buildHeatmapEmbed, effectiveBounds, HEATMAP_M
 import { applyCaps, planCaps } from './capplan.js';
 import { postPeak, REFRESH_MINUTES, setPeaksChannel } from './peaks.js';
 import { buildWardrobePanel, setWardrobeChannel, WARDROBE_MESSAGE_KEY, wardrobeRows, } from './wardrobe.js';
+import { MAX_PARENTS, nestingSettings, setNestingCondition, setNestingEnabled, setNestingPoints, setNestingRadius, } from './nesting.js';
 import { buildMarketPanel, MARKET_MESSAGE_KEY, marketRows, refreshMarket, setListingsChannel, setMarketChannel, setMarketFee, } from './market.js';
 import { buildPrimeDebugEmbed, buildPrimeEmbed } from './prime.js';
 import { activeTryout, startTryout } from './tryout.js';
@@ -516,6 +517,19 @@ export const commandData = [
         .setMinValue(1).setMaxValue(10_000))
         .addIntegerOption((o) => o.setName('weekly').setDescription('Most one person can be paid a week. 0 is no cap')
         .setMinValue(0).setMaxValue(100))))
+        .addSubcommandGroup((g) => g.setName('nesting').setDescription('Points for hatching a nest')
+        .addSubcommand((c) => c.setName('on').setDescription('Pay parents when a nest hatches'))
+        .addSubcommand((c) => c.setName('off').setDescription('Stop paying for nests'))
+        .addSubcommand((c) => c.setName('reward').setDescription('Points each parent gets')
+        .addIntegerOption((o) => o.setName('points').setDescription('Default 400')
+        .setMinValue(0).setMaxValue(100_000).setRequired(true)))
+        .addSubcommand((c) => c.setName('radius').setDescription('How close a parent must be, in HUD units')
+        .addIntegerOption((o) => o.setName('hud').setDescription('Default 20')
+        .setMinValue(1).setMaxValue(200).setRequired(true)))
+        .addSubcommand((c) => c.setName('condition').setDescription('Which prime flag means "get nested in"')
+        .addIntegerOption((o) => o.setName('index').setDescription('Default 2. Change if it pays wrongly')
+        .setMinValue(1).setMaxValue(10).setRequired(true)))
+        .addSubcommand((c) => c.setName('status').setDescription('How nesting is set up')))
         .addSubcommandGroup((g) => g.setName('market').setDescription('Players buying and selling dinosaurs')
         .addSubcommand((c) => c.setName('panel').setDescription('Put the market panel in a channel')
         .addChannelOption((o) => o.setName('channel').setDescription('Where the Sell and Browse buttons live')
@@ -2469,6 +2483,77 @@ async function handleReferrals(ctx, i, action) {
         flags: MessageFlags.Ephemeral,
     });
 }
+// -------------------------------------------------------------- nesting --
+async function handleNesting(ctx, i, action) {
+    if (action === 'on' || action === 'off') {
+        setNestingEnabled(ctx, action === 'on');
+        const s = nestingSettings(ctx);
+        await i.reply({
+            embeds: [embed(COLORS.good, action === 'on' ? 'Nesting pays' : 'Nesting off', action === 'on'
+                    ? `Every adult of the same species within **${s.radius}** of a new `
+                        + `hatchling gets **${s.parentPoints}** points, up to **${MAX_PARENTS}** `
+                        + 'of them.\n\n'
+                        + 'The hatchling is confirmed by its prime flags, so somebody who '
+                        + 'merely spawned in as a juvenile never triggers it. Who the parents '
+                        + 'were is worked out from where people are standing, because the '
+                        + 'game does not expose parentage — so it can occasionally pay '
+                        + 'somebody who was only passing through.'
+                    : 'Nests no longer pay.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'reward') {
+        const points = i.options.getInteger('points', true);
+        setNestingPoints(ctx, points);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Nest reward set', `Each parent now gets **${points}** points, up to **${MAX_PARENTS}** per nest.`)],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'radius') {
+        const hud = i.options.getInteger('hud', true);
+        setNestingRadius(ctx, hud);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Nest radius set', `A parent must be within **${hud}** of the hatchling.
+
+`
+                    + 'Smaller is stricter: it is the only thing separating a parent from '
+                    + 'somebody who happened to be nearby on the same species.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'condition') {
+        const index = i.options.getInteger('index', true);
+        setNestingCondition(ctx, index);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Condition set', `Flag **${index}** now means "get nested in".
+
+`
+                    + 'This is a setting because the condition table was worked out from '
+                    + 'ordering rather than watched one at a time. If nests pay when they '
+                    + 'should not, or never pay, this is the number to move.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    const s = nestingSettings(ctx);
+    await i.reply({
+        embeds: [embed(s.enabled ? COLORS.good : COLORS.quiet, 'Nesting', `${s.enabled ? '✅ Paying' : '⛔ Off'}
+
+`
+                + `🏆 **${s.parentPoints}** points per parent, up to **${MAX_PARENTS}**
+`
+                + `📍 Within **${s.radius}** HUD units
+`
+                + `🥚 Hatchling growth at or below **${Math.round(s.growth * 100)}%**
+`
+                + `🧬 Prime flag **${s.condition}**`)],
+        flags: MessageFlags.Ephemeral,
+    });
+}
 // --------------------------------------------------------------- market --
 async function handleMarketPanel(ctx, i, action) {
     if (action === 'listings') {
@@ -3385,6 +3470,8 @@ async function handleAdmin(ctx, i) {
         return handleWardrobePanel(ctx, i, action);
     if (group === 'market')
         return handleMarketPanel(ctx, i, action);
+    if (group === 'nesting')
+        return handleNesting(ctx, i, action);
     if (group === 'peaks')
         return handlePeaks(ctx, i, action);
     if (group === 'heatmap')

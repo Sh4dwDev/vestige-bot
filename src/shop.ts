@@ -15,9 +15,34 @@ import { multiplierFor, TIER_LABEL, tierOf } from './tiers.js';
  *
  * Prices default from tier and are overridable per species. They start high on
  * purpose: cutting a price later reads as a gift, raising one reads as a nerf.
+ *
+ * **The curve is steep, deliberately.** An apex is anchored at 100,000 and the
+ * bottom of the shelf at 2,000, a spread of fifty to one rather than the six to
+ * one it started with. A flat curve makes the top of the shop an afternoon's
+ * work and removes the reason to play the rest of it; this makes an apex a
+ * standing goal and leaves the small stuff genuinely buyable.
+ *
+ * At the default earn rate these are long numbers — see the note on
+ * `DEFAULT_TIER_PRICE` — which is the intent, but it is worth knowing that the
+ * earn rate is the other half of the dial and lives in `points.ts`.
  */
 
-const DEFAULT_TIER_PRICE: Record<number, number> = { 1: 300, 2: 600, 3: 1000, 4: 1800 };
+/**
+ * Points per tier.
+ *
+ * Anchored on the apex: 100,000 for a Tier 4. At the default 60 points an hour
+ * of simply being online that is far beyond passive play, and it is meant to
+ * be — the intended route is kills, events, bounties and nesting, where a Tier
+ * 4 kill at the default 50 base pays 150 and an upset pays more. Anybody
+ * setting these should move `/admin points rate` in the same breath if they
+ * want the top of the shop reachable in a season rather than a year.
+ */
+const DEFAULT_TIER_PRICE: Record<number, number> = {
+  1: 2_000,
+  2: 8_000,
+  3: 30_000,
+  4: 100_000,
+};
 const DEFAULT_MUTATION_PRICE = 200;
 
 import { MAX_SLOTS } from './bridge.js';
@@ -65,7 +90,7 @@ export function priceOf(ctx: Ctx, species: string): number {
   const byTier = Number.parseFloat(ctx.db.getSetting(`shop_price_tier:${tier}`) ?? '');
   if (Number.isFinite(byTier) && byTier >= 0) return byTier;
 
-  return DEFAULT_TIER_PRICE[tier] ?? DEFAULT_TIER_PRICE[1] ?? 300;
+  return DEFAULT_TIER_PRICE[tier] ?? DEFAULT_TIER_PRICE[1] ?? 2_000;
 }
 
 /**
@@ -90,6 +115,10 @@ const DEFAULT_ELDER_STACKS = 1;
  *
  * 0.8 puts a Tier 3 at 800, which is where the flat price sat, so nothing the
  * server already advertised gets more expensive.
+ *
+ * It scales with the animal by construction, so the steeper price curve carries
+ * it along without a second decision: an apex at 100,000 asks 80,000 more for
+ * Prime, which is the same proportion it has always been.
  */
 const DEFAULT_PRIME_FACTOR = 0.8;
 
