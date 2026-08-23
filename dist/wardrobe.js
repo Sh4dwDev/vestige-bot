@@ -1,6 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, StringSelectMenuBuilder, } from 'discord.js';
 import { SERVER, SIGNATURE } from './brand.js';
-import { captureBaseline, encodeColours, hexToInt, presetLook, restoreBaseline, } from './skins.js';
+import { applyLookIndexes, captureBaseline, encodeColours, hexToInt, presetLook, restoreBaseline, } from './skins.js';
 /**
  * The skins a player owns, and wearing them.
  *
@@ -188,6 +188,9 @@ async function wear(ctx, interaction, steamId, name) {
                 return;
             }
         }
+        // The variation is part of the look: without this the dinosaur keeps the
+        // markings it hatched with and only half the skin lands.
+        await applyLookIndexes(ctx, steamId, look);
         const result = await ctx.mod.run('skinmany', steamId, { colors: encodeColours(look.colours) });
         if (!result.ok) {
             await interaction.editReply({

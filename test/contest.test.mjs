@@ -10,7 +10,7 @@ const load = (f) => import(pathToFileURL(path.join(root, 'dist', f)).href);
 
 const {
   tickContest, inside, leader, advanceContest, saveContest, activeContest,
-  buildContestEmbed, contestAnnounce, winnersAnnounce,
+  buildContestEmbed, contestAnnounce, winnersAnnounce, enterNotice, leaveNotice,
 } = await load('contest.js');
 const { Database } = await load('db.js');
 
@@ -212,6 +212,68 @@ const at = (steam, x, y) => ({ steam, species: 'Rex', growth: 1, female: false, 
     at('a', 100_000, 200_000), at('b', 101_000, 200_000),
   ], MINUTE);
   check('an ordinary point still freezes with two on it', solo.contested === true);
+}
+
+// ---- crossing the boundary --------------------------------------------------
+//
+// There is nothing in the world to stand next to - spawning a nest as a marker
+// came back "spawned nothing usable" from the engine - so the on-screen notice
+// IS the boundary. It has to fire on the edges only: one repeated every poll
+// would be worse than none.
+
+{
+  const c = base();
+  const arrived = tickContest(c, [at('a', 100_000, 200_000)], MINUTE);
+  check('walking on is an entry', arrived.entered.includes('a'));
+  check('and nothing has been left', arrived.left.length === 0);
+
+  const stayed = tickContest(arrived.contest, [at('a', 100_000, 200_000)], MINUTE);
+  check('standing still is not a second entry', stayed.entered.length === 0,
+    JSON.stringify(stayed.entered));
+
+  const gone = tickContest(stayed.contest, [at('a', 900_000, 900_000)], MINUTE);
+  check('walking off is a departure', gone.left.includes('a'));
+  check('and staying away is not a second one',
+    tickContest(gone.contest, [at('a', 900_000, 900_000)], MINUTE).left.length === 0);
+
+  // Dying or logging out is a departure too: they stop being reported at all.
+  const vanished = tickContest(stayed.contest, [], MINUTE);
+  check('dying or logging off counts as leaving', vanished.left.includes('a'));
+}
+
+{
+  // Each player is tracked separately, or one arrival would silence another's.
+  const c = base();
+  const one = tickContest(c, [at('a', 100_000, 200_000)], MINUTE);
+  const two = tickContest(one.contest, [
+    at('a', 100_000, 200_000), at('b', 101_000, 200_000),
+  ], MINUTE);
+  check('a second arrival is reported on its own',
+    two.entered.length === 1 && two.entered[0] === 'b', JSON.stringify(two.entered));
+  check('and the one already there is not re-announced', !two.entered.includes('a'));
+}
+
+{
+  const c = base();
+  const first = enterNotice(c, 0);
+  check('the arrival notice says what to do',
+    /5m 0s/.test(first) && /750/.test(first), first);
+  check('coming back says what is already banked',
+    /2m 0s/.test(enterNotice(c, 2 * MINUTE)), enterNotice(c, 2 * MINUTE));
+
+  const off = leaveNotice(c, 2 * MINUTE);
+  check('leaving says the time is kept', /kept/.test(off), off);
+  check('leaving with nothing banked does not promise anything',
+    !/kept/.test(leaveNotice(c, 0)), leaveNotice(c, 0));
+
+  // These render through the mod, which swallows anything outside ASCII
+  // silently rather than refusing it.
+  for (const [what, line] of [
+    ['the arrival notice', first],
+    ['the departure notice', off],
+  ]) {
+    check(`${what} is plain ASCII`, /^[ -~]*$/.test(line), line);
+  }
 }
 
 // ---- the leader --------------------------------------------------------------

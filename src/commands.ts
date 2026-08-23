@@ -57,6 +57,7 @@ import {
   SHOP_PANEL_MESSAGE_KEY,
 } from './shoppanel.js';
 import {
+  applyLookIndexes,
   BUILT_IN,
   encodeColours,
   captureBaseline,
@@ -2432,6 +2433,10 @@ If they are wearing it right ` +
     // look like the dinosaur's own colours.
     await captureBaseline(ctx, link.steamId, species);
 
+    // Same reason as the pattern above: the variation is part of the look, and
+    // leaving it is what made skins land on only half the animal.
+    await applyLookIndexes(ctx, link.steamId, {});
+
     const result = await ctx.mod.run('skinmany', link.steamId, {
       colors: encodeColours(colours),
     });
@@ -3117,8 +3122,15 @@ async function handleHunt(
   const revealMinutes = i.options.getInteger('reveal') ?? 3;
   const now = Date.now();
 
+  // Named in the opening call as well as the position ones. Best effort: a
+  // target on the spawn screen has nothing to report, and the first position
+  // call fills it in.
+  const species = (await ctx.mod.players().catch(() => [] as PlayerRow[]))
+    .find((p) => p.steam === link.steamId)?.species;
+
   const hunt: Hunt = {
     targetSteam: link.steamId,
+    ...(species ? { targetSpecies: species } : {}),
     // The in-game name if the bot has seen one, since a Discord handle means
     // nothing to somebody reading server chat.
     targetName: ctx.db.gameName(link.steamId) ?? target.username,
@@ -4850,6 +4862,27 @@ export async function handleAutocomplete(
     choices = suggest(names, focused.value).map((name) => ({ name, value: name }));
   } else if (focused.name === 'preset' || focused.name === 'skin') {
     const typed = focused.value.trim().toLowerCase();
+
+    // Revoking is the one case where the whole catalogue is the wrong list:
+    // it can only take back something they already have, so offering every
+    // preset invites picking one that was never granted and getting told so.
+    const revoking = i.options.getSubcommand(false) === 'revoke';
+    // getUser is not available on an autocomplete interaction — the option
+    // arrives as the raw snowflake, which is all the lookup needs anyway.
+    const subject = revoking ? i.options.get('user')?.value : undefined;
+    const link = typeof subject === 'string' ? ctx.db.linkFor(subject) : null;
+
+    if (revoking) {
+      const owned = link
+        ? ctx.db.ownedSkins(link.steamId)
+          .map((o) => o.preset)
+          .filter((n) => !typed || n.toLowerCase().includes(typed))
+        : [];
+
+      await i.respond(owned.slice(0, 25).map((n) => ({ name: n, value: n })));
+      return;
+    }
+
     const saved = new Set(ctx.db.presetNames());
 
     // Saved first — an admin's own work is what they are usually reaching for —

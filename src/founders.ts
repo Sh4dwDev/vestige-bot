@@ -11,7 +11,8 @@ import { SERVER, SIGNATURE } from './brand.js';
 import { describeError, type Ctx } from './commands.js';
 import { earlyRole, hasEarlyRole } from './earlymember.js';
 import {
-  captureBaseline, encodeColours, hexToInt, restoreBaseline, type Look,
+  applyLookIndexes, captureBaseline, encodeColours, hexToInt, restoreBaseline,
+  type Look,
 } from './skins.js';
 
 /**
@@ -329,6 +330,9 @@ async function applyFounderSkin(
         return;
       }
     }
+
+    // Clears the dinosaur's own variation, which no colour field can reach.
+    await applyLookIndexes(ctx, steamId, skin);
 
     const result = await ctx.mod.run('skinmany', steamId, {
       colors: encodeColours(skin.colours),

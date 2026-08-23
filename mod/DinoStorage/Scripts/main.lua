@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.37.0"
+local MOD_VERSION = "3.39.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1896,6 +1896,86 @@ local function handleSkinGet(cmd)
         string.format("%d colour(s)", #parts), "{" .. table.concat(parts, ",") .. "}")
 end
 
+-- Diagnostic: what colours does this build actually have?
+--
+-- Reported in play: parts of a dinosaur keep their original colour after a
+-- skin is applied. The ten fields written here were taken from a struct
+-- definition, not from this build, so the honest answer is to ask the engine
+-- rather than add guesses to the list.
+--
+-- Two ways, because neither is guaranteed:
+--   1. Walk the struct's own properties. Exact when it works.
+--   2. Read candidate names off the live pawn and keep the ones that come back
+--      with R/G/B. Works even when reflection does not, and cannot invent a
+--      field that is not there.
+local COLOR_CANDIDATES = {
+    -- The ten already written, so the log shows the full picture in one place.
+    "BodyColor", "MarkingsColor", "FlankColor", "UnderbellyColor", "Detail1Color",
+    "EyesColor", "MaleDisplayColor", "TeethColor", "MouthColor", "ClawsColor",
+    -- Everything plausible alongside them.
+    "Detail2Color", "Detail3Color", "Detail4Color", "PatternColor",
+    "SecondaryColor", "TertiaryColor", "PrimaryColor", "BaseColor",
+    "DorsalColor", "StripeColor", "SpotColor", "BellyColor", "BackColor",
+    "HeadColor", "LimbColor", "TailColor", "CrestColor", "HornColor",
+    "SpikeColor", "QuillColor", "FeatherColor", "MembraneColor", "SailColor",
+    "FemaleDisplayColor", "DisplayColor", "ScleraColor", "PupilColor",
+    "TongueColor", "GumColor", "NailColor", "NailsColor", "BeakColor",
+    "ScaleColor", "SkinColor", "OsteodermColor", "WattleColor", "DewlapColor",
+    "GularColor", "ThroatColor", "SnoutColor", "JawColor", "EyeRingColor",
+}
+
+local function logSkinFields(pawn)
+    local found = 0
+
+    -- 1. Reflection over the struct itself.
+    local ok = pcall(function()
+        local st = StaticFindObject("/Script/TheIsle.CustomizerDataBase")
+        if st == nil then st = StaticFindObject("/Script/TheIsle.CustomizerData") end
+        if st == nil then return end
+        st:ForEachProperty(function(prop)
+            local n
+            pcall(function() n = prop:GetFName():ToString() end)
+            if n ~= nil then
+                found = found + 1
+                log("skinfield: " .. n)
+            end
+        end)
+    end)
+    if not ok or found == 0 then
+        log("skinfield: the struct would not enumerate; probing names instead")
+    end
+
+    -- 2. Probe the live pawn either way. Reflection lists every property, not
+    -- just colours, and this says which of them actually read as one.
+    local probed = 0
+    for _, name in ipairs(COLOR_CANDIDATES) do
+        local r, g, b
+        local read = pcall(function()
+            local c = pawn.CustomizerData[name]
+            r, g, b = c.R, c.G, c.B
+        end)
+        if read and type(r) == "number" then
+            probed = probed + 1
+            log(string.format("skincolour: %s = %.3f,%.3f,%.3f%s",
+                name, r, g, b, COLOR_FIELDS[name] and "" or "   <-- NOT WRITTEN"))
+        end
+    end
+    log(string.format("skinfield: %d listed, %d colours readable", found, probed))
+    return probed
+end
+
+local function handleSkinFields(cmd)
+    local pawn, err = resolvePlayer(cmd.steam)
+    if pawn == nil then
+        writeResult(cmd.id, "skinfields", cmd.steam, false, err)
+        return
+    end
+
+    local probed = logSkinFields(pawn)
+    writeResult(cmd.id, "skinfields", cmd.steam, true,
+        string.format("%d readable colours written to the mod log", probed))
+end
+
 -- Several colours in one apply. Encoded flat as "Field=r,g,b|Field=r,g,b"
 -- rather than nested JSON: the parser here is hand-rolled, and a flat string
 -- has one obvious reading.
@@ -1962,6 +2042,95 @@ end
 --
 -- The old value is returned so the bot can put it back.
 -- ---------------------------------------------------------------------------
+
+-- Pattern is not the only index that changes how a dinosaur looks. Asking the
+-- engine what the customizer holds (v3.38.0, logged) returned three integers
+-- beside the ten colours: PatternIndex, ThemeIndex and SkinVariation. Only the
+-- first was ever written, which is why a repainted dinosaur kept markings the
+-- new colours never touched -- they belong to the theme, not to a colour field.
+--
+-- Written as one verb rather than three: they are read back together and a
+-- half-applied look is worse than an unchanged one.
+local LOOK_INDEXES = { "PatternIndex", "ThemeIndex", "SkinVariation" }
+
+local function handleLook(cmd)
+    local pawn, err = resolvePlayer(cmd.steam)
+    if pawn == nil then
+        writeResult(cmd.id, "look", cmd.steam, false, err)
+        return
+    end
+
+    local isDino, reason = dinosaurCheck(pawn)
+    if not isDino then
+        writeResult(cmd.id, "look", cmd.steam, false, reason)
+        return
+    end
+
+    local wanted = {
+        PatternIndex = tonumber(cmd.args and cmd.args.pattern),
+        ThemeIndex = tonumber(cmd.args and cmd.args.theme),
+        SkinVariation = tonumber(cmd.args and cmd.args.variation),
+    }
+
+    local before, after, changed, refused = {}, {}, 0, {}
+
+    for _, field in ipairs(LOOK_INDEXES) do
+        local was
+        pcall(function() was = pawn.CustomizerData[field] end)
+        before[field] = type(was) == "number" and math.floor(was) or -1
+
+        local want = wanted[field]
+        if want ~= nil then
+            want = math.floor(want)
+            -- Same range the pattern verb has always used. The property itself
+            -- accepts anything; only the client validates it, so this rejects
+            -- nonsense rather than pretending it worked.
+            if want < 0 or want > 63 then
+                refused[#refused + 1] = field
+            else
+                pcall(function() pawn.CustomizerData[field] = want end)
+                changed = changed + 1
+            end
+        end
+    end
+
+    if changed > 0 then pcall(function() pawn:ForceNetUpdate() end) end
+
+    for _, field in ipairs(LOOK_INDEXES) do
+        local now
+        pcall(function() now = pawn.CustomizerData[field] end)
+        after[field] = type(now) == "number" and math.floor(now) or -1
+    end
+
+    local landed = 0
+    for _, field in ipairs(LOOK_INDEXES) do
+        if wanted[field] ~= nil and after[field] == math.floor(wanted[field]) then
+            landed = landed + 1
+        end
+    end
+
+    log(string.format("look: %s pattern %d->%d theme %d->%d variation %d->%d",
+        cmd.steam,
+        before.PatternIndex, after.PatternIndex,
+        before.ThemeIndex, after.ThemeIndex,
+        before.SkinVariation, after.SkinVariation))
+
+    local msg
+    if changed == 0 then
+        msg = "read only, nothing was asked for"
+    elseif landed < changed then
+        msg = "some of it did not take"
+    else
+        msg = "look set"
+    end
+
+    writeResult(cmd.id, "look", cmd.steam, changed == 0 or landed == changed, msg,
+        string.format(
+            '{"pattern":%d,"theme":%d,"variation":%d,'
+            .. '"wasPattern":%d,"wasTheme":%d,"wasVariation":%d}',
+            after.PatternIndex, after.ThemeIndex, after.SkinVariation,
+            before.PatternIndex, before.ThemeIndex, before.SkinVariation))
+end
 
 local function handlePattern(cmd)
     local wanted = tonumber(cmd.args and cmd.args.index)
@@ -2174,7 +2343,9 @@ local function dispatch(cmd)
     elseif verb == "nest" then handleNest(cmd)
     elseif verb == "skinget" then handleSkinGet(cmd)
     elseif verb == "skinmany" then handleSkinMany(cmd)
+    elseif verb == "skinfields" then handleSkinFields(cmd)
     elseif verb == "pattern" then handlePattern(cmd)
+    elseif verb == "look" then handleLook(cmd)
     elseif verb == "notify" then handleNotify(cmd)
     elseif verb == "chat" then handleChat(cmd)
     elseif verb == "heal" then handleHeal(cmd)

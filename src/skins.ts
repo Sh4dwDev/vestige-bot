@@ -69,6 +69,21 @@ export interface Look {
    * are always written separately.
    */
   pattern?: number;
+  /**
+   * The other two indexes on the customizer, which nothing used to write.
+   *
+   * Reported in play as "some parts the skin changer doesn't change": a
+   * repainted dinosaur kept rust markings down its back and tail that none of
+   * the ten colours touched. Asking the engine what the struct actually holds
+   * (mod v3.38.0) found `ThemeIndex` and `SkinVariation` beside `PatternIndex`
+   * — the markings belong to the variation, so no colour could ever have moved
+   * them.
+   *
+   * Left undefined means **0**, not "leave alone": a skin that only half
+   * replaces the look is the bug being fixed here.
+   */
+  theme?: number;
+  variation?: number;
 }
 
 const LOOKS: Record<string, Record<string, string>> = {
@@ -383,6 +398,35 @@ export function hexToInt(hex: string): number | null {
  * a reason to skip the safety net, never a reason to refuse the paint somebody
  * actually asked for.
  */
+/**
+ * Sets the pattern/theme/variation part of a look.
+ *
+ * Separate from the colours on purpose and always sent first: an out-of-range
+ * pattern makes the client abandon the whole rebuild, which would take the
+ * colours down with it if they shared a write.
+ *
+ * Theme and variation default to 0 rather than being left alone. A skin is
+ * supposed to replace the look, and leaving the dinosaur's own variation in
+ * place is exactly what made half of it stay unchanged.
+ */
+export async function applyLookIndexes(
+  ctx: Ctx,
+  steamId: string,
+  look: Pick<Look, 'theme' | 'variation'>,
+): Promise<boolean> {
+  try {
+    const result = await ctx.mod.run('look', steamId, {
+      theme: look.theme ?? 0,
+      variation: look.variation ?? 0,
+    }, { quiet: true });
+    return result.ok;
+  } catch {
+    // A look that keeps its old variation is worse than one that does not, but
+    // it is not worth failing the paint over.
+    return false;
+  }
+}
+
 export async function captureBaseline(
   ctx: Ctx,
   steamId: string,
@@ -404,8 +448,22 @@ export async function captureBaseline(
     if (Object.keys(colours).length === 0) return;
 
     const pattern = live['PatternIndex'];
+
+    // Read separately: skinget only reports colours and the pattern, and the
+    // other two indexes have to come back or a reset cannot undo them.
+    let theme: number | undefined;
+    let variation: number | undefined;
+    try {
+      const indexes = await ctx.mod.run('look', steamId, {}, { quiet: true });
+      const data = (indexes.data ?? {}) as Record<string, unknown>;
+      if (typeof data['theme'] === 'number') theme = data['theme'];
+      if (typeof data['variation'] === 'number') variation = data['variation'];
+    } catch {
+      // Older mod, or unreachable. The colours are still worth keeping.
+    }
+
     ctx.db.setBaseline(steamId, species, colours,
-      typeof pattern === 'number' ? pattern : undefined);
+      typeof pattern === 'number' ? pattern : undefined, theme, variation);
   } catch {
     // Same reasoning: a missing net must not stop the jump.
   }
@@ -431,11 +489,23 @@ export async function restoreBaseline(
   try {
     // Pattern first, exactly as the apply path does: it decides which parts a
     // colour lands on, so the other order paints onto the wrong pattern.
+    // Both of these were wrong: the mod reads `index` and `colors`, so a reset
+    // sent `pattern` and `colours`, which it ignored and then reported as a
+    // failure. Nothing was ever put back.
     if (baseline.pattern !== undefined) {
-      await ctx.mod.run('pattern', steamId, { pattern: baseline.pattern }, { quiet: true });
+      await ctx.mod.run('pattern', steamId, { index: baseline.pattern }, { quiet: true });
     }
+
+    // The variation and theme the dinosaur hatched with, which the skin cleared.
+    if (baseline.theme !== undefined || baseline.variation !== undefined) {
+      await ctx.mod.run('look', steamId, {
+        ...(baseline.theme !== undefined ? { theme: baseline.theme } : {}),
+        ...(baseline.variation !== undefined ? { variation: baseline.variation } : {}),
+      }, { quiet: true }).catch(() => undefined);
+    }
+
     const result = await ctx.mod.run('skinmany', steamId, {
-      colours: encodeColours(baseline.colours),
+      colors: encodeColours(baseline.colours),
     });
     return result.ok ? 'restored' : 'failed';
   } catch {

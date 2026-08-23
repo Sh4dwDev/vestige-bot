@@ -1,6 +1,6 @@
 import type { Ctx } from './commands.js';
 import type { PlayerRow } from './bridge.js';
-import { encodeColours } from './skins.js';
+import { applyLookIndexes, encodeColours } from './skins.js';
 
 /**
  * Makes skins stick.
@@ -137,6 +137,10 @@ export async function reapplySkins(
     }
 
     try {
+      // A fresh pawn comes with its own variation, so the repaint has to clear
+      // it as well or the skin comes back only partly.
+      await applyLookIndexes(ctx, player.steam, {});
+
       const result = await ctx.mod.run(
         'skinmany',
         player.steam,

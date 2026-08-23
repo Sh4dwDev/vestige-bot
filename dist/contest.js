@@ -77,7 +77,14 @@ export function tickContest(contest, players, elapsedMs) {
     const winners = contested
         ? []
         : holders.filter((h) => (next.progress[h] ?? 0) >= contest.holdMs);
-    return { contest: next, holders, contested, winner: winners[0] ?? null, winners };
+    // The edges, not the state: a notice is worth showing when it changes and is
+    // noise when it repeats every minute. `present` is already the previous
+    // reading, so this costs a set difference and nothing else.
+    const entered = holders.filter((h) => !wasPresent.has(h));
+    const left = [...wasPresent].filter((h) => !holders.includes(h));
+    return {
+        contest: next, holders, contested, winner: winners[0] ?? null, winners, entered, left,
+    };
 }
 /** Best progress so far, for the panel and the announcement. */
 export function leader(contest) {
@@ -132,6 +139,25 @@ export const contestAnnounce = (contest) => `${contest.name}: hold Lat ${hud(con
     + (contest.shared
         ? 'Everybody standing there wins it, so bring your group.'
         : 'Two or more players on it and nobody gains.');
+/**
+ * On-screen notices for walking in and out.
+ *
+ * There is no marker in the world to stand next to — spawning a nest as one was
+ * tried and the actor came back unusable — so the boundary is invisible. These
+ * are what make it a place: the notice arriving is how you know you are on it,
+ * and the notice going is how you know you stepped off.
+ *
+ * ASCII only, like everything the mod renders: a non-ASCII character is
+ * swallowed silently rather than refused.
+ */
+export const enterNotice = (contest, heldMs = 0) => `${contest.name}: you are on it. `
+    + (heldMs > 0
+        ? `${minutes(heldMs)} banked of ${minutes(contest.holdMs)}.`
+        : `Hold it ${minutes(contest.holdMs)} to win ${contest.reward} points.`);
+export const leaveNotice = (contest, heldMs = 0) => `${contest.name}: you stepped off`
+    + (heldMs > 0
+        ? `. ${minutes(heldMs)} of ${minutes(contest.holdMs)} is kept - come back to carry on.`
+        : ' before it counted for anything.');
 export const winnerAnnounce = (contest, who) => `${who} held ${contest.name} and takes ${contest.reward} points.`;
 /** The shared version, where the whole group is named and each is paid in full. */
 export const winnersAnnounce = (contest, who) => who.length <= 1
@@ -157,7 +183,13 @@ export function advanceContest(ctx, players, elapsedMs) {
     if (result.winners.length === 0) {
         saveContest(ctx, result.contest);
         return {
-            winner: null, winners: [], contested: result.contested, holders: result.holders,
+            winner: null,
+            winners: [],
+            contested: result.contested,
+            holders: result.holders,
+            entered: result.entered,
+            left: result.left,
+            progress: result.contest.progress,
         };
     }
     // Paid and cleared in one go: leaving it active would keep paying the same
@@ -175,6 +207,9 @@ export function advanceContest(ctx, players, elapsedMs) {
         winners: result.winners,
         contested: false,
         holders: result.holders,
+        entered: result.entered,
+        left: result.left,
+        progress: result.contest.progress,
     };
 }
 export function buildContestWonEmbed(contest, winner) {

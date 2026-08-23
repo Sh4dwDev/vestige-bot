@@ -158,6 +158,17 @@ const at = (steam, x, y, species = 'Rex') =>
   check('the target is named, not their Steam ID',
     huntAnnounce(h).includes('Shadow') && !huntAnnounce(h).includes(TARGET));
 
+  // Asked for twice: a callout with no species sends people to a spot to hunt
+  // whatever they find there.
+  const known = base({ targetSpecies: 'Allosaurus' });
+  check('the opening call names the dinosaur too',
+    huntAnnounce(known).includes('Allosaurus'), huntAnnounce(known));
+  check('and it stays ASCII', /^[ -~]*$/.test(huntAnnounce(known)));
+  check('a target nobody has seen yet reads cleanly',
+    !/\(\)/.test(huntAnnounce(h)), huntAnnounce(h));
+  check('the running panel names it',
+    /Allosaurus/.test(buildHuntEmbed(known, 'running').toJSON().description ?? ''));
+
   const survived = buildHuntEmbed(h, 'survived').toJSON();
   check('surviving explains why nobody won',
     /player kill/.test(survived.description ?? ''), survived.description);

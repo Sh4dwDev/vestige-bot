@@ -82,10 +82,12 @@ export declare class Database {
         pending: number;
     };
     /** Only ever written once per dinosaur: a second paint must not overwrite it. */
-    setBaseline(steamId: string, species: string, colours: Record<string, string>, pattern?: number): boolean;
+    setBaseline(steamId: string, species: string, colours: Record<string, string>, pattern?: number, theme?: number, variation?: number): boolean;
     baselineFor(steamId: string, species: string): {
         colours: Record<string, string>;
         pattern?: number;
+        theme?: number;
+        variation?: number;
     } | null;
     clearBaseline(steamId: string, species?: string): number;
     /** Returns false when they already had it, so a grant can say so honestly. */

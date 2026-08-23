@@ -52,6 +52,10 @@ export interface TickResult {
     winner: string | null;
     /** Everybody who has, which is only ever more than one on a shared point. */
     winners: string[];
+    /** Walked in since the last reading. */
+    entered: string[];
+    /** Walked out since the last reading, or died, or logged off. */
+    left: string[];
 }
 /**
  * Advances the hold clock.
@@ -73,6 +77,19 @@ export declare function buildContestEmbed(contest: Contest, nameFor: (steamId: s
 }): EmbedBuilder;
 /** ASCII only: this goes out over RCON, which silently drops anything else. */
 export declare const contestAnnounce: (contest: Contest) => string;
+/**
+ * On-screen notices for walking in and out.
+ *
+ * There is no marker in the world to stand next to — spawning a nest as one was
+ * tried and the actor came back unusable — so the boundary is invisible. These
+ * are what make it a place: the notice arriving is how you know you are on it,
+ * and the notice going is how you know you stepped off.
+ *
+ * ASCII only, like everything the mod renders: a non-ASCII character is
+ * swallowed silently rather than refused.
+ */
+export declare const enterNotice: (contest: Contest, heldMs?: number) => string;
+export declare const leaveNotice: (contest: Contest, heldMs?: number) => string;
 export declare const winnerAnnounce: (contest: Contest, who: string) => string;
 /** The shared version, where the whole group is named and each is paid in full. */
 export declare const winnersAnnounce: (contest: Contest, who: string[]) => string;
@@ -85,6 +102,12 @@ export interface TickOutcome {
     winners: string[];
     contested: boolean;
     holders: string[];
+    /** Steam IDs that just walked in, for the on-screen notice. */
+    entered: string[];
+    /** Steam IDs that just walked out. */
+    left: string[];
+    /** How long each holder has banked, so a notice can say. */
+    progress: Record<string, number>;
 }
 /**
  * One turn of the clock, and the payout if it ends.

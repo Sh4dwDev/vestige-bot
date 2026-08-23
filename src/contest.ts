@@ -97,6 +97,10 @@ export interface TickResult {
   winner: string | null;
   /** Everybody who has, which is only ever more than one on a shared point. */
   winners: string[];
+  /** Walked in since the last reading. */
+  entered: string[];
+  /** Walked out since the last reading, or died, or logged off. */
+  left: string[];
 }
 
 /**
@@ -145,7 +149,15 @@ export function tickContest(
     ? []
     : holders.filter((h) => (next.progress[h] ?? 0) >= contest.holdMs);
 
-  return { contest: next, holders, contested, winner: winners[0] ?? null, winners };
+  // The edges, not the state: a notice is worth showing when it changes and is
+  // noise when it repeats every minute. `present` is already the previous
+  // reading, so this costs a set difference and nothing else.
+  const entered = holders.filter((h) => !wasPresent.has(h));
+  const left = [...wasPresent].filter((h) => !holders.includes(h));
+
+  return {
+    contest: next, holders, contested, winner: winners[0] ?? null, winners, entered, left,
+  };
 }
 
 /** Best progress so far, for the panel and the announcement. */
@@ -214,6 +226,29 @@ export const contestAnnounce = (contest: Contest): string =>
     ? 'Everybody standing there wins it, so bring your group.'
     : 'Two or more players on it and nobody gains.');
 
+/**
+ * On-screen notices for walking in and out.
+ *
+ * There is no marker in the world to stand next to — spawning a nest as one was
+ * tried and the actor came back unusable — so the boundary is invisible. These
+ * are what make it a place: the notice arriving is how you know you are on it,
+ * and the notice going is how you know you stepped off.
+ *
+ * ASCII only, like everything the mod renders: a non-ASCII character is
+ * swallowed silently rather than refused.
+ */
+export const enterNotice = (contest: Contest, heldMs = 0): string =>
+  `${contest.name}: you are on it. `
+  + (heldMs > 0
+    ? `${minutes(heldMs)} banked of ${minutes(contest.holdMs)}.`
+    : `Hold it ${minutes(contest.holdMs)} to win ${contest.reward} points.`);
+
+export const leaveNotice = (contest: Contest, heldMs = 0): string =>
+  `${contest.name}: you stepped off`
+  + (heldMs > 0
+    ? `. ${minutes(heldMs)} of ${minutes(contest.holdMs)} is kept - come back to carry on.`
+    : ' before it counted for anything.');
+
 export const winnerAnnounce = (contest: Contest, who: string): string =>
   `${who} held ${contest.name} and takes ${contest.reward} points.`;
 
@@ -241,6 +276,12 @@ export interface TickOutcome {
   winners: string[];
   contested: boolean;
   holders: string[];
+  /** Steam IDs that just walked in, for the on-screen notice. */
+  entered: string[];
+  /** Steam IDs that just walked out. */
+  left: string[];
+  /** How long each holder has banked, so a notice can say. */
+  progress: Record<string, number>;
 }
 
 /**
@@ -263,7 +304,13 @@ export function advanceContest(
   if (result.winners.length === 0) {
     saveContest(ctx, result.contest);
     return {
-      winner: null, winners: [], contested: result.contested, holders: result.holders,
+      winner: null,
+      winners: [],
+      contested: result.contested,
+      holders: result.holders,
+      entered: result.entered,
+      left: result.left,
+      progress: result.contest.progress,
     };
   }
 
@@ -282,6 +329,9 @@ export function advanceContest(
     winners: result.winners,
     contested: false,
     holders: result.holders,
+    entered: result.entered,
+    left: result.left,
+    progress: result.contest.progress,
   };
 }
 

@@ -53,7 +53,9 @@ export function huntStep(hunt, players, now) {
     return { kind: 'reveal', x: target.x, y: target.y, species: target.species };
 }
 /** ASCII only: these go out over RCON, which drops anything else silently. */
-export const huntAnnounce = (hunt) => `HUNT: ${hunt.targetName} is the target. Kill them for ${hunt.reward} points. `
+export const huntAnnounce = (hunt) => `HUNT: ${hunt.targetName} is the target`
+    + (hunt.targetSpecies ? ` (${hunt.targetSpecies})` : '')
+    + `. Kill them for ${hunt.reward} points. `
     + `Their position is called out every ${Math.round(hunt.revealEveryMs / 60000)} minutes.`;
 export const revealAnnounce = (hunt, x, y, species) => `HUNT: ${hunt.targetName} was last seen at Lat ${hud(y)}, Long ${hud(x)}`
     + (species ? ` playing ${species}.` : '.');
@@ -65,14 +67,17 @@ export function buildHuntEmbed(hunt, state, killer) {
         .setColor(colour)
         .setTitle(state === 'running' ? `🎯  Hunt: ${hunt.targetName}` : `🎯  Hunt over`)
         .setDescription(state === 'caught'
-        ? `**${killer}** killed **${hunt.targetName}** and takes ` +
+        ? `**${killer}** killed **${hunt.targetName}**` +
+            (hunt.targetSpecies ? ` *(${hunt.targetSpecies})*` : '') + ' and takes ' +
             `**${hunt.reward}** points` +
             (hunt.skin ? ` and the **${hunt.skin}** skin` : '') + '.'
         : state === 'survived'
             ? `**${hunt.targetName}** survived. Nobody wins.\n\n` +
                 'It has to be a player kill — drowning, starving or wildlife ' +
                 'leaves nobody to pay.'
-            : `**${hunt.targetName}** is the target.\n\n` +
+            : `**${hunt.targetName}** is the target` +
+                (hunt.targetSpecies ? `, playing **${hunt.targetSpecies}**` : '') +
+                '.\n\n' +
                 `🏆 **${hunt.reward}** points` +
                 (hunt.skin ? ` and the **${hunt.skin}** skin` : '') +
                 ' to whoever kills them.\n' +
@@ -111,6 +116,15 @@ export function claimHunt(ctx, killerSteam, victimSteam) {
     saveHunt(ctx, null);
     return hunt;
 }
-/** Marks a reveal as done, so the timer advances even if announcing fails. */
-export const markRevealed = (ctx, hunt, now) => saveHunt(ctx, { ...hunt, lastRevealAt: now });
+/**
+ * Marks a reveal as done, so the timer advances even if announcing fails.
+ *
+ * The species is refreshed at the same time: it is only knowable while they are
+ * locatable, and this is the one moment we know they were.
+ */
+export const markRevealed = (ctx, hunt, now, species) => saveHunt(ctx, {
+    ...hunt,
+    lastRevealAt: now,
+    ...(species ? { targetSpecies: species } : {}),
+});
 //# sourceMappingURL=hunt.js.map

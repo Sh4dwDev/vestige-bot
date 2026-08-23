@@ -22,12 +22,19 @@ const check = (name, ok, detail = '') => {
 const REX = { steam: '76561198000000001', species: 'Tyrannosaurus', growth: 1, female: false, prime: false };
 const DRYO = { steam: '76561198000000001', species: 'Dryosaurus', growth: 1, female: false, prime: false };
 
-/** Records every skinmany the bot sends. */
+/**
+ * Records every call the bot sends.
+ *
+ * `paints` counts skinmany only. A repaint also sends `look`, which clears the
+ * variation the fresh pawn came with — without it a skin lands on only part of
+ * the animal — so counting raw calls would count one paint as two.
+ */
 function makeCtx(skins, patterns = {}) {
   const sent = [];
   const touches = { count: 0 };
   return {
     sent,
+    get paints() { return sent.filter((c) => c.verb === 'skinmany').length; },
     touches,
     db: {
       skinFor: (steam, species) => skins[`${steam}|${species}`] ?? null,
@@ -58,10 +65,10 @@ const quiet = () => {};
   const ctx = makeCtx(skins);
 
   await reapplySkins(ctx, [REX], quiet);
-  check('paints a player who has a saved look', ctx.sent.length === 1, String(ctx.sent.length));
+  check('paints a player who has a saved look', ctx.paints === 1, String(ctx.paints));
 
   await reapplySkins(ctx, [REX], quiet);
-  check('does not repaint every poll', ctx.sent.length === 1, String(ctx.sent.length));
+  check('does not repaint every poll', ctx.paints === 1, String(ctx.paints));
 }
 
 {
@@ -80,7 +87,7 @@ const quiet = () => {};
   await reapplySkins(ctx, [REX], quiet);
   await reapplySkins(ctx, [DRYO], quiet);
 
-  check('switching species repaints', ctx.sent.length === 2, String(ctx.sent.length));
+  check('switching species repaints', ctx.paints === 2, String(ctx.paints));
   check('and uses that species’ own colours',
     ctx.sent[1].args.colors !== ctx.sent[0].args.colors,
     `${ctx.sent[0].args.colors} vs ${ctx.sent[1].args.colors}`);
@@ -95,13 +102,13 @@ const quiet = () => {};
   const ctx = makeCtx(skins);
 
   await reapplySkins(ctx, [REX], quiet);
-  const afterFirst = ctx.sent.length;
+  const afterFirst = ctx.paints;
 
   // ...server restarts, polls fail, then it recovers with the same player on...
   forgetAllPainted();
   await reapplySkins(ctx, [REX], quiet);
 
-  check('repaints after the server was unreachable', ctx.sent.length === afterFirst + 1,
+  check('repaints after the server was unreachable', ctx.paints === afterFirst + 1,
     `${afterFirst} then ${ctx.sent.length}`);
 }
 
@@ -114,7 +121,7 @@ const quiet = () => {};
   skinNeedsReapply(REX.steam);
   await reapplySkins(ctx, [REX], quiet);
 
-  check('repaints after a death', ctx.sent.length === 2, String(ctx.sent.length));
+  check('repaints after a death', ctx.paints === 2, String(ctx.paints));
 }
 
 {
@@ -126,7 +133,7 @@ const quiet = () => {};
   await reapplySkins(ctx, [], quiet);
   await reapplySkins(ctx, [REX], quiet);
 
-  check('repaints after they were seen offline', ctx.sent.length === 2, String(ctx.sent.length));
+  check('repaints after they were seen offline', ctx.paints === 2, String(ctx.paints));
 }
 
 // ---- patterns ---------------------------------------------------------------------
@@ -173,8 +180,8 @@ const quiet = () => {};
   };
   await reapplySkins(ctx, [REX], quiet);
 
-  check('a failed paint is retried rather than marked done', ctx.sent.length === 1,
-    String(ctx.sent.length));
+  check('a failed paint is retried rather than marked done', ctx.paints === 1,
+    String(ctx.paints));
 }
 
 {

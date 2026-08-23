@@ -2,7 +2,7 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlag
 import { SERVER, SIGNATURE } from './brand.js';
 import { describeError } from './commands.js';
 import { earlyRole, hasEarlyRole } from './earlymember.js';
-import { captureBaseline, encodeColours, hexToInt, restoreBaseline, } from './skins.js';
+import { applyLookIndexes, captureBaseline, encodeColours, hexToInt, restoreBaseline, } from './skins.js';
 /**
  * Founder skins: three looks reserved for the people who showed up first.
  *
@@ -259,6 +259,8 @@ async function applyFounderSkin(ctx, interaction, steamId, skin) {
                 return;
             }
         }
+        // Clears the dinosaur's own variation, which no colour field can reach.
+        await applyLookIndexes(ctx, steamId, skin);
         const result = await ctx.mod.run('skinmany', steamId, {
             colors: encodeColours(skin.colours),
         });

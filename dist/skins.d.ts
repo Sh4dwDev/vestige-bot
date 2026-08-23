@@ -40,6 +40,21 @@ export interface Look {
      * are always written separately.
      */
     pattern?: number;
+    /**
+     * The other two indexes on the customizer, which nothing used to write.
+     *
+     * Reported in play as "some parts the skin changer doesn't change": a
+     * repainted dinosaur kept rust markings down its back and tail that none of
+     * the ten colours touched. Asking the engine what the struct actually holds
+     * (mod v3.38.0) found `ThemeIndex` and `SkinVariation` beside `PatternIndex`
+     * — the markings belong to the variation, so no colour could ever have moved
+     * them.
+     *
+     * Left undefined means **0**, not "leave alone": a skin that only half
+     * replaces the look is the bug being fixed here.
+     */
+    theme?: number;
+    variation?: number;
 }
 export declare const BUILT_IN: Record<string, Look>;
 /**
@@ -93,6 +108,18 @@ export declare function hexToInt(hex: string): number | null;
  * a reason to skip the safety net, never a reason to refuse the paint somebody
  * actually asked for.
  */
+/**
+ * Sets the pattern/theme/variation part of a look.
+ *
+ * Separate from the colours on purpose and always sent first: an out-of-range
+ * pattern makes the client abandon the whole rebuild, which would take the
+ * colours down with it if they shared a write.
+ *
+ * Theme and variation default to 0 rather than being left alone. A skin is
+ * supposed to replace the look, and leaving the dinosaur's own variation in
+ * place is exactly what made half of it stay unchanged.
+ */
+export declare function applyLookIndexes(ctx: Ctx, steamId: string, look: Pick<Look, 'theme' | 'variation'>): Promise<boolean>;
 export declare function captureBaseline(ctx: Ctx, steamId: string, species: string): Promise<void>;
 export type ResetResult = 'restored' | 'no-baseline' | 'failed';
 /**

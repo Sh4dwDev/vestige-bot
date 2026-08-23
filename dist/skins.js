@@ -329,6 +329,31 @@ export function hexToInt(hex) {
  * a reason to skip the safety net, never a reason to refuse the paint somebody
  * actually asked for.
  */
+/**
+ * Sets the pattern/theme/variation part of a look.
+ *
+ * Separate from the colours on purpose and always sent first: an out-of-range
+ * pattern makes the client abandon the whole rebuild, which would take the
+ * colours down with it if they shared a write.
+ *
+ * Theme and variation default to 0 rather than being left alone. A skin is
+ * supposed to replace the look, and leaving the dinosaur's own variation in
+ * place is exactly what made half of it stay unchanged.
+ */
+export async function applyLookIndexes(ctx, steamId, look) {
+    try {
+        const result = await ctx.mod.run('look', steamId, {
+            theme: look.theme ?? 0,
+            variation: look.variation ?? 0,
+        }, { quiet: true });
+        return result.ok;
+    }
+    catch {
+        // A look that keeps its old variation is worse than one that does not, but
+        // it is not worth failing the paint over.
+        return false;
+    }
+}
 export async function captureBaseline(ctx, steamId, species) {
     if (ctx.db.baselineFor(steamId, species))
         return;
@@ -346,7 +371,22 @@ export async function captureBaseline(ctx, steamId, species) {
         if (Object.keys(colours).length === 0)
             return;
         const pattern = live['PatternIndex'];
-        ctx.db.setBaseline(steamId, species, colours, typeof pattern === 'number' ? pattern : undefined);
+        // Read separately: skinget only reports colours and the pattern, and the
+        // other two indexes have to come back or a reset cannot undo them.
+        let theme;
+        let variation;
+        try {
+            const indexes = await ctx.mod.run('look', steamId, {}, { quiet: true });
+            const data = (indexes.data ?? {});
+            if (typeof data['theme'] === 'number')
+                theme = data['theme'];
+            if (typeof data['variation'] === 'number')
+                variation = data['variation'];
+        }
+        catch {
+            // Older mod, or unreachable. The colours are still worth keeping.
+        }
+        ctx.db.setBaseline(steamId, species, colours, typeof pattern === 'number' ? pattern : undefined, theme, variation);
     }
     catch {
         // Same reasoning: a missing net must not stop the jump.
@@ -366,11 +406,21 @@ export async function restoreBaseline(ctx, steamId, species) {
     try {
         // Pattern first, exactly as the apply path does: it decides which parts a
         // colour lands on, so the other order paints onto the wrong pattern.
+        // Both of these were wrong: the mod reads `index` and `colors`, so a reset
+        // sent `pattern` and `colours`, which it ignored and then reported as a
+        // failure. Nothing was ever put back.
         if (baseline.pattern !== undefined) {
-            await ctx.mod.run('pattern', steamId, { pattern: baseline.pattern }, { quiet: true });
+            await ctx.mod.run('pattern', steamId, { index: baseline.pattern }, { quiet: true });
+        }
+        // The variation and theme the dinosaur hatched with, which the skin cleared.
+        if (baseline.theme !== undefined || baseline.variation !== undefined) {
+            await ctx.mod.run('look', steamId, {
+                ...(baseline.theme !== undefined ? { theme: baseline.theme } : {}),
+                ...(baseline.variation !== undefined ? { variation: baseline.variation } : {}),
+            }, { quiet: true }).catch(() => undefined);
         }
         const result = await ctx.mod.run('skinmany', steamId, {
-            colours: encodeColours(baseline.colours),
+            colors: encodeColours(baseline.colours),
         });
         return result.ok ? 'restored' : 'failed';
     }

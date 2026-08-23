@@ -33,7 +33,7 @@ import { handlePanelInteraction } from './panel.js';
 import { handleWardrobe } from './wardrobe.js';
 import { advanceTryout } from './tryout.js';
 import { activeHunt, buildHuntEmbed, caughtAnnounce, claimHunt, huntChannel, huntStep, markRevealed, revealAnnounce, saveHunt, survivedAnnounce, } from './hunt.js';
-import { activeContest, advanceContest, buildContestWonEmbed, contestChannel, winnersAnnounce, } from './contest.js';
+import { activeContest, advanceContest, buildContestWonEmbed, contestChannel, enterNotice, leaveNotice, winnersAnnounce, } from './contest.js';
 import { EvrimaRcon } from './rcon.js';
 const log = (message) => {
     console.log(`${new Date().toISOString()} ${message}`);
@@ -436,7 +436,22 @@ async function runContest(ctx, client, players, elapsedMs, log) {
     if (!contest)
         return;
     const outcome = advanceContest(ctx, players, elapsedMs);
-    if (!outcome || outcome.winners.length === 0)
+    if (!outcome)
+        return;
+    // The boundary is invisible: there is nothing in the world to stand next to,
+    // and spawning a nest as a marker came back unusable from the engine. So
+    // crossing it is announced on the player's own screen instead. Only the edges
+    // are sent — a notice repeated every poll would be worse than none.
+    //
+    // Not awaited as a group so one player's failed notice cannot delay the rest,
+    // and never allowed to throw: a missing notice must not stop a payout.
+    for (const steam of outcome.entered) {
+        void ctx.mod.notify(steam, enterNotice(contest, outcome.progress[steam] ?? 0));
+    }
+    for (const steam of outcome.left) {
+        void ctx.mod.notify(steam, leaveNotice(contest, outcome.progress[steam] ?? 0));
+    }
+    if (outcome.winners.length === 0)
         return;
     const namer = steamNamer(ctx);
     const named = outcome.winners.map(namer);
@@ -484,7 +499,7 @@ async function runHunt(ctx, client, players, log) {
     }
     // Marked before announcing: a failed announcement must not mean trying again
     // every minute for the rest of the hunt.
-    markRevealed(ctx, hunt, Date.now());
+    markRevealed(ctx, hunt, Date.now(), step.species);
     await ctx.rcon.announce(toPlainAscii(revealAnnounce(hunt, step.x, step.y, step.species)))
         .catch(() => undefined);
 }
@@ -563,7 +578,8 @@ function startServerPoll(ctx, client) {
                 // trip for data already in hand.
                 const live = await ctx.mod.players();
                 awardOnline(ctx, live, elapsed);
-                await runContest(ctx, client, live, elapsed, log);
+                // Contests are not run here: they have their own faster timer, because
+                // a minute is far too coarse for a notice that says "you are on it".
                 // Closes the hidden-species window the instant the admin is seen on it.
                 await advanceTryout(ctx, live, log);
                 await runHunt(ctx, client, live, log);
@@ -611,6 +627,27 @@ function startServerPoll(ctx, client) {
     // A minute is also comfortably inside Discord's presence rate limit.
     setInterval(() => void tick(), 60_000).unref();
     void tick();
+    // Contests run four times as often, and only while one exists.
+    //
+    // The point is the enter and leave notices: at a minute, somebody walks onto
+    // it, sees nothing, walks off again and concludes it is broken. Fifteen
+    // seconds is close enough to feel like a boundary. It also makes the hold
+    // itself fairer, since time is credited between sightings and the rounding is
+    // a quarter of what it was.
+    let lastContest = Date.now();
+    const contestTick = async () => {
+        const elapsed = Date.now() - lastContest;
+        lastContest = Date.now();
+        if (!activeContest(ctx))
+            return;
+        try {
+            await runContest(ctx, client, await ctx.mod.players(), elapsed, log);
+        }
+        catch (err) {
+            log(`contest: tick failed: ${describeError(err)}`);
+        }
+    };
+    setInterval(() => void contestTick(), 15_000).unref();
 }
 /** `online: null` means the server did not answer; `max: null` means Game.ini has not been read. */
 function setStatus(client, online, max) {

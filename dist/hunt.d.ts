@@ -6,6 +6,15 @@ export interface Hunt {
     targetSteam: string;
     /** For announcements, since Steam IDs mean nothing to players. */
     targetName: string;
+    /**
+     * What they were last seen playing.
+     *
+     * Kept on the hunt rather than looked up when needed, because it has to
+     * survive them being offline or unlocatable — and it is refreshed on every
+     * position call, so a target who dies and comes back on something else is
+     * described correctly from the next call onwards.
+     */
+    targetSpecies?: string;
     reward: number;
     skin?: string;
     /** When it ends, whatever has happened. */
@@ -54,5 +63,10 @@ export declare const setHuntChannel: (ctx: Ctx, channelId: string | null) => voi
  * with one.
  */
 export declare function claimHunt(ctx: Ctx, killerSteam: string, victimSteam: string): Hunt | null;
-/** Marks a reveal as done, so the timer advances even if announcing fails. */
-export declare const markRevealed: (ctx: Ctx, hunt: Hunt, now: number) => void;
+/**
+ * Marks a reveal as done, so the timer advances even if announcing fails.
+ *
+ * The species is refreshed at the same time: it is only knowable while they are
+ * locatable, and this is the one moment we know they were.
+ */
+export declare const markRevealed: (ctx: Ctx, hunt: Hunt, now: number, species?: string) => void;

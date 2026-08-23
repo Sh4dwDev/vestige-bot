@@ -208,6 +208,8 @@ CREATE TABLE IF NOT EXISTS skin_baseline (
   species  TEXT NOT NULL,
   colours  TEXT NOT NULL,
   pattern  INTEGER,
+  theme    INTEGER,
+  variation INTEGER,
   taken_at TEXT NOT NULL,
   PRIMARY KEY (steam_id, species)
 );
@@ -273,6 +275,18 @@ export class Database {
       this.#db.exec('ALTER TABLE player_skins ADD COLUMN pattern INTEGER');
     } catch {
       // Already present.
+    }
+
+    // Third time. The customizer holds three indexes, not one: asking the
+    // engine (mod v3.38.0) listed PatternIndex, ThemeIndex and SkinVariation
+    // beside the ten colours. Only the pattern was ever recorded, so a reset
+    // put the colours back and left the variation the skin had cleared.
+    for (const column of ['theme', 'variation']) {
+      try {
+        this.#db.exec(`ALTER TABLE skin_baseline ADD COLUMN ${column} INTEGER`);
+      } catch {
+        // Already present.
+      }
     }
   }
 
@@ -455,32 +469,50 @@ export class Database {
     species: string,
     colours: Record<string, string>,
     pattern?: number,
+    theme?: number,
+    variation?: number,
   ): boolean {
     return Number(
       this.#db
         .prepare(
-          `INSERT INTO skin_baseline (steam_id, species, colours, pattern, taken_at)
-           VALUES (?, ?, ?, ?, ?)
+          `INSERT INTO skin_baseline
+             (steam_id, species, colours, pattern, theme, variation, taken_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (steam_id, species) DO NOTHING`,
         )
         .run(steamId, species, JSON.stringify(colours), pattern ?? null,
-          new Date().toISOString()).changes,
+          theme ?? null, variation ?? null, new Date().toISOString()).changes,
     ) > 0;
   }
 
   baselineFor(
     steamId: string,
     species: string,
-  ): { colours: Record<string, string>; pattern?: number } | null {
+  ): {
+    colours: Record<string, string>;
+    pattern?: number;
+    theme?: number;
+    variation?: number;
+  } | null {
     const row = this.#db
-      .prepare('SELECT colours, pattern FROM skin_baseline WHERE steam_id = ? AND species = ?')
+      .prepare('SELECT colours, pattern, theme, variation FROM skin_baseline '
+        + 'WHERE steam_id = ? AND species = ?')
       .get(steamId, species) as Record<string, unknown> | undefined;
     if (!row) return null;
 
     try {
       const colours = JSON.parse(String(row['colours'])) as Record<string, string>;
-      const pattern = row['pattern'];
-      return typeof pattern === 'number' ? { colours, pattern } : { colours };
+      const num = (key: string): number | undefined =>
+        typeof row[key] === 'number' ? row[key] : undefined;
+
+      return {
+        colours,
+        ...(num('pattern') !== undefined ? { pattern: num('pattern') as number } : {}),
+        ...(num('theme') !== undefined ? { theme: num('theme') as number } : {}),
+        ...(num('variation') !== undefined
+          ? { variation: num('variation') as number }
+          : {}),
+      };
     } catch {
       return null;
     }
