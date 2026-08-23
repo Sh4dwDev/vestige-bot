@@ -49,4 +49,21 @@ export function suggest(options, typed) {
         : options;
     return matches.slice(0, 25);
 }
+/**
+ * Every species the server has ever offered, not just the ones it offers now.
+ *
+ * `speciesList` reads the live spawn menu, and a capped species is missing from
+ * it **by design** — so asking the menu "does this species exist" answers no
+ * for exactly the species somebody is trying to manage. That made a Rex cap
+ * impossible to raise once it had taken effect, and made the cap list report
+ * the Rex row as a typo.
+ *
+ * The roster only grows, so it keeps answering yes.
+ */
+export async function knownSpecies(ctx) {
+    const live = await speciesList(ctx);
+    ctx.db.rememberSpecies(live);
+    const roster = ctx.db.knownSpecies();
+    return roster.length > 0 ? roster : live;
+}
 //# sourceMappingURL=catalog.js.map

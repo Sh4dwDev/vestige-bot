@@ -29,7 +29,7 @@ import {
   buildCommandsEmbed, buildStorageGuideEmbed, referenceKeys, rememberGuideChannel,
 } from './guides.js';
 import { refreshPopulationPanel, setPopulationChannel } from './livepanel.js';
-import { mutationList, speciesList, suggest } from './catalog.js';
+import { knownSpecies, mutationList, speciesList, suggest } from './catalog.js';
 import { isRemoved, mutationChoices } from './mutations.js';
 import { setRestartAlertRole } from './alertrole.js';
 import { backfillEarlyRole, earlyRole, holders, setEarlyRole } from './earlymember.js';
@@ -2541,7 +2541,7 @@ async function handleSpecies(
     // A cap whose name the server never reports can never match a live count,
     // so it silently does nothing — usually a mis-typed one sitting next to the
     // real row. Flag it rather than listing it as though it worked.
-    const known = await speciesList(ctx);
+    const known = await knownSpecies(ctx);
     const real = new Set(known);
     const stale = known.length > 0 ? caps.filter((c) => !real.has(c.species)) : [];
 
@@ -2682,7 +2682,10 @@ async function handleSpecies(
   // only ever arrive under the server's spelling, so the mis-cased row could
   // never match a player and would never lock — a cap that silently does
   // nothing. Observed live: both spellings sitting in `/admin species list`.
-  const known = await speciesList(ctx);
+  // The roster, not the live menu: a species capped to zero is absent from the
+  // menu by design, so asking the menu whether it exists refuses to let anybody
+  // raise the cap that removed it.
+  const known = await knownSpecies(ctx);
   const species = known.find((s) => s.toLowerCase() === typed.toLowerCase());
 
   if (!species && known.length > 0) {
@@ -4249,8 +4252,14 @@ export async function handleAutocomplete(
   let choices: Array<{ name: string; value: string }>;
 
   if (focused.name === 'species') {
-    choices = suggest(await speciesList(ctx), focused.value)
-      .map((name) => ({ name, value: name }));
+    // Staff manage species that are deliberately absent from the live menu — a
+    // cap of zero removes one — so they get the remembered roster. Everybody
+    // else gets what can be spawned right now, since offering a buyer a locked
+    // species sells them something they could not then release.
+    const staff = i.commandName === 'admin' || i.commandName === 'setup';
+    const names = staff ? await knownSpecies(ctx) : await speciesList(ctx);
+
+    choices = suggest(names, focused.value).map((name) => ({ name, value: name }));
   } else if (focused.name === 'preset') {
     const typed = focused.value.trim().toLowerCase();
     const saved = new Set(ctx.db.presetNames());
