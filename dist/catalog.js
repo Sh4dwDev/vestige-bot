@@ -1,3 +1,4 @@
+import { TIERED_SPECIES } from './tiers.js';
 /**
  * What this server can actually spawn.
  *
@@ -62,7 +63,11 @@ export function suggest(options, typed) {
  */
 export async function knownSpecies(ctx) {
     const live = await speciesList(ctx);
-    ctx.db.rememberSpecies(live);
+    // Seeded from the tier table as well as the live menu. A species capped to
+    // zero vanishes from the menu, and if its cap row is later rewritten there is
+    // nothing left that remembers it - so the roster has to be fed by something a
+    // lockout cannot erase.
+    ctx.db.rememberSpecies([...live, ...TIERED_SPECIES]);
     const roster = ctx.db.knownSpecies();
     return roster.length > 0 ? roster : live;
 }

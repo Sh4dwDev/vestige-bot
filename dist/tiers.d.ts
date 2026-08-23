@@ -11,6 +11,16 @@ import type { Ctx } from './commands.js';
  */
 export declare const MAX_TIER = 4;
 export declare const TIER_LABEL: Record<number, string>;
+/**
+ * Every species this server knows by name, from the tier table.
+ *
+ * Used to seed the species roster. A species capped to zero disappears from the
+ * live spawn menu, and if its cap row is later rewritten away there is nothing
+ * left anywhere that remembers it existed - which strands it as unspawnable
+ * with no way to name it again. This list is curated and does not move, so it
+ * is the one source a lockout cannot erase.
+ */
+export declare const TIERED_SPECIES: string[];
 export declare function tierOf(ctx: Ctx, species: string): number;
 export declare function setTier(ctx: Ctx, species: string, tier: number): void;
 export declare function multiplierFor(ctx: Ctx, tier: number): number;

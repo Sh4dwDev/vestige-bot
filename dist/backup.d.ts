@@ -40,11 +40,6 @@ export declare function restoreSnapshot(ctx: Ctx, cfg: BackupConfig, takenAt: nu
 }>;
 export declare function lastBackup(ctx: Ctx): number;
 export declare function markBackup(ctx: Ctx, at: number): void;
-/**
- * Once a day, and once shortly after boot if the last one is stale.
- *
- * Deliberately not on a fixed clock time: the bot restarts often enough that a
- * midnight-only schedule would be missed whenever it happened to be down then,
- * and nobody would notice until the backup was needed.
- */
+export declare function backupEveryHours(ctx: Ctx): number;
+export declare function setBackupEveryHours(ctx: Ctx, hours: number): void;
 export declare function startBackupScheduler(ctx: Ctx, cfg: BackupConfig, log: (m: string) => void): void;

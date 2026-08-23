@@ -147,10 +147,28 @@ export function markBackup(ctx, at) {
  * midnight-only schedule would be missed whenever it happened to be down then,
  * and nobody would notice until the backup was needed.
  */
+/**
+ * How long between snapshots.
+ *
+ * Was a fixed day, which meant losing up to a day of links, points and
+ * purchases if the bot's host wiped its disk - and the host is the one thing
+ * here with no redundancy. Six hours costs three more writes a day and turns
+ * that into a bad afternoon rather than a bad week.
+ *
+ * Configurable, because the trade is real: at fourteen snapshots kept, six
+ * hours holds three and a half days of history where a day held two weeks.
+ */
+const DEFAULT_EVERY_HOURS = 6;
+export function backupEveryHours(ctx) {
+    const raw = Number.parseFloat(ctx.db.getSetting('backup_every_hours') ?? '');
+    return Number.isFinite(raw) && raw >= 1 ? raw : DEFAULT_EVERY_HOURS;
+}
+export function setBackupEveryHours(ctx, hours) {
+    ctx.db.setSetting('backup_every_hours', String(hours));
+}
 export function startBackupScheduler(ctx, cfg, log) {
-    const DAY = 24 * 3_600_000;
     const tick = async () => {
-        if (Date.now() - lastBackup(ctx) < DAY)
+        if (Date.now() - lastBackup(ctx) < backupEveryHours(ctx) * 3_600_000)
             return;
         try {
             const result = await runBackup(ctx, cfg);

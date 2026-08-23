@@ -52,6 +52,17 @@ export const TIER_LABEL: Record<number, string> = {
   4: 'Tier 4 · Apex',
 };
 
+/**
+ * Every species this server knows by name, from the tier table.
+ *
+ * Used to seed the species roster. A species capped to zero disappears from the
+ * live spawn menu, and if its cap row is later rewritten away there is nothing
+ * left anywhere that remembers it existed - which strands it as unspawnable
+ * with no way to name it again. This list is curated and does not move, so it
+ * is the one source a lockout cannot erase.
+ */
+export const TIERED_SPECIES: string[] = Object.keys(DEFAULT_TIERS);
+
 export function tierOf(ctx: Ctx, species: string): number {
   const stored = ctx.db.getSetting(`tier:${species}`);
   const parsed = Number.parseInt(stored ?? '', 10);
