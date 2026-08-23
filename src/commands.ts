@@ -432,13 +432,13 @@ export const commandData = [
           s.setName('dino').setDescription('Add a dinosaur to a player’s storage')
             .addUserOption((o) => o.setName('user').setDescription('Who gets it').setRequired(true))
             .addStringOption((o) =>
-              o.setName('species').setDescription('Start typing — the list comes from the server')
+              o.setName('species').setDescription('From the live server list')
                 .setAutocomplete(true).setRequired(true))
             .addIntegerOption((o) =>
               o.setName('growth').setDescription('Growth percent, default 100')
                 .setMinValue(5).setMaxValue(100))
             .addStringOption((o) =>
-              o.setName('gender').setDescription('Shown on the slot — the game decides the real one')
+              o.setName('gender').setDescription('Shown on the slot only')
                 .addChoices({ name: 'Male', value: 'male' }, { name: 'Female', value: 'female' }))
             .addStringOption((o) =>
               o.setName('mutation1').setDescription('Mutation').setAutocomplete(true))
@@ -449,7 +449,7 @@ export const commandData = [
             .addStringOption((o) =>
               o.setName('mutation4').setDescription('Mutation').setAutocomplete(true))
             .addStringOption((o) =>
-              o.setName('slot').setDescription('Slot name they will see (default: the species)'))),
+              o.setName('slot').setDescription('Slot name (default: the species)'))),
     )
     .addSubcommandGroup((g) =>
       g.setName('shop').setDescription('Shop prices and logging')
@@ -518,7 +518,7 @@ export const commandData = [
             .addStringOption((o) =>
               o.setName('colour4').setDescription('Its colour').setAutocomplete(true)))
         .addSubcommand((s) =>
-          s.setName('expiry').setDescription('How long a look survives without being worn')
+          s.setName('expiry').setDescription('How long a look survives unworn')
             .addIntegerOption((o) =>
               o.setName('hours').setDescription('Default 6')
                 .setMinValue(1).setMaxValue(720).setRequired(true)))
@@ -534,7 +534,7 @@ export const commandData = [
                 })))
                 .setRequired(true)))
         .addSubcommand((s) =>
-          s.setName('save').setDescription('Save a player’s current colours as a preset')
+          s.setName('save').setDescription('Save current colours as a preset')
             .addUserOption((o) => o.setName('user').setDescription('Whose look to save').setRequired(true))
             .addStringOption((o) => o.setName('name').setDescription('Preset name').setRequired(true)))
         .addSubcommand((s) =>
@@ -583,7 +583,7 @@ export const commandData = [
               o.setName('tier').setDescription('1 to 4')
                 .setMinValue(1).setMaxValue(4).setRequired(true)))
         .addSubcommand((s) =>
-          s.setName('multiplier').setDescription('How much a tier earns and its kills are worth')
+          s.setName('multiplier').setDescription('What a tier earns and is worth')
             .addIntegerOption((o) =>
               o.setName('tier').setDescription('1 to 4')
                 .setMinValue(1).setMaxValue(4).setRequired(true))
@@ -591,7 +591,7 @@ export const commandData = [
               o.setName('multiplier').setDescription('e.g. 2 for double')
                 .setMinValue(0).setMaxValue(20).setRequired(true)))
         .addSubcommand((s) =>
-          s.setName('killpoints').setDescription('Base points for a kill, before tier scaling')
+          s.setName('killpoints').setDescription('Base kill points, before tier')
             .addIntegerOption((o) =>
               o.setName('points').setDescription('Default 50')
                 .setMinValue(0).setMaxValue(100_000).setRequired(true)))
@@ -623,7 +623,7 @@ export const commandData = [
         .addSubcommand((c) => c.setName('on').setDescription('Post bounties automatically'))
         .addSubcommand((c) => c.setName('off').setDescription('Stop posting bounties'))
         .addSubcommand((c) =>
-          c.setName('reward').setDescription('Points per claim, before the tier multiplier')
+          c.setName('reward').setDescription('Points per claim, before tier')
             .addIntegerOption((o) =>
               o.setName('points').setDescription('Default 150')
                 .setMinValue(1).setMaxValue(10_000).setRequired(true)))
@@ -645,7 +645,7 @@ export const commandData = [
                 .setMinValue(1).setMaxValue(10)))
         .addSubcommand((c) =>
           c.setName('minplayers')
-            .setDescription('How busy the server must be for endangered to count')
+            .setDescription('Players needed for endangered to count')
             .addIntegerOption((o) =>
               o.setName('players').setDescription('Default 10')
                 .setMinValue(0).setMaxValue(100).setRequired(true)))
@@ -719,15 +719,15 @@ export const commandData = [
         .addSubcommand((s) => s.setName('list').setDescription('Show every cap and its state'))
         .addSubcommand((s) =>
           s.setName('preset')
-            .setDescription('Apply a balanced cap for every species, scaled to your slots'))
+            .setDescription('Balanced caps for every species, scaled to slots'))
         .addSubcommand((s) =>
           s.setName('enforce')
-            .setDescription('Actually block spawning a full species, not just announce it')
+            .setDescription('Actually block spawning a full species')
             .addBooleanOption((o) =>
               o.setName('on').setDescription('Remove full species from the spawn menu')
                 .setRequired(true)))
         .addSubcommand((s) =>
-          s.setName('tryout').setDescription('Spawn a hidden species yourself, without offering it')
+          s.setName('tryout').setDescription('Play a hidden species without offering it')
             .addStringOption((o) =>
               o.setName('species')
                 .setDescription('Exactly as the game names it')
@@ -736,7 +736,7 @@ export const commandData = [
           s.setName('unlock').setDescription('Put a species in the spawn menu by name')
             .addStringOption((o) =>
               o.setName('species')
-                .setDescription('Exactly as the game names it, e.g. Carnotaurus')
+                .setDescription('As the game names it')
                 .setRequired(true)))
         .addSubcommand((s) =>
           s.setName('channel').setDescription('Where locks and unlocks are announced')
@@ -786,7 +786,7 @@ export const commandData = [
         .addSubcommand((s) =>
           s.setName('status').setDescription('Show the restart schedule'))
         .addSubcommand((s) =>
-          s.setName('now').setDescription('Restart the server now — the fix for stuck AI')
+          s.setName('now').setDescription('Restart the server now')
             .addIntegerOption((o) =>
               o.setName('minutes').setDescription('Warning first. 0 restarts immediately')
                 .setMinValue(0).setMaxValue(30))),
@@ -831,7 +831,7 @@ export const commandData = [
                 )))
         .addSubcommand((c) =>
           c.setName('classes').setDescription(
-            'Write every nest class this build exposes to the mod log')))
+            'List nest classes to the mod log')))
     .addSubcommandGroup((g) =>
       g.setName('contest').setDescription('A place worth fighting over')
         .addSubcommand((c) =>
@@ -852,7 +852,7 @@ export const commandData = [
                 .setAutocomplete(true))
             .addBooleanOption((o) =>
               o.setName('shared').setDescription(
-                'Everybody on it wins together, instead of a fight. Default off')))
+                'Everybody on it wins together. Default off')))
         .addSubcommand((c) => c.setName('status').setDescription('How the current one is going'))
         .addSubcommand((c) => c.setName('stop').setDescription('Call it off, paying nobody'))
         .addSubcommand((c) =>
@@ -959,11 +959,11 @@ export const commandData = [
                 .setRequired(true)))
         .addSubcommand((c) =>
           c.setName('backfill')
-            .setDescription('Give the role to everyone who has already played enough'))
+            .setDescription('Give the role to everyone who qualifies'))
         .addSubcommand((c) =>
           c.setName('playtime').setDescription('How long they must play to earn the role')
             .addIntegerOption((o) =>
-              o.setName('minutes').setDescription('Default 60. 0 gives it to anyone linked')
+              o.setName('minutes').setDescription('Default 60. 0 means no requirement')
                 .setMinValue(0).setMaxValue(10_000).setRequired(true)))
         .addSubcommand((c) =>
           c.setName('panel').setDescription('Post the founder skin panel in a channel')
@@ -1061,14 +1061,14 @@ export const commandData = [
               o.setName('points').setDescription('Default 400')
                 .setMinValue(0).setMaxValue(100_000).setRequired(true)))
         .addSubcommand((c) =>
-          c.setName('radius').setDescription('How close a parent must be, in HUD units')
+          c.setName('radius').setDescription('How close a parent must be, in HUD')
             .addIntegerOption((o) =>
               o.setName('hud').setDescription('Default 20')
                 .setMinValue(1).setMaxValue(200).setRequired(true)))
         .addSubcommand((c) =>
-          c.setName('condition').setDescription('Which prime flag means "get nested in"')
+          c.setName('condition').setDescription('Which prime flag means nested in')
             .addIntegerOption((o) =>
-              o.setName('index').setDescription('Default 2. Change if it pays wrongly')
+              o.setName('index').setDescription('Default 2')
                 .setMinValue(1).setMaxValue(10).setRequired(true)))
         .addSubcommand((c) => c.setName('status').setDescription('How nesting is set up')),
     )
@@ -1081,7 +1081,7 @@ export const commandData = [
                 .addChannelTypes(ChannelType.GuildText).setRequired(true))
             .addChannelOption((o) =>
               o.setName('listings').setDescription(
-                'Where each listing is posted. Defaults to the same channel')
+                'Where listings go. Defaults to the panel channel')
                 .addChannelTypes(ChannelType.GuildText)))
         .addSubcommand((c) =>
           c.setName('listings').setDescription('Move listings to a channel of their own')
@@ -1091,7 +1091,7 @@ export const commandData = [
         .addSubcommand((c) => c.setName('off').setDescription('Close the market'))
         .addSubcommand((c) =>
           c.setName('refresh').setDescription(
-            'Repost any listing that lost its message, and redraw the rest'))
+            'Repost listings that lost their message'))
         .addSubcommand((c) =>
           c.setName('fee').setDescription("The server's cut of each sale")
             .addIntegerOption((o) =>
