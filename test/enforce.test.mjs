@@ -226,6 +226,44 @@ fs.rmSync(path.dirname(file), { recursive: true, force: true });
   fresh.close();
 }
 
+// ---- opening a database from the previous version --------------------------
+//
+// Broke live: known_species shipped without `origin`, and CREATE TABLE IF NOT
+// EXISTS does not alter a table that is already there - so every server that
+// had run the earlier build kept the old shape and every query naming the new
+// column failed. /admin species list went down with it.
+
+{
+  const { DatabaseSync } = await import('node:sqlite');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vesta-mig-'));
+  const file = path.join(dir, 'old.sqlite');
+
+  const old = new DatabaseSync(file);
+  old.exec('CREATE TABLE known_species (name TEXT PRIMARY KEY, first_seen TEXT NOT NULL)');
+  old.prepare('INSERT INTO known_species (name, first_seen) VALUES (?, ?)')
+    .run('Dryosaurus', new Date().toISOString());
+  old.close();
+
+  let opened = null;
+  try {
+    opened = new Database(file);
+  } catch {
+    opened = null;
+  }
+
+  check('a database from the previous version still opens', opened !== null);
+  check('and the rows in it survive',
+    opened !== null && opened.knownSpecies().includes('Dryosaurus'));
+  check('and the new column works afterwards',
+    opened !== null
+    && (opened.rememberSpecies(['Tyrannosaurus'], 'named'),
+      opened.knownSpecies().includes('Tyrannosaurus')
+      && !opened.offeredSpecies().includes('Tyrannosaurus')));
+
+  if (opened) opened.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
 process.exit(failed === 0 ? 0 : 1);

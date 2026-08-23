@@ -260,6 +260,15 @@ export class Database {
     // Added after player_skins shipped. CREATE TABLE IF NOT EXISTS will not
     // alter an existing table, so the column is added separately and the error
     // from it already being there is the expected case.
+    // Same trap, second time: known_species shipped without `origin`, so every
+    // server that ran the first version has the table already and never gets
+    // the new column from the schema. This broke /admin species list live.
+    try {
+      this.#db.exec("ALTER TABLE known_species ADD COLUMN origin TEXT NOT NULL DEFAULT 'seen'");
+    } catch {
+      // Already present.
+    }
+
     try {
       this.#db.exec('ALTER TABLE player_skins ADD COLUMN pattern INTEGER');
     } catch {
