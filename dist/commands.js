@@ -4,7 +4,7 @@ import { ARCHIVE_CAP, SERVER, SIGNATURE } from './brand.js';
 import { toPlainAscii } from './bridge.js';
 import { buildCommandsEmbed, buildStorageGuideEmbed, referenceKeys, rememberGuideChannel, } from './guides.js';
 import { refreshPopulationPanel, setPopulationChannel } from './livepanel.js';
-import { knownSpecies, mutationList, speciesList, suggest } from './catalog.js';
+import { knownSpecies, mutationList, parsePlayables, speciesList, suggest, } from './catalog.js';
 import { isRemoved, mutationChoices } from './mutations.js';
 import { setRestartAlertRole } from './alertrole.js';
 import { backfillEarlyRole, earlyRole, holders, setEarlyRole } from './earlymember.js';
@@ -330,6 +330,10 @@ export const commandData = [
         .setDescription('Actually block spawning a full species, not just announce it')
         .addBooleanOption((o) => o.setName('on').setDescription('Remove full species from the spawn menu')
         .setRequired(true)))
+        .addSubcommand((s) => s.setName('unlock').setDescription('Put a species in the spawn menu by name')
+        .addStringOption((o) => o.setName('species')
+        .setDescription('Exactly as the game names it, e.g. Carnotaurus')
+        .setRequired(true)))
         .addSubcommand((s) => s.setName('channel').setDescription('Where locks and unlocks are announced')
         .addChannelOption((o) => o.setName('channel').setDescription('Channel for lock notices')
         .addChannelTypes(ChannelType.GuildText).setRequired(true))))
@@ -358,6 +362,22 @@ export const commandData = [
         .addSubcommand((s) => s.setName('now').setDescription('Restart the server now — the fix for stuck AI')
         .addIntegerOption((o) => o.setName('minutes').setDescription('Warning first. 0 restarts immediately')
         .setMinValue(0).setMaxValue(30))))
+        .addSubcommandGroup((g) => g.setName('contest').setDescription('A place worth fighting over')
+        .addSubcommand((c) => c.setName('start').setDescription('Start one where you are standing')
+        .addIntegerOption((o) => o.setName('minutes').setDescription('How long it must be held. Default 5')
+        .setMinValue(1).setMaxValue(120))
+        .addIntegerOption((o) => o.setName('reward').setDescription('Points for the winner. Default 750')
+        .setMinValue(0).setMaxValue(100_000))
+        .addIntegerOption((o) => o.setName('radius').setDescription('How close counts, in HUD units. Default 30')
+        .setMinValue(5).setMaxValue(500))
+        .addStringOption((o) => o.setName('name').setDescription('What to call it'))
+        .addStringOption((o) => o.setName('skin').setDescription('A skin the winner also keeps')
+        .setAutocomplete(true)))
+        .addSubcommand((c) => c.setName('status').setDescription('How the current one is going'))
+        .addSubcommand((c) => c.setName('stop').setDescription('Call it off, paying nobody'))
+        .addSubcommand((c) => c.setName('channel').setDescription('Where results are posted')
+        .addChannelOption((o) => o.setName('channel').setDescription('Where it announces')
+        .addChannelTypes(ChannelType.GuildText).setRequired(true))))
         .addSubcommandGroup((g) => g.setName('killfeed').setDescription('Where kills are posted')
         .addSubcommand((s) => s.setName('channel').setDescription('Post each kill in a channel')
         .addChannelOption((o) => o.setName('channel').setDescription('Where kills go')
@@ -448,22 +468,6 @@ export const commandData = [
         .addSubcommand((c) => c.setName('recalibrate')
         .setDescription('Forget the learned map bounds and start again'))
         .addSubcommand((c) => c.setName('off').setDescription('Take the panel down')))
-        .addSubcommandGroup((g) => g.setName('contest').setDescription('A place worth fighting over')
-        .addSubcommand((c) => c.setName('start').setDescription('Start one where you are standing')
-        .addIntegerOption((o) => o.setName('minutes').setDescription('How long it must be held. Default 5')
-        .setMinValue(1).setMaxValue(120))
-        .addIntegerOption((o) => o.setName('reward').setDescription('Points for the winner. Default 750')
-        .setMinValue(0).setMaxValue(100_000))
-        .addIntegerOption((o) => o.setName('radius').setDescription('How close counts, in HUD units. Default 30')
-        .setMinValue(5).setMaxValue(500))
-        .addStringOption((o) => o.setName('name').setDescription('What to call it'))
-        .addStringOption((o) => o.setName('skin').setDescription('A skin the winner also keeps')
-        .setAutocomplete(true)))
-        .addSubcommand((c) => c.setName('status').setDescription('How the current one is going'))
-        .addSubcommand((c) => c.setName('stop').setDescription('Call it off, paying nobody'))
-        .addSubcommand((c) => c.setName('channel').setDescription('Where results are posted')
-        .addChannelOption((o) => o.setName('channel').setDescription('Where it announces')
-        .addChannelTypes(ChannelType.GuildText).setRequired(true))))
         .addSubcommandGroup((g) => g.setName('prime').setDescription('The raw prime condition flags')
         .addSubcommand((c) => c.setName('read').setDescription('Every flag for a player, with their vitals')
         .addUserOption((o) => o.setName('player').setDescription('Defaults to you'))))
@@ -1917,6 +1921,43 @@ async function handleSpecies(ctx, i, action) {
         return;
     }
     const typed = i.options.getString('species', true).trim();
+    if (action === 'unlock') {
+        const name = i.options.getString('species', true).trim();
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        // Typed, not picked. This is the one place a name is taken on trust: it
+        // exists to reach species the server has never listed, so validating it
+        // against the list would defeat the entire point.
+        try {
+            await ctx.rcon.addPlayable(name);
+        }
+        catch (err) {
+            await i.editReply({
+                embeds: [embed(COLORS.bad, 'The server refused it', `${describeError(err)}
+
+Most likely that is not a class this build ` +
+                        'has. The spelling must match the game exactly.')],
+            });
+            return;
+        }
+        // Read back rather than trusted: addplayable reports success for a name the
+        // game then quietly ignores, and a menu that did not change is the only
+        // honest evidence either way.
+        const listed = parsePlayables(await ctx.rcon.playables().catch(() => ''));
+        const there = listed.some((sp) => sp.toLowerCase() === name.toLowerCase());
+        if (there)
+            ctx.db.rememberSpecies([name]);
+        await i.editReply({
+            embeds: [embed(there ? COLORS.good : COLORS.warn, there ? 'In the spawn menu' : 'Accepted, but not in the menu', there
+                    ? `**${name}** is spawnable now. It survives a bot restart, and the ` +
+                        'cap system will treat it like any other species.\n\n' +
+                        'Unreleased species can be missing animations or crash on spawn — ' +
+                        'that is the game, not the bot.'
+                    : `The server took **${name}** without complaining, but it is not in ` +
+                        'the menu afterwards. That usually means the class does not exist ' +
+                        'in this build under that name.')],
+        });
+        return;
+    }
     if (action === 'clear') {
         // Case-insensitive, deliberately: the row being cleared is often a
         // mis-typed one, and refusing to remove it because the case is wrong is
