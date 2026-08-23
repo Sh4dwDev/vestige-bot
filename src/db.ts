@@ -170,6 +170,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS referrals_steam
 -- dinosaur hatches with are its own. So the only honest way to undo a skin is
 -- to have kept what was there first, captured the moment before the first
 -- paint and never overwritten after.
+-- Which skins a player owns.
+--
+-- A reward skin is a **preset somebody has been given**, rather than a second
+-- kind of thing: presets already carry colours and a pattern, and staff already
+-- have commands to make them. Owning is the only new idea.
+--
+-- Held against the Steam account, like points and storage, so it survives
+-- unlinking and relinking the way everything else a player earns does.
+CREATE TABLE IF NOT EXISTS owned_skins (
+  steam_id   TEXT NOT NULL,
+  preset     TEXT NOT NULL,
+  granted_at TEXT NOT NULL,
+  source     TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (steam_id, preset)
+);
+CREATE INDEX IF NOT EXISTS owned_skins_steam ON owned_skins (steam_id);
+
 CREATE TABLE IF NOT EXISTS skin_baseline (
   steam_id TEXT NOT NULL,
   species  TEXT NOT NULL,
@@ -452,6 +469,56 @@ export class Database {
           .prepare('DELETE FROM skin_baseline WHERE steam_id = ? AND species = ?')
           .run(steamId, species).changes,
     );
+  }
+
+  // ------------------------------------------------------------ owned skins --
+
+  /** Returns false when they already had it, so a grant can say so honestly. */
+  grantSkin(steamId: string, preset: string, source: string): boolean {
+    return Number(
+      this.#db
+        .prepare(
+          `INSERT INTO owned_skins (steam_id, preset, granted_at, source)
+           VALUES (?, ?, ?, ?) ON CONFLICT (steam_id, preset) DO NOTHING`,
+        )
+        .run(steamId, preset, new Date().toISOString(), source).changes,
+    ) > 0;
+  }
+
+  revokeSkin(steamId: string, preset: string): boolean {
+    return Number(
+      this.#db
+        .prepare('DELETE FROM owned_skins WHERE steam_id = ? AND preset = ?')
+        .run(steamId, preset).changes,
+    ) > 0;
+  }
+
+  ownsSkin(steamId: string, preset: string): boolean {
+    return this.#db
+      .prepare('SELECT 1 FROM owned_skins WHERE steam_id = ? AND preset = ?')
+      .get(steamId, preset) !== undefined;
+  }
+
+  ownedSkins(steamId: string): Array<{ preset: string; grantedAt: string; source: string }> {
+    return (this.#db
+      .prepare(
+        `SELECT preset, granted_at, source FROM owned_skins
+         WHERE steam_id = ? ORDER BY granted_at ASC`,
+      )
+      .all(steamId) as Array<Record<string, unknown>>)
+      .map((r) => ({
+        preset: String(r['preset']),
+        grantedAt: String(r['granted_at']),
+        source: String(r['source'] ?? ''),
+      }));
+  }
+
+  /** Everyone holding one, for staff to see who has what. */
+  skinOwners(preset: string): string[] {
+    return (this.#db
+      .prepare('SELECT steam_id FROM owned_skins WHERE preset = ? ORDER BY granted_at ASC')
+      .all(preset) as Array<Record<string, unknown>>)
+      .map((r) => String(r['steam_id']));
   }
 
   close(): void {

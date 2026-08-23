@@ -122,6 +122,11 @@ export function buildCommandsEmbed() {
             'It only ever targets **you**, and there is a wait between slays so it ' +
             'cannot be used to reroll your spawn.',
     }, {
+        name: '🎽  Your skins',
+        value: 'Skins you win at events are yours for good. The skins panel lets you '
+            + 'wear any of them, swap whenever you like, and reset back to your '
+            + 'dinosaur’s own colours without relogging.',
+    }, {
         name: '👑  `/prime`',
         value: 'What you still need before your dinosaur can go Prime, read off the '
             + 'one you are playing right now.\n'

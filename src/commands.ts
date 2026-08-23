@@ -141,6 +141,12 @@ import {
 } from './heatmap.js';
 import { applyCaps, planCaps, type PlannedCap } from './capplan.js';
 import { postPeak, REFRESH_MINUTES, setPeaksChannel } from './peaks.js';
+import {
+  buildWardrobePanel,
+  setWardrobeChannel,
+  WARDROBE_MESSAGE_KEY,
+  wardrobeRows,
+} from './wardrobe.js';
 import { buildPrimeDebugEmbed, buildPrimeEmbed } from './prime.js';
 import {
   buildReferralEmbed,
@@ -475,6 +481,26 @@ export const commandData = [
               o.setName('preset').setDescription('Saved preset')
                 .setAutocomplete(true).setRequired(true)))
         .addSubcommand((s) => s.setName('presets').setDescription('List saved presets'))
+        .addSubcommand((s) =>
+          s.setName('grant').setDescription('Give a player a skin they keep')
+            .addUserOption((o) =>
+              o.setName('player').setDescription('Who gets it').setRequired(true))
+            .addStringOption((o) =>
+              o.setName('preset').setDescription('Which saved preset')
+                .setAutocomplete(true).setRequired(true))
+            .addStringOption((o) =>
+              o.setName('reason').setDescription('Shown to them, e.g. "Winter event"')))
+        .addSubcommand((s) =>
+          s.setName('revoke').setDescription('Take a skin back off a player')
+            .addUserOption((o) =>
+              o.setName('player').setDescription('Who loses it').setRequired(true))
+            .addStringOption((o) =>
+              o.setName('preset').setDescription('Which one')
+                .setAutocomplete(true).setRequired(true)))
+        .addSubcommand((s) =>
+          s.setName('owned').setDescription('What a player owns')
+            .addUserOption((o) =>
+              o.setName('player').setDescription('Defaults to you')))
         .addSubcommand((s) =>
           s.setName('reset').setDescription('Stop keeping a player’s colours')
             .addUserOption((o) => o.setName('user').setDescription('Whose colours').setRequired(true)))
@@ -857,6 +883,15 @@ export const commandData = [
             .addIntegerOption((o) =>
               o.setName('weekly').setDescription('Most one person can be paid a week. 0 is no cap')
                 .setMinValue(0).setMaxValue(100))),
+    )
+    .addSubcommandGroup((g) =>
+      g.setName('wardrobe').setDescription('The panel where players wear their skins')
+        .addSubcommand((c) =>
+          c.setName('panel').setDescription('Put the skins panel in a channel')
+            .addChannelOption((o) =>
+              o.setName('channel').setDescription('Where it lives')
+                .addChannelTypes(ChannelType.GuildText).setRequired(true)))
+        .addSubcommand((c) => c.setName('off').setDescription('Take the panel down')),
     )
     .addSubcommandGroup((g) =>
       g.setName('peaks').setDescription('How busy the server has been')
@@ -2029,6 +2064,63 @@ async function handleSkin(
     return;
   }
 
+  if (action === 'grant' || action === 'revoke') {
+    const name = i.options.getString('preset', true).trim();
+    if (!ctx.db.preset(name)) {
+      await i.reply({
+        embeds: [embed(COLORS.warn, 'No such preset',
+          `There is no saved preset called **${name}**. ` +
+          '`/admin skin presets` lists them.')],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (action === 'grant') {
+      const reason = i.options.getString('reason')?.trim() ?? '';
+      const fresh = ctx.db.grantSkin(link.steamId, name, reason);
+      await i.reply({
+        embeds: [embed(fresh ? COLORS.good : COLORS.quiet,
+          fresh ? 'Skin granted' : 'They already had it',
+          fresh
+            ? `${user} owns **${name}** now, for good. It shows up on the skins ` +
+              'panel and they can wear it on anything.'
+            : `${user} already owns **${name}**. Nothing changed.`)],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const had = ctx.db.revokeSkin(link.steamId, name);
+    await i.reply({
+      embeds: [embed(had ? COLORS.good : COLORS.quiet,
+        had ? 'Skin taken back' : 'They did not own it',
+        had
+          ? `${user} no longer owns **${name}**.
+
+If they are wearing it right ` +
+            'now it stays on until they change or die - taking the entitlement ' +
+            'away does not repaint them.'
+          : `${user} does not own **${name}**.`)],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (action === 'owned') {
+    const owned = ctx.db.ownedSkins(link.steamId);
+    await i.reply({
+      embeds: [embed(COLORS.info, `Skins ${user} owns`,
+        owned.length === 0
+          ? 'None yet. `/admin skin grant` gives one.'
+          : owned.map((o) =>
+            `• **${o.preset}**${o.source ? ` — ${o.source}` : ''}` +
+            (ctx.db.preset(o.preset) ? '' : ' _(preset deleted)_')).join('\n'))],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
   if (action === 'reset') {
     await i.deferReply({ flags: MessageFlags.Ephemeral });
     const cleared = ctx.db.clearSkin(link.steamId);
@@ -2753,6 +2845,51 @@ async function handleReferrals(
     embeds: [buildReferralEmbed(ctx, ctx.db.referralCounts(), ctx.db.referralLeaderboard(5))],
     flags: MessageFlags.Ephemeral,
   });
+}
+
+
+// ------------------------------------------------------------- wardrobe --
+
+async function handleWardrobePanel(
+  ctx: Ctx,
+  i: ChatInputCommandInteraction,
+  action: string,
+): Promise<void> {
+  if (action === 'off') {
+    setWardrobeChannel(ctx, null);
+    await i.reply({
+      embeds: [embed(COLORS.good, 'Skins panel off',
+        'The message stays where it is; it just does nothing now. Skins people ' +
+        'own are untouched.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const channel = i.options.getChannel('channel', true);
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+  setWardrobeChannel(ctx, channel.id);
+
+  try {
+    await postOrEdit(ctx.db, i.client, channel.id, WARDROBE_MESSAGE_KEY,
+      [buildWardrobePanel()], wardrobeRows());
+    await i.editReply({
+      embeds: [embed(COLORS.good, 'Skins panel posted',
+        `It is in <#${channel.id}>.
+
+Players see only what they own. Grant ` +
+        'skins with `/admin skin grant`, which hands out a saved preset — so ' +
+        'build the look first with `/admin skin save`.')],
+    });
+  } catch (err) {
+    await i.editReply({
+      embeds: [embed(COLORS.bad, 'Could not post there',
+        `${describeError(err)}
+
+Check the bot can **View Channel**, ` +
+        '**Send Messages** and **Embed Links** there.')],
+    });
+  }
 }
 
 // ---------------------------------------------------------------- peaks --
@@ -3675,6 +3812,7 @@ async function handleAdmin(ctx: Ctx, i: ChatInputCommandInteraction): Promise<vo
   if (group === 'backup') return handleBackup(ctx, i, action);
   if (group === 'prime') return handlePrimeDebug(ctx, i);
   if (group === 'referrals') return handleReferrals(ctx, i, action);
+  if (group === 'wardrobe') return handleWardrobePanel(ctx, i, action);
   if (group === 'peaks') return handlePeaks(ctx, i, action);
   if (group === 'heatmap') return handleHeatmap(ctx, i, action);
 

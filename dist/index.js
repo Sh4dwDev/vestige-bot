@@ -30,6 +30,7 @@ import { speciesList } from './catalog.js';
 import { enforcementEnabled, restoreAllPlayables } from './enforce.js';
 import { refreshStatusPanel } from './status.js';
 import { handlePanelInteraction } from './panel.js';
+import { handleWardrobe } from './wardrobe.js';
 import { EvrimaRcon } from './rcon.js';
 const log = (message) => {
     console.log(`${new Date().toISOString()} ${message}`);
@@ -188,6 +189,9 @@ async function dispatch(ctx, interaction) {
             if (interaction.isModalSubmit() && await handleLinkModal(ctx, interaction))
                 return;
             if (interaction.isButton() && await handleFounderInteraction(ctx, interaction))
+                return;
+            if ((interaction.isButton() || interaction.isStringSelectMenu())
+                && await handleWardrobe(ctx, interaction))
                 return;
             if (await handleHubInteraction(ctx, interaction))
                 return;

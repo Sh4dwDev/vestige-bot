@@ -88,6 +88,17 @@ export declare class Database {
         pattern?: number;
     } | null;
     clearBaseline(steamId: string, species?: string): number;
+    /** Returns false when they already had it, so a grant can say so honestly. */
+    grantSkin(steamId: string, preset: string, source: string): boolean;
+    revokeSkin(steamId: string, preset: string): boolean;
+    ownsSkin(steamId: string, preset: string): boolean;
+    ownedSkins(steamId: string): Array<{
+        preset: string;
+        grantedAt: string;
+        source: string;
+    }>;
+    /** Everyone holding one, for staff to see who has what. */
+    skinOwners(preset: string): string[];
     close(): void;
     linkFor(discordId: string): Link | null;
     linkBySteam(steamId: string): Link | null;
