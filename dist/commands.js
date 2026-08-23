@@ -38,7 +38,7 @@ import { buildPrimeDebugEmbed, buildPrimeEmbed } from './prime.js';
 import { activeTryout, startTryout } from './tryout.js';
 import { activeHunt, buildHuntEmbed, huntAnnounce, huntChannel, saveHunt, setHuntChannel, } from './hunt.js';
 import { activeContest, buildContestEmbed, contestAnnounce, contestChannel, hud, inside, saveContest, setContestChannel, } from './contest.js';
-import { buildReferralEmbed, referralMinutes, referralReward, referralWeeklyCap, referralWelcome, setReferralAmounts, repairReferrals, setReferralsEnabled, } from './referrals.js';
+import { buildReferralEmbed, referralMinutes, referralReward, referralWeeklyCap, referralWelcome, setReferralAmounts, repairReferrals, setReferralExistingMinutes, setReferralsEnabled, } from './referrals.js';
 import { enforcementEnabled, enforcementFault, restoreAllPlayables, setEnforcement, syncPlayables, } from './enforce.js';
 import { handleInGame, handleModeration } from './moderation.js';
 import { buildFounderPanel, founderLimit, FOUNDER_MESSAGE_KEY, founderRows, setFounderChannel, setFounderLimit, skinById, } from './founders.js';
@@ -530,7 +530,9 @@ export const commandData = [
         .addIntegerOption((o) => o.setName('minutes').setDescription('Playtime before it pays. Default 60')
         .setMinValue(1).setMaxValue(10_000))
         .addIntegerOption((o) => o.setName('weekly').setDescription('Most one person can be paid a week. 0 is no cap')
-        .setMinValue(0).setMaxValue(100))))
+        .setMinValue(0).setMaxValue(100))
+        .addIntegerOption((o) => o.setName('existing').setDescription('Playtime that marks an old player. Default 120')
+        .setMinValue(0).setMaxValue(100_000))))
         .addSubcommandGroup((g) => g.setName('nesting').setDescription('Points for hatching a nest')
         .addSubcommand((c) => c.setName('on').setDescription('Pay parents for a hatched nest'))
         .addSubcommand((c) => c.setName('off').setDescription('Stop paying for nests'))
@@ -2484,9 +2486,12 @@ async function handleReferrals(ctx, i, action) {
         const welcome = i.options.getInteger('welcome');
         const minutes = i.options.getInteger('minutes');
         const weekly = i.options.getInteger('weekly');
-        if (reward === null && welcome === null && minutes === null && weekly === null) {
+        const existing = i.options.getInteger('existing');
+        if (reward === null && welcome === null && minutes === null && weekly === null
+            && existing === null) {
             await i.reply({
-                embeds: [embed(COLORS.warn, 'Nothing to change', 'Give at least one of `reward`, `welcome`, `minutes` or `weekly`.')],
+                embeds: [embed(COLORS.warn, 'Nothing to change', 'Give at least one of `reward`, `welcome`, `minutes`, `weekly` or '
+                        + '`existing`.')],
                 flags: MessageFlags.Ephemeral,
             });
             return;
@@ -2497,6 +2502,10 @@ async function handleReferrals(ctx, i, action) {
             ...(minutes !== null ? { minutes } : {}),
             ...(weekly !== null ? { weekly } : {}),
         });
+        // Only consulted for accounts with no first sighting on record, which is
+        // everybody who played here before that column existed.
+        if (existing !== null)
+            setReferralExistingMinutes(ctx, existing);
         await i.reply({
             embeds: [embed(COLORS.good, 'Referrals updated', `• Inviter gets **${display(referralReward(ctx)).toLocaleString()}**\n` +
                     `• Newcomer gets **${display(referralWelcome(ctx)).toLocaleString()}**\n` +

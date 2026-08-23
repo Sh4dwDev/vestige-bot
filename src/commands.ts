@@ -214,6 +214,7 @@ import {
   referralWelcome,
   setReferralAmounts,
   repairReferrals,
+  setReferralExistingMinutes,
   setReferralsEnabled,
 } from './referrals.js';
 import {
@@ -1067,7 +1068,10 @@ export const commandData = [
                 .setMinValue(1).setMaxValue(10_000))
             .addIntegerOption((o) =>
               o.setName('weekly').setDescription('Most one person can be paid a week. 0 is no cap')
-                .setMinValue(0).setMaxValue(100))),
+                .setMinValue(0).setMaxValue(100))
+            .addIntegerOption((o) =>
+              o.setName('existing').setDescription('Playtime that marks an old player. Default 120')
+                .setMinValue(0).setMaxValue(100_000))),
     )
     .addSubcommandGroup((g) =>
       g.setName('nesting').setDescription('Points for hatching a nest')
@@ -3532,11 +3536,14 @@ async function handleReferrals(
     const welcome = i.options.getInteger('welcome');
     const minutes = i.options.getInteger('minutes');
     const weekly = i.options.getInteger('weekly');
+    const existing = i.options.getInteger('existing');
 
-    if (reward === null && welcome === null && minutes === null && weekly === null) {
+    if (reward === null && welcome === null && minutes === null && weekly === null
+      && existing === null) {
       await i.reply({
         embeds: [embed(COLORS.warn, 'Nothing to change',
-          'Give at least one of `reward`, `welcome`, `minutes` or `weekly`.')],
+          'Give at least one of `reward`, `welcome`, `minutes`, `weekly` or '
+          + '`existing`.')],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -3548,6 +3555,10 @@ async function handleReferrals(
       ...(minutes !== null ? { minutes } : {}),
       ...(weekly !== null ? { weekly } : {}),
     });
+
+    // Only consulted for accounts with no first sighting on record, which is
+    // everybody who played here before that column existed.
+    if (existing !== null) setReferralExistingMinutes(ctx, existing);
 
     await i.reply({
       embeds: [embed(COLORS.good, 'Referrals updated',
