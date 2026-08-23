@@ -524,6 +524,50 @@ async function postListing(ctx, interaction, listing) {
     if (sent)
         ctx.db.setListingMessage(listing.id, sent.id);
 }
+/**
+ * Posts every open listing that has no message of its own, and redraws the rest.
+ *
+ * Each listing lives in its own message so it can carry its own Buy button and
+ * be struck through the moment it sells. That only happens at the moment of
+ * listing, though, so a listing made before the channel was set — or one whose
+ * message somebody deleted — would have nowhere to be bought from. This is the
+ * way back.
+ */
+export async function refreshMarket(ctx, client) {
+    const channelId = marketChannel(ctx);
+    if (!channelId)
+        return { posted: 0, redrawn: 0, missing: true };
+    const channel = await client.channels.fetch(channelId).catch(() => null);
+    if (!channel?.isTextBased() || !('send' in channel)) {
+        return { posted: 0, redrawn: 0, missing: true };
+    }
+    let posted = 0;
+    let redrawn = 0;
+    const fee = marketFee(ctx);
+    // Oldest first, so the channel reads in the order things were listed.
+    for (const listing of [...ctx.db.openListings(1000)].reverse()) {
+        const existing = listing.messageId
+            ? await channel.messages.fetch(listing.messageId).catch(() => null)
+            : null;
+        if (existing) {
+            await existing.edit({
+                embeds: [buildListingEmbed(listing, steamNameFor(ctx), fee)],
+                components: listingRows(listing),
+            }).catch(() => undefined);
+            redrawn += 1;
+            continue;
+        }
+        const sent = await channel.send({
+            embeds: [buildListingEmbed(listing, steamNameFor(ctx), fee)],
+            components: listingRows(listing),
+        }).catch(() => null);
+        if (sent) {
+            ctx.db.setListingMessage(listing.id, sent.id);
+            posted += 1;
+        }
+    }
+    return { posted, redrawn, missing: false };
+}
 /** Redraws a listing where it was posted, so a sold one stops offering a button. */
 async function refreshListing(ctx, client, listing) {
     if (!listing.messageId)

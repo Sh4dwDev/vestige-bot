@@ -1,4 +1,4 @@
-import { ActionRowBuilder, ButtonBuilder, EmbedBuilder, ModalBuilder, StringSelectMenuBuilder, type ButtonInteraction, type ModalSubmitInteraction, type StringSelectMenuInteraction } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, EmbedBuilder, ModalBuilder, StringSelectMenuBuilder, type ButtonInteraction, type Client, type ModalSubmitInteraction, type StringSelectMenuInteraction } from 'discord.js';
 import type { Ctx } from './commands.js';
 import type { Listing } from './db.js';
 /**
@@ -114,3 +114,17 @@ export declare function buildPriceModal(slot: string): ModalBuilder;
  * Returns true when the interaction was ours, so the router can move on.
  */
 export declare function handleMarket(ctx: Ctx, interaction: ButtonInteraction | StringSelectMenuInteraction | ModalSubmitInteraction): Promise<boolean>;
+/**
+ * Posts every open listing that has no message of its own, and redraws the rest.
+ *
+ * Each listing lives in its own message so it can carry its own Buy button and
+ * be struck through the moment it sells. That only happens at the moment of
+ * listing, though, so a listing made before the channel was set — or one whose
+ * message somebody deleted — would have nowhere to be bought from. This is the
+ * way back.
+ */
+export declare function refreshMarket(ctx: Ctx, client: Client): Promise<{
+    posted: number;
+    redrawn: number;
+    missing: boolean;
+}>;

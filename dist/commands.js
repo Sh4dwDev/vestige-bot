@@ -29,7 +29,7 @@ import { ANCHORS, boundsAreManual, buildHeatmapEmbed, effectiveBounds, HEATMAP_M
 import { applyCaps, planCaps } from './capplan.js';
 import { postPeak, REFRESH_MINUTES, setPeaksChannel } from './peaks.js';
 import { buildWardrobePanel, setWardrobeChannel, WARDROBE_MESSAGE_KEY, wardrobeRows, } from './wardrobe.js';
-import { buildMarketPanel, MARKET_MESSAGE_KEY, marketRows, setMarketChannel, setMarketFee, } from './market.js';
+import { buildMarketPanel, MARKET_MESSAGE_KEY, marketRows, refreshMarket, setMarketChannel, setMarketFee, } from './market.js';
 import { buildPrimeDebugEmbed, buildPrimeEmbed } from './prime.js';
 import { activeTryout, startTryout } from './tryout.js';
 import { activeHunt, buildHuntEmbed, huntAnnounce, huntChannel, saveHunt, setHuntChannel, } from './hunt.js';
@@ -518,6 +518,7 @@ export const commandData = [
         .addChannelOption((o) => o.setName('channel').setDescription('Where listings are posted')
         .addChannelTypes(ChannelType.GuildText).setRequired(true)))
         .addSubcommand((c) => c.setName('off').setDescription('Close the market'))
+        .addSubcommand((c) => c.setName('refresh').setDescription('Repost any listing that lost its message, and redraw the rest'))
         .addSubcommand((c) => c.setName('fee').setDescription("The server's cut of each sale")
         .addIntegerOption((o) => o.setName('percent').setDescription('0 takes nothing, which is the default')
         .setMinValue(0).setMaxValue(50).setRequired(true))))
@@ -2462,6 +2463,21 @@ async function handleReferrals(ctx, i, action) {
 }
 // --------------------------------------------------------------- market --
 async function handleMarketPanel(ctx, i, action) {
+    if (action === 'refresh') {
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        const done = await refreshMarket(ctx, i.client);
+        await i.editReply({
+            embeds: [done.missing
+                    ? embed(COLORS.warn, 'No market channel', 'Set one with `/admin market panel` first.')
+                    : embed(COLORS.good, 'Market redrawn', `**${done.posted}** listing${done.posted === 1 ? '' : 's'} reposted and `
+                        + `**${done.redrawn}** redrawn.`
+                        + (done.posted > 0
+                            ? '\n\nEach one has its own message, so it carries its own Buy button '
+                                + 'and can be struck through the moment it sells.'
+                            : ''))],
+        });
+        return;
+    }
     if (action === 'fee') {
         const percent = i.options.getInteger('percent', true);
         setMarketFee(ctx, percent);
