@@ -29,6 +29,7 @@ import { ANCHORS, boundsAreManual, buildHeatmapEmbed, effectiveBounds, HEATMAP_M
 import { applyCaps, planCaps } from './capplan.js';
 import { postPeak, REFRESH_MINUTES, setPeaksChannel } from './peaks.js';
 import { buildWardrobePanel, setWardrobeChannel, WARDROBE_MESSAGE_KEY, wardrobeRows, } from './wardrobe.js';
+import { describeOptions, setAuditChannel, writeAudit, } from './auditlog.js';
 import { MAX_PARENTS, nestingSettings, setNestingCondition, setNestingEnabled, setNestingPoints, setNestingRadius, } from './nesting.js';
 import { buildMarketPanel, MARKET_MESSAGE_KEY, marketRows, refreshMarket, setListingsChannel, setMarketChannel, setMarketFee, } from './market.js';
 import { buildPrimeDebugEmbed, buildPrimeEmbed } from './prime.js';
@@ -146,7 +147,11 @@ export const commandData = [
         .addUserOption((o) => o.setName('user').setDescription('Discord member').setRequired(true)))
         .addSubcommand((s) => s.setName('remove').setDescription('Stop someone using /admin')
         .addUserOption((o) => o.setName('user').setDescription('Discord member').setRequired(true)))
-        .addSubcommand((s) => s.setName('list').setDescription('Show bot admins')))
+        .addSubcommand((s) => s.setName('list').setDescription('Show bot admins'))
+        .addSubcommand((s) => s.setName('log').setDescription('Where staff actions are recorded')
+        .addChannelOption((o) => o.setName('channel').setDescription('Leave empty to stop logging')
+        .addChannelTypes(ChannelType.GuildText)))
+        .addSubcommand((s) => s.setName('logoff').setDescription('Stop recording staff actions')))
         .addSubcommandGroup((g) => g.setName('population').setDescription('The self-updating population panel')
         .addSubcommand((s) => s.setName('channel').setDescription('Put the live population panel in a channel')
         .addChannelOption((o) => o.setName('channel').setDescription('Where it should live')
@@ -3346,14 +3351,51 @@ function mayAdminister(ctx, i) {
         return true;
     return ctx.db.isBotAdmin(i.user.id);
 }
+/**
+ * Every staff command, logged.
+ *
+ * Wrapped around the dispatcher rather than sprinkled through the handlers:
+ * this is the one place all of them pass through, so a group added later
+ * cannot quietly escape the log. Refusals are recorded too — somebody without
+ * permission reaching for `/admin give` is the most interesting line it will
+ * ever write.
+ */
 async function handleAdmin(ctx, i) {
+    const command = i.commandName;
+    const group = i.options.getSubcommandGroup(false) ?? undefined;
+    const action = i.options.getSubcommand(false) ?? undefined;
+    const options = describeOptions(i);
+    const record = (outcome, detail) => {
+        void writeAudit(ctx, i.client, {
+            userId: i.user.id,
+            command,
+            ...(group ? { group } : {}),
+            ...(action ? { action } : {}),
+            options,
+            outcome,
+            ...(detail ? { detail } : {}),
+        });
+    };
     if (!mayAdminister(ctx, i)) {
+        record('denied');
         await i.reply({
             embeds: [embed(COLORS.bad, 'Not allowed', 'You need **Manage Server**, or an entry on the bot admin list.')],
             flags: MessageFlags.Ephemeral,
         });
         return;
     }
+    try {
+        await runAdmin(ctx, i);
+    }
+    catch (err) {
+        // Logged and rethrown: the caller still owns telling the user, and an
+        // audit trail that omits the actions that went wrong is worse than none.
+        record('failed', describeError(err));
+        throw err;
+    }
+    record('ok');
+}
+async function runAdmin(ctx, i) {
     const group = i.options.getSubcommandGroup(true);
     const action = i.options.getSubcommand(true);
     if (group === 'bot')
@@ -3715,6 +3757,36 @@ async function handlePopulationPanel(ctx, i, action) {
     }
 }
 async function handleBotAdmin(ctx, i, action) {
+    if (action === 'log') {
+        const channel = i.options.getChannel('channel');
+        if (!channel) {
+            await i.reply({
+                embeds: [embed(COLORS.warn, 'Pick a channel', 'Give it a channel, or use `/admin bot logoff` to stop logging.')],
+                flags: MessageFlags.Ephemeral,
+            });
+            return;
+        }
+        setAuditChannel(ctx, channel.id);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Staff log on', `Every \`/admin\` and \`/setup\` command now goes to <#${channel.id}> — who ran `
+                    + 'it, what they typed, and whether it worked. Refusals are logged too.\n\n'
+                    + '⚠️ It cannot see actions taken with the **game\'s own admin panel**. '
+                    + 'Those never reach the bot, and reading them would mean hooking the '
+                    + 'engine from Lua, which has taken this server down before.\n\n'
+                    + 'Make it a channel staff cannot delete from, or the log is only as '
+                    + 'trustworthy as the person being logged.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'logoff') {
+        setAuditChannel(ctx, null);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Staff log off', 'Staff actions are no longer recorded. What was written stays where it is.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
     if (action === 'list') {
         const ids = ctx.db.botAdmins();
         await i.reply({
