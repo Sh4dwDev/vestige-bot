@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.36.0"
+local MOD_VERSION = "3.37.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1307,23 +1307,63 @@ local NEST_CLASSES = {
     "BP_Nest_Tree_H_C",
 }
 
--- The class path is not documented, and StaticFindObject wants one. Rather than
--- invent a folder, each candidate shape is tried and the one that resolves is
--- remembered -- the failures cost a nil and nothing else.
+-- Resolving the class is the whole difficulty. The content path is not
+-- documented and guessing folders found nothing on this build, so the guesses
+-- are now the *last* resort behind two lookups that do not need a path:
+--
+--   1. FindObject by short name. A blueprint class is a BlueprintGeneratedClass
+--      object, so it can be found by name alone once it is loaded.
+--   2. The class of a nest that already exists in the world. Costs nothing when
+--      there is one and is the only thing that works when the class is loaded
+--      under a name we did not predict.
+--
+-- Every attempt is logged. The previous version failed silently as "no known
+-- path", which said nothing about which of the four it tried or why.
 local nestClassCache = {}
+
+local function classOfExisting(name)
+    local found
+    pcall(function() found = FindFirstOf(name) end)
+    if found == nil then return nil end
+
+    local cls
+    pcall(function() cls = found:GetClass() end)
+    -- The instance pointer is dropped here deliberately; only the class is
+    -- kept, and a class object is not the per-tick hazard a pawn is.
+    return cls
+end
 
 local function findNestClass(name)
     if nestClassCache[name] ~= nil then return nestClassCache[name] end
 
+    local short = name:gsub("_C$", "")
+
+    local cls
+    pcall(function() cls = FindObject("BlueprintGeneratedClass", name) end)
+    if cls ~= nil then
+        log("nest: resolved " .. name .. " by short name")
+        nestClassCache[name] = cls
+        return cls
+    end
+
+    cls = classOfExisting(name)
+    if cls ~= nil then
+        log("nest: resolved " .. name .. " from one already in the world")
+        nestClassCache[name] = cls
+        return cls
+    end
+
     local candidates = {
         name,
         "/Script/Engine.Class'" .. name .. "'",
-        "/Game/Blueprints/Nests/" .. name:gsub("_C$", "") .. "." .. name,
-        "/Game/Blueprints/World/Nests/" .. name:gsub("_C$", "") .. "." .. name,
+        "/Game/Blueprints/Nests/" .. short .. "." .. name,
+        "/Game/Blueprints/World/Nests/" .. short .. "." .. name,
+        "/Game/Blueprints/Structures/Nests/" .. short .. "." .. name,
+        "/Game/TheIsle/Blueprints/Nests/" .. short .. "." .. name,
+        "/Game/TheIsle/Blueprints/World/Nests/" .. short .. "." .. name,
     }
 
     for _, path in ipairs(candidates) do
-        local cls
         pcall(function() cls = StaticFindObject(path) end)
         if cls ~= nil then
             log("nest: resolved " .. name .. " via " .. path)
@@ -1332,12 +1372,42 @@ local function findNestClass(name)
         end
     end
 
-    log("nest: could not resolve " .. name .. " by any known path")
+    log("nest: could not resolve " .. name .. " -- short name, live instance and "
+        .. tostring(#candidates) .. " paths all found nothing")
     return nil
+end
+
+-- Diagnostic. Names every loaded blueprint class with "Nest" in it, so the real
+-- path can be read off the log instead of guessed at. Capped: this walks a big
+-- object table and the point is a list to read, not a dump.
+local function logNestClasses()
+    local seen, shown = {}, 0
+    local ok = pcall(function()
+        for _, obj in ipairs(FindAllOf("BlueprintGeneratedClass") or {}) do
+            if shown >= 40 then break end
+            local full
+            pcall(function() full = obj:GetFullName() end)
+            if full ~= nil and string.find(full, "Nest") ~= nil and not seen[full] then
+                seen[full] = true
+                shown = shown + 1
+                log("nest class: " .. full)
+            end
+        end
+    end)
+    if not ok then log("nest: could not enumerate blueprint classes on this build") end
+    log(string.format("nest: %d nest-like classes listed", shown))
+    return shown
 end
 
 local function handleNest(cmd)
     local which = tostring(cmd.args.class or NEST_CLASSES[1])
+
+    if which == "list" then
+        local shown = logNestClasses()
+        writeResult(cmd.id, "nest", cmd.steam, true,
+            string.format("%d nest-like classes written to the mod log", shown))
+        return
+    end
 
     local allowed = false
     for _, n in ipairs(NEST_CLASSES) do if n == which then allowed = true end end
@@ -1365,8 +1435,12 @@ local function handleNest(cmd)
 
     local cls = findNestClass(which)
     if cls == nil then
+        -- Listed here so the next attempt has something to go on, rather than
+        -- the same dead end reported twice.
+        logNestClasses()
         writeResult(cmd.id, "nest", cmd.steam, false,
-            "this build does not expose " .. which .. " by any path tried")
+            "this build does not expose " .. which
+            .. " -- the mod log now lists every nest class it can see")
         return
     end
 

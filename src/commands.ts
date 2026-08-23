@@ -785,6 +785,21 @@ export const commandData = [
                 .addChannelTypes(ChannelType.GuildText).setRequired(true))),
     )
     .addSubcommandGroup((g) =>
+      g.setName('nest').setDescription('Put a nest in the world')
+        .addSubcommand((c) =>
+          c.setName('place').setDescription('Spawn one where you are standing')
+            .addStringOption((o) =>
+              o.setName('type').setDescription('Which nest. Default a large mound')
+                .addChoices(
+                  { name: 'Mound (large)', value: 'BP_Nest_Mound_Large_H_C' },
+                  { name: 'Mound (small)', value: 'BP_Nest_Mound_Small_H_C' },
+                  { name: 'Burrow', value: 'BP_Nest_Burrow_H_C' },
+                  { name: 'Tree', value: 'BP_Nest_Tree_H_C' },
+                )))
+        .addSubcommand((c) =>
+          c.setName('classes').setDescription(
+            'Write every nest class this build exposes to the mod log')))
+    .addSubcommandGroup((g) =>
       g.setName('contest').setDescription('A place worth fighting over')
         .addSubcommand((c) =>
           c.setName('start').setDescription('Start one where you are standing')
@@ -3281,6 +3296,67 @@ async function handleContest(
   });
 }
 
+// ----------------------------------------------------------------- nest --
+
+/**
+ * Nests are ordinary world actors with their mesh baked into the blueprint, so
+ * unlike AI they are safe to spawn — see the long note in the mod. Nothing here
+ * removes one: destroying an actor from Lua crashes the server even when the
+ * pointer looks live, so the world cleans them up on its own schedule.
+ */
+async function handleNest(
+  ctx: Ctx,
+  i: ChatInputCommandInteraction,
+  action: string,
+): Promise<void> {
+  const link = ctx.db.linkFor(i.user.id);
+  if (!link) {
+    await i.reply({
+      embeds: [embed(COLORS.warn, 'Link your account first',
+        'The nest goes where you are standing, so the bot needs to know which '
+        + 'character is yours.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+
+  // The class path is not documented and differs between builds. This asks the
+  // mod to write what it can actually see, which beats another round of guesses.
+  if (action === 'classes') {
+    const listed = await ctx.mod.run('nest', link.steamId, { class: 'list' })
+      .catch((err: unknown) => ({ ok: false, msg: String(err) }));
+    await i.editReply({
+      embeds: [embed(listed.ok ? COLORS.good : COLORS.bad,
+        listed.ok ? 'Written to the mod log' : 'Could not list them',
+        `${listed.msg}\n\nRead them with \`pnpm log\` — lines starting `
+        + '`nest class:`.')],
+    });
+    return;
+  }
+
+  const type = i.options.getString('type') ?? 'BP_Nest_Mound_Large_H_C';
+
+  const result = await ctx.mod.run('nest', link.steamId, { class: type })
+    .catch((err: unknown) => ({ ok: false, msg: String(err) }));
+
+  if (!result.ok) {
+    await i.editReply({
+      embeds: [embed(COLORS.bad, 'No nest', result.msg)],
+    });
+    return;
+  }
+
+  await i.editReply({
+    embeds: [embed(COLORS.good, 'Nest placed',
+      `A **${type.replace(/^BP_Nest_|_H_C$/g, '').replace(/_/g, ' ')}** is now `
+      + 'where you were standing.\n\n'
+      + 'It cannot be removed from here — destroying an actor from the mod '
+      + 'crashes the server, so the world clears it up in its own time.')],
+  });
+}
+
 // ------------------------------------------------------------ referrals --
 
 async function handleReferrals(
@@ -4324,6 +4400,7 @@ async function handleAdmin(ctx: Ctx, i: ChatInputCommandInteraction): Promise<vo
   if (group === 'backup') return handleBackup(ctx, i, action);
   if (group === 'hunt') return handleHunt(ctx, i, action);
   if (group === 'contest') return handleContest(ctx, i, action);
+  if (group === 'nest') return handleNest(ctx, i, action);
   if (group === 'prime') return handlePrimeDebug(ctx, i);
   if (group === 'referrals') return handleReferrals(ctx, i, action);
   if (group === 'wardrobe') return handleWardrobePanel(ctx, i, action);
