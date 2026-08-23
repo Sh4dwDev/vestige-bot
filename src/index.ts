@@ -56,6 +56,7 @@ import { refreshStatusPanel } from './status.js';
 import { handlePanelInteraction } from './panel.js';
 import { handleMarket } from './market.js';
 import { runNesting } from './nesting.js';
+import { runGameLog } from './gamelog.js';
 import { handleWardrobe } from './wardrobe.js';
 import { advanceTryout } from './tryout.js';
 import {
@@ -760,6 +761,9 @@ function startServerPoll(ctx: Ctx, client: Client<true>): void {
         // Cheap: reads prime flags only for a player small enough to have just
         // hatched and not already asked about, which is normally nobody.
         await runNesting(ctx, live, log);
+        // The game's own log, forwarded to the staff channel. Reads only the
+        // bytes that appeared since last time.
+        await runGameLog(ctx, client, log);
         // After awardOnline, so the minute just played counts towards the hour.
         await awardEarlyMembers(ctx, client, live, log);
       } catch (err) {

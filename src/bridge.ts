@@ -378,6 +378,55 @@ export class ModBridge {
     return result.data as PrimeState;
   }
 
+  /**
+   * Reads the part of a file that has appeared since `from`.
+   *
+   * For tailing the game's own log, which is megabytes by the end of a session
+   * — fetching the whole thing every poll would move a gigabyte an hour to
+   * read a handful of new lines. `start` on the read stream means only the new
+   * bytes cross the wire.
+   *
+   * A file that has shrunk was rotated, which the server does on restart. That
+   * is reported rather than guessed at, so the caller can start again from the
+   * beginning instead of seeking past the end of a fresh file.
+   */
+  async tailFile(
+    remotePath: string,
+    from: number,
+  ): Promise<{ text: string; at: number; rotated: boolean } | null> {
+    try {
+      return await this.#withClient(async (client) => {
+        const stat = await client.stat(remotePath).catch(() => null);
+        if (!stat) return null;
+
+        const size = stat.size;
+        if (size === from) return { text: '', at: size, rotated: false };
+
+        const rotated = size < from;
+        const start = rotated ? 0 : from;
+
+        // createReadStream rather than get: ssh2 supports a byte range on the
+        // stream, and the wrapper's own types do not expose one on get.
+        const chunks: Buffer[] = [];
+        await new Promise<void>((resolve, reject) => {
+          const stream = client.createReadStream(remotePath, {
+            start, end: Math.max(start, size - 1),
+          } as Parameters<typeof client.createReadStream>[1]);
+          stream.on('data', (chunk: Buffer | string) => {
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+          });
+          stream.on('end', resolve);
+          stream.on('error', reject);
+        });
+
+        return { text: Buffer.concat(chunks).toString('utf8'), at: size, rotated };
+      });
+    } catch {
+      // Unreachable or gone. A log tail is never worth failing a poll over.
+      return null;
+    }
+  }
+
   async close(): Promise<void> {
     const client = this.#client;
     this.#client = null;

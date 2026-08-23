@@ -29,6 +29,7 @@ import { ANCHORS, boundsAreManual, buildHeatmapEmbed, effectiveBounds, HEATMAP_M
 import { applyCaps, planCaps } from './capplan.js';
 import { postPeak, REFRESH_MINUTES, setPeaksChannel } from './peaks.js';
 import { buildWardrobePanel, setWardrobeChannel, WARDROBE_MESSAGE_KEY, wardrobeRows, } from './wardrobe.js';
+import { setGameLogEnabled, skipToEnd } from './gamelog.js';
 import { describeOptions, setAuditChannel, writeAudit, } from './auditlog.js';
 import { MAX_PARENTS, nestingSettings, setNestingCondition, setNestingEnabled, setNestingPoints, setNestingRadius, } from './nesting.js';
 import { buildMarketPanel, MARKET_MESSAGE_KEY, marketRows, refreshMarket, setListingsChannel, setMarketChannel, setMarketFee, } from './market.js';
@@ -151,7 +152,9 @@ export const commandData = [
         .addSubcommand((s) => s.setName('log').setDescription('Where staff actions are recorded')
         .addChannelOption((o) => o.setName('channel').setDescription('Leave empty to stop logging')
         .addChannelTypes(ChannelType.GuildText)))
-        .addSubcommand((s) => s.setName('logoff').setDescription('Stop recording staff actions')))
+        .addSubcommand((s) => s.setName('logoff').setDescription('Stop recording staff actions'))
+        .addSubcommand((s) => s.setName('gamelog').setDescription('Also forward the game own command log')
+        .addBooleanOption((o) => o.setName('on').setDescription('Needs a log channel set').setRequired(true))))
         .addSubcommandGroup((g) => g.setName('population').setDescription('The self-updating population panel')
         .addSubcommand((s) => s.setName('channel').setDescription('Put the live population panel in a channel')
         .addChannelOption((o) => o.setName('channel').setDescription('Where it should live')
@@ -3776,6 +3779,25 @@ async function handleBotAdmin(ctx, i, action) {
                     + 'Make it a channel staff cannot delete from, or the log is only as '
                     + 'trustworthy as the person being logged.')],
             flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'gamelog') {
+        const on = i.options.getBoolean('on', true);
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        setGameLogEnabled(ctx, on);
+        // Otherwise the first pass forwards a whole session at once.
+        if (on)
+            await skipToEnd(ctx);
+        await i.editReply({
+            embeds: [embed(COLORS.good, on ? 'Game log forwarding on' : 'Game log forwarding off', on
+                    ? 'Commands the game itself records now go to the staff channel as '
+                        + 'well, read straight from its log file.\n\n'
+                        + 'This is read-only and cannot affect the server — the alternative '
+                        + 'was hooking the engine, which has crashed it before.\n\n'
+                        + 'The player-list poll is filtered out; it fires every minute and '
+                        + 'would bury everything else.'
+                    : 'Only bot commands are recorded now.')],
         });
         return;
     }

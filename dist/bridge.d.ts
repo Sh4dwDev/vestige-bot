@@ -139,5 +139,22 @@ export declare class ModBridge {
      * one thing in game and seeing which flag moves.
      */
     prime(steamId: string): Promise<PrimeState>;
+    /**
+     * Reads the part of a file that has appeared since `from`.
+     *
+     * For tailing the game's own log, which is megabytes by the end of a session
+     * — fetching the whole thing every poll would move a gigabyte an hour to
+     * read a handful of new lines. `start` on the read stream means only the new
+     * bytes cross the wire.
+     *
+     * A file that has shrunk was rotated, which the server does on restart. That
+     * is reported rather than guessed at, so the caller can start again from the
+     * beginning instead of seeking past the end of a fresh file.
+     */
+    tailFile(remotePath: string, from: number): Promise<{
+        text: string;
+        at: number;
+        rotated: boolean;
+    } | null>;
     close(): Promise<void>;
 }
