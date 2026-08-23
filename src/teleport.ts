@@ -114,9 +114,13 @@ export async function runAccepted(
     // No anchor means no movement check; the travel still goes ahead.
   }
 
-  // The on-screen notice stays up for the whole countdown, which is the point:
-  // "hold still for 45s" is useless if it vanishes after one.
-  await tell(ctx, request.fromSteam, `Travelling in ${wait}s — hold still`);
+  // Persistent on purpose, and one of the few things that earns it: a
+  // countdown you have to hold still through is useless as a banner that
+  // vanishes after a second. It costs the prime checklist for the duration,
+  // which is a fair trade for thirty seconds of "do not move".
+  await tell(ctx, request.fromSteam, `Travelling in ${wait}s - hold still`, { persist: true });
+
+  // The other end has nothing to do but wait, so a banner is enough.
   await tell(ctx, request.toSteam, 'Your friend is on the way');
 
   await new Promise((resolve) => setTimeout(resolve, wait * 1000));
