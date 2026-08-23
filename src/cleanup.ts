@@ -216,15 +216,15 @@ export function startCleanupScheduler(ctx: Ctx, log: (m: string) => void): void 
     if (dueWarnings.length > 0) {
       const at = Math.max(...dueWarnings);
       for (const w of dueWarnings) warned.add(w);
-      const warning = cleanupWarning(at);
-      await ctx.rcon.announce(warning).catch(() => undefined);
-
-      // On screen as well as in chat, and persistently: a cleanup warning is
-      // exactly the case the prime widget is worth taking. Chat scrolls, and
-      // somebody mid-meal on a body about to vanish needs it in front of them.
-      const told = await tellEveryone(ctx, toPlainAscii(warning), { persist: true })
+      // On screen only, and persistently: a cleanup warning is exactly the case
+      // the prime widget is worth taking, and somebody mid-meal on a body about
+      // to vanish needs it in front of them rather than scrolling past in chat.
+      //
+      // Deliberately not also announced in chat. Both meant the same warning
+      // twice, and the chat copy was the one nobody read.
+      const told = await tellEveryone(ctx, toPlainAscii(cleanupWarning(at)), { persist: true })
         .catch(() => 0);
-      if (told > 0) log(`cleanup: warned ${told} player(s) on screen`);
+      log(`cleanup: warned ${told} player(s) on screen`);
     }
 
     if (!swept && isDue(now, due)) {
