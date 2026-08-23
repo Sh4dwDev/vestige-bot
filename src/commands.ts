@@ -34,7 +34,9 @@ import {
 } from './catalog.js';
 import { isRemoved, mutationChoices } from './mutations.js';
 import { setRestartAlertRole } from './alertrole.js';
-import { backfillEarlyRole, earlyRole, holders, setEarlyRole } from './earlymember.js';
+import {
+  backfillEarlyRole, earlyMinutes, earlyRole, holders, setEarlyMinutes, setEarlyRole,
+} from './earlymember.js';
 import { setJoinRole } from './joinrole.js';
 import {
   buildCatalogue,
@@ -936,7 +938,12 @@ export const commandData = [
                 .setRequired(true)))
         .addSubcommand((c) =>
           c.setName('backfill')
-            .setDescription('Give the role to existing members, oldest first'))
+            .setDescription('Give the role to everyone who has already played enough'))
+        .addSubcommand((c) =>
+          c.setName('playtime').setDescription('How long they must play to earn the role')
+            .addIntegerOption((o) =>
+              o.setName('minutes').setDescription('Default 60. 0 gives it to anyone linked')
+                .setMinValue(0).setMaxValue(10_000).setRequired(true)))
         .addSubcommand((c) =>
           c.setName('panel').setDescription('Post the founder skin panel in a channel')
             .addChannelOption((o) =>
@@ -4245,9 +4252,29 @@ async function handleFounders(
       embeds: [embed(COLORS.good, 'Backfill done',
         `**${result.given}** given the role, **${result.already}** already had it.` +
         (result.skipped > 0 ? ` **${result.skipped}** could not be given it.` : '') +
-        '\n\nOldest members first — that is the only ordering that matches what ' +
-        '"early member" claims to mean.' +
+        (result.unqualified > 0
+          ? ` **${result.unqualified}** have not played **${earlyMinutes(ctx)} minutes** yet.`
+          : '') +
+        '\n\nMost played first, and nobody who already had it lost it. From now ' +
+        'on the role is given the moment somebody reaches the time while ' +
+        'playing, so the remaining seats go first-come-first-served.' +
         (result.full ? `\n\n⚠️ The cap of **${founderLimit(ctx)}** is now full.` : ''))],
+    });
+    return;
+  }
+
+  if (action === 'playtime') {
+    const minutes = i.options.getInteger('minutes', true);
+    setEarlyMinutes(ctx, minutes);
+    await i.reply({
+      embeds: [embed(COLORS.good, 'Playtime set',
+        minutes > 0
+          ? `Early Member now takes **${minutes} minutes** on the server.\n\n` +
+            'Counted from the same playtime the points system already tracks, so ' +
+            'there is no second clock to disagree with the first. Nobody who ' +
+            'already has the role loses it.'
+          : 'Early Member is now given to anyone linked, with no playtime needed.')],
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }

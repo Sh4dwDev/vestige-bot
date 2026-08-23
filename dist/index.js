@@ -14,7 +14,7 @@ import { handleHubInteraction } from './hub.js';
 import { buildKillEmbed, killfeedChannel } from './kills.js';
 import { awardOnline, payLinkBonus } from './points.js';
 import { giveJoinRole } from './joinrole.js';
-import { grantEarlyRole } from './earlymember.js';
+import { earlyMinutes, earlyRole, grantEarlyRole, holders, } from './earlymember.js';
 import { founderLimit } from './founders.js';
 import { cacheInvites, collectPayouts, noteJoin, noteLink, tellInviter, } from './referrals.js';
 import { skinNeedsReapply } from './skinsync.js';
@@ -136,8 +136,9 @@ async function main() {
         c.on(Events.GuildMemberAdd, (member) => {
             void giveJoinRole(ctx, member, log);
             void noteJoin(ctx, member, log);
-            // Capped, so this quietly stops giving it once the seats are gone.
-            void grantEarlyRole(ctx, member, founderLimit(ctx), log);
+            // Early Member is deliberately NOT given here any more. It is earned by
+            // playing, so it is granted from the online poll instead — see
+            // awardEarlyMembers.
         });
     };
     wire(client);
@@ -477,6 +478,51 @@ async function runContest(ctx, client, players, elapsedMs, log) {
         allowedMentions: { parse: [] },
     }).catch(() => undefined);
 }
+/**
+ * Gives Early Member to anybody online who has now played the hour.
+ *
+ * On the online poll rather than at the Discord door: the role is earned in
+ * game, and this is the only place that knows somebody is playing. It also
+ * makes the fifty seats genuinely first-come-first-served, because the poll
+ * grants at the moment the hour is reached.
+ *
+ * Cheap by design — the whole thing is skipped unless the role exists and has
+ * seats left, which is the normal case once it has filled.
+ */
+async function awardEarlyMembers(ctx, client, players, log) {
+    const roleId = earlyRole(ctx);
+    if (!roleId)
+        return;
+    const limit = founderLimit(ctx);
+    const required = earlyMinutes(ctx);
+    for (const guild of client.guilds.cache.values()) {
+        if (!guild.roles.cache.has(roleId))
+            continue;
+        // Full is the steady state, and checking it first keeps this to one cache
+        // read per poll for the rest of the server's life.
+        if (holders(guild, roleId) >= limit)
+            continue;
+        for (const player of players) {
+            if (!player.steam)
+                continue;
+            if (ctx.db.pointsFor(player.steam).minutes < required)
+                continue;
+            const link = ctx.db.linkBySteam(player.steam);
+            if (!link)
+                continue;
+            const member = await guild.members.fetch(link.discordId).catch(() => null);
+            if (!member)
+                continue;
+            const result = await grantEarlyRole(ctx, member, limit, log);
+            if (result === 'given') {
+                log(`earlymember: ${player.steam} earned it after ${required} minutes`);
+            }
+            // Full means every remaining player would fail the same way.
+            if (result === 'full')
+                break;
+        }
+    }
+}
 /** Pays a hunt out when its quarry is killed, and says so. */
 async function settleHunt(ctx, client, kill, log) {
     const hunt = claimHunt(ctx, kill.killer, kill.victim);
@@ -595,6 +641,8 @@ function startServerPoll(ctx, client) {
                 // a minute is far too coarse for a notice that says "you are on it".
                 // Closes the hidden-species window the instant the admin is seen on it.
                 await advanceTryout(ctx, live, log);
+                // After awardOnline, so the minute just played counts towards the hour.
+                await awardEarlyMembers(ctx, client, live, log);
             }
             catch (err) {
                 log(`points: award failed: ${describeError(err)}`);
