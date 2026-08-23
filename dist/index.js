@@ -32,6 +32,7 @@ import { refreshStatusPanel } from './status.js';
 import { handlePanelInteraction } from './panel.js';
 import { handleWardrobe } from './wardrobe.js';
 import { advanceTryout } from './tryout.js';
+import { activeHunt, buildHuntEmbed, caughtAnnounce, claimHunt, huntChannel, huntStep, markRevealed, revealAnnounce, saveHunt, survivedAnnounce, } from './hunt.js';
 import { activeContest, advanceContest, buildContestWonEmbed, contestChannel, winnerAnnounce, } from './contest.js';
 import { EvrimaRcon } from './rcon.js';
 const log = (message) => {
@@ -354,6 +355,10 @@ async function handleChatEvent(ctx, event, lastReply, client) {
         if (channelId && client) {
             const channel = await client.channels.fetch(channelId).catch(() => null);
             if (channel?.isTextBased() && 'send' in channel) {
+                // A hunt ends on a death, which is an event rather than something
+                // visible in a snapshot of who is alive — somebody who died and
+                // respawned between two polls would never be noticed.
+                await settleHunt(ctx, client, kill, log);
                 // Shared with the leaderboards rather than a second copy of the rule —
                 // it had its own, which is how it kept pinging people.
                 await channel.send({
@@ -449,6 +454,47 @@ async function runContest(ctx, client, players, elapsedMs, log) {
         allowedMentions: { parse: [] },
     }).catch(() => undefined);
 }
+/** Pays a hunt out when its quarry is killed, and says so. */
+async function settleHunt(ctx, client, kill, log) {
+    const hunt = claimHunt(ctx, kill.killer, kill.victim);
+    if (!hunt)
+        return;
+    const killer = steamNamer(ctx)(kill.killer);
+    log(`hunt: ${kill.killer} caught ${hunt.targetSteam} for ${hunt.reward}`);
+    await ctx.rcon.announce(toPlainAscii(caughtAnnounce(hunt, killer))).catch(() => undefined);
+    await sayInHuntChannel(ctx, client, buildHuntEmbed(hunt, 'caught', killer));
+}
+/** Calls out the quarry's position, and ends the hunt when its time is up. */
+async function runHunt(ctx, client, players, log) {
+    const hunt = activeHunt(ctx);
+    if (!hunt)
+        return;
+    const step = huntStep(hunt, players, Date.now());
+    if (step.kind === 'waiting')
+        return;
+    if (step.kind === 'survived') {
+        saveHunt(ctx, null);
+        log(`hunt: ${hunt.targetSteam} survived`);
+        await ctx.rcon.announce(toPlainAscii(survivedAnnounce(hunt))).catch(() => undefined);
+        await sayInHuntChannel(ctx, client, buildHuntEmbed(hunt, 'survived'));
+        return;
+    }
+    // Marked before announcing: a failed announcement must not mean trying again
+    // every minute for the rest of the hunt.
+    markRevealed(ctx, hunt, Date.now());
+    await ctx.rcon.announce(toPlainAscii(revealAnnounce(hunt, step.x, step.y)))
+        .catch(() => undefined);
+}
+async function sayInHuntChannel(ctx, client, embed) {
+    const channelId = huntChannel(ctx);
+    if (!channelId)
+        return;
+    const channel = await client.channels.fetch(channelId).catch(() => null);
+    if (!channel?.isTextBased() || !('send' in channel))
+        return;
+    await channel.send({ embeds: [embed], allowedMentions: { parse: [] } })
+        .catch(() => undefined);
+}
 async function sendInvite(ctx, steamId) {
     if (!ctx.config.discordInvite)
         return;
@@ -517,6 +563,7 @@ function startServerPoll(ctx, client) {
                 await runContest(ctx, client, live, elapsed, log);
                 // Closes the hidden-species window the instant the admin is seen on it.
                 await advanceTryout(ctx, live, log);
+                await runHunt(ctx, client, live, log);
             }
             catch (err) {
                 log(`points: award failed: ${describeError(err)}`);

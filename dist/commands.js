@@ -31,6 +31,7 @@ import { postPeak, REFRESH_MINUTES, setPeaksChannel } from './peaks.js';
 import { buildWardrobePanel, setWardrobeChannel, WARDROBE_MESSAGE_KEY, wardrobeRows, } from './wardrobe.js';
 import { buildPrimeDebugEmbed, buildPrimeEmbed } from './prime.js';
 import { activeTryout, startTryout } from './tryout.js';
+import { activeHunt, buildHuntEmbed, huntAnnounce, huntChannel, saveHunt, setHuntChannel, } from './hunt.js';
 import { activeContest, buildContestEmbed, contestAnnounce, contestChannel, hud, inside, saveContest, setContestChannel, } from './contest.js';
 import { buildReferralEmbed, referralMinutes, referralReward, referralWeeklyCap, referralWelcome, setReferralAmounts, setReferralsEnabled, } from './referrals.js';
 import { enforcementEnabled, enforcementFault, restoreAllPlayables, setEnforcement, syncPlayables, } from './enforce.js';
@@ -367,6 +368,22 @@ export const commandData = [
         .addSubcommand((s) => s.setName('now').setDescription('Restart the server now — the fix for stuck AI')
         .addIntegerOption((o) => o.setName('minutes').setDescription('Warning first. 0 restarts immediately')
         .setMinValue(0).setMaxValue(30))))
+        .addSubcommandGroup((g) => g.setName('hunt').setDescription('One player is the target')
+        .addSubcommand((c) => c.setName('start').setDescription('Put a price on somebody')
+        .addUserOption((o) => o.setName('target').setDescription('Who is being hunted').setRequired(true))
+        .addIntegerOption((o) => o.setName('minutes').setDescription('How long they must survive. Default 20')
+        .setMinValue(2).setMaxValue(240))
+        .addIntegerOption((o) => o.setName('reward').setDescription('Points for the kill. Default 1500')
+        .setMinValue(0).setMaxValue(100_000))
+        .addIntegerOption((o) => o.setName('reveal').setDescription('Minutes between position calls. Default 3')
+        .setMinValue(1).setMaxValue(60))
+        .addStringOption((o) => o.setName('skin').setDescription('A skin the killer also keeps')
+        .setAutocomplete(true)))
+        .addSubcommand((c) => c.setName('status').setDescription('How the hunt is going'))
+        .addSubcommand((c) => c.setName('stop').setDescription('Call it off, paying nobody'))
+        .addSubcommand((c) => c.setName('channel').setDescription('Where hunt results are posted')
+        .addChannelOption((o) => o.setName('channel').setDescription('Where it announces')
+        .addChannelTypes(ChannelType.GuildText).setRequired(true))))
         .addSubcommandGroup((g) => g.setName('contest').setDescription('A place worth fighting over')
         .addSubcommand((c) => c.setName('start').setDescription('Start one where you are standing')
         .addIntegerOption((o) => o.setName('minutes').setDescription('How long it must be held. Default 5')
@@ -2108,6 +2125,99 @@ async function handlePrimeDebug(ctx, i) {
                 : buildPrimeDebugEmbed(read.state, `<@${user.id}>`)],
     });
 }
+// ----------------------------------------------------------------- hunt --
+async function handleHunt(ctx, i, action) {
+    if (action === 'channel') {
+        const channel = i.options.getChannel('channel', true);
+        setHuntChannel(ctx, channel.id);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Hunt channel set', `Results go to <#${channel.id}>. The target, their position and the `
+                    + 'outcome are all announced in game as well.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'stop') {
+        const running = activeHunt(ctx);
+        saveHunt(ctx, null);
+        await i.reply({
+            embeds: [embed(COLORS.good, running ? 'Hunt called off' : 'Nothing running', running
+                    ? `The hunt for **${running.targetName}** is over and nobody was paid. `
+                        + 'Nothing is announced in game, so tell them yourself if people are '
+                        + 'still looking.'
+                    : 'There was no hunt to stop.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'status') {
+        const running = activeHunt(ctx);
+        await i.reply({
+            embeds: [running
+                    ? buildHuntEmbed(running, 'running')
+                    : embed(COLORS.quiet, 'Nothing running', 'Use `/admin hunt start` and pick somebody willing.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    const target = i.options.getUser('target', true);
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    if (activeHunt(ctx)) {
+        await i.editReply({
+            embeds: [embed(COLORS.warn, 'One at a time', 'A hunt is already running. `/admin hunt stop` ends it first.')],
+        });
+        return;
+    }
+    const link = ctx.db.linkFor(target.id);
+    if (!link) {
+        await i.editReply({
+            embeds: [embed(COLORS.warn, 'They are not linked', `${target} has no Steam account linked, so the bot cannot tell where `
+                    + 'they are or who killed them.')],
+        });
+        return;
+    }
+    const skin = i.options.getString('skin')?.trim();
+    if (skin && !ctx.db.preset(skin)) {
+        await i.editReply({
+            embeds: [embed(COLORS.warn, 'No such skin', `There is no preset called **${skin}**.`)],
+        });
+        return;
+    }
+    const minutes = i.options.getInteger('minutes') ?? 20;
+    const revealMinutes = i.options.getInteger('reveal') ?? 3;
+    const now = Date.now();
+    const hunt = {
+        targetSteam: link.steamId,
+        // The in-game name if the bot has seen one, since a Discord handle means
+        // nothing to somebody reading server chat.
+        targetName: ctx.db.gameName(link.steamId) ?? target.username,
+        reward: i.options.getInteger('reward') ?? 1500,
+        ...(skin ? { skin } : {}),
+        endsAt: now + (minutes * 60_000),
+        revealEveryMs: revealMinutes * 60_000,
+        // Counted from the start, so the first call-out is one interval in rather
+        // than immediately - the target deserves a head start.
+        lastRevealAt: now,
+        startedAt: now,
+    };
+    saveHunt(ctx, hunt);
+    await ctx.rcon.announce(toPlainAscii(huntAnnounce(hunt))).catch(() => undefined);
+    const channelId = huntChannel(ctx);
+    if (channelId) {
+        const channel = await i.client.channels.fetch(channelId).catch(() => null);
+        if (channel?.isTextBased() && 'send' in channel) {
+            await channel.send({ embeds: [buildHuntEmbed(hunt, 'running')] }).catch(() => undefined);
+        }
+    }
+    await i.editReply({
+        embeds: [embed(COLORS.good, 'Hunt started', `**${hunt.targetName}** is the target for **${minutes} minutes**, worth `
+                + `**${hunt.reward}** points` + (skin ? ` and the **${skin}** skin` : '') + '.\n\n'
+                + `Their position is called out every **${revealMinutes} minutes**, starting `
+                + 'one interval from now.\n\n'
+                + '⚠️ Only a **direct kill** pays. If they bleed out, drown or are taken by '
+                + 'wildlife there is no killer to credit, and that counts as surviving.')],
+    });
+}
 // -------------------------------------------------------------- contest --
 async function handleContest(ctx, i, action) {
     if (action === 'channel') {
@@ -3080,6 +3190,8 @@ async function handleAdmin(ctx, i) {
         return handleBounties(ctx, i, action);
     if (group === 'backup')
         return handleBackup(ctx, i, action);
+    if (group === 'hunt')
+        return handleHunt(ctx, i, action);
     if (group === 'contest')
         return handleContest(ctx, i, action);
     if (group === 'prime')
