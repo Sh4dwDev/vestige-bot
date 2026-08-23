@@ -22,6 +22,7 @@ export type HuntStep = {
     kind: 'reveal';
     x: number;
     y: number;
+    species: string;
 } | {
     kind: 'survived';
 } | {
@@ -36,7 +37,7 @@ export type HuntStep = {
 export declare function huntStep(hunt: Hunt, players: PlayerRow[], now: number): HuntStep;
 /** ASCII only: these go out over RCON, which drops anything else silently. */
 export declare const huntAnnounce: (hunt: Hunt) => string;
-export declare const revealAnnounce: (hunt: Hunt, x: number, y: number) => string;
+export declare const revealAnnounce: (hunt: Hunt, x: number, y: number, species: string) => string;
 export declare const caughtAnnounce: (hunt: Hunt, killer: string) => string;
 export declare const survivedAnnounce: (hunt: Hunt) => string;
 export declare function buildHuntEmbed(hunt: Hunt, state: 'running' | 'caught' | 'survived', killer?: string): EmbedBuilder;

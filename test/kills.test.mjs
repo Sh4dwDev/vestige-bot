@@ -79,6 +79,29 @@ fs.rmSync(path.dirname(file), { recursive: true, force: true });
     died.description);
   check('the two are colour coded differently', killed.color !== died.color);
 
+  // Most fights here end with the loser breaking off and bleeding out. The
+  // attacker is still credited, but the feed must not claim a bite that never
+  // landed.
+  const bled = buildKillEmbed(
+    { killer: A, killerSpecies: 'Allosaurus', victim: B, species: 'Tyrannosaurus',
+      cause: 'health', lingering: true },
+    name).toJSON();
+  check('a bleed-out still credits the attacker',
+    /Allosaurus/.test(bled.description ?? '') && /bled out/.test(bled.description ?? ''),
+    bled.description);
+  check('and does not claim they landed the killing blow',
+    !/\*\*killed\*\*/.test(bled.description ?? ''), bled.description);
+  check('it is still a player kill, so it stays red', bled.color === killed.color);
+
+  const bledToAI = buildKillEmbed(
+    { killer: '', killerSpecies: '', killerAI: 'Boar', victim: B, species: 'Dryosaurus',
+      cause: 'health', lingering: true },
+    name).toJSON();
+  check('wildlife wounds read the same way',
+    /bled out/.test(bledToAI.description ?? '') && /Boar/.test(bledToAI.description ?? ''),
+    bledToAI.description);
+  check('and stay grey, like any other AI death', bledToAI.color === died.color);
+
   const noSpecies = buildKillEmbed(
     { killer: '', killerSpecies: '', victim: B, species: '', cause: 'killed' }, name).toJSON();
   check('a missing species does not render empty brackets',

@@ -31,7 +31,8 @@ const base = (over = {}) => ({
   lastRevealAt: NOW, startedAt: NOW, ...over,
 });
 
-const at = (steam, x, y) => ({ steam, species: 'Rex', growth: 1, female: false, prime: false, x, y });
+const at = (steam, x, y, species = 'Rex') =>
+  ({ steam, species, growth: 1, female: false, prime: false, x, y });
 
 // ---- calling out the position ----------------------------------------------
 
@@ -44,6 +45,11 @@ const at = (steam, x, y) => ({ steam, species: 'Rex', growth: 1, female: false, 
   check('then the position goes out', due.kind === 'reveal');
   check('and it is where they actually are',
     due.kind === 'reveal' && due.x === 1000 && due.y === 2000);
+
+  // Without it, a callout sends people to a spot to hunt whatever they find.
+  const asAllo = huntStep(h, [at(TARGET, 1000, 2000, 'Allosaurus')], NOW + (3 * MINUTE));
+  check('and says what they are playing',
+    asAllo.kind === 'reveal' && asAllo.species === 'Allosaurus');
 }
 
 {
@@ -136,20 +142,25 @@ const at = (steam, x, y) => ({ steam, species: 'Rex', growth: 1, female: false, 
   const h = base();
   for (const [what, line] of [
     ['the opening call', huntAnnounce(h)],
-    ['a position call', revealAnnounce(h, 120_000, -317_000)],
+    ['a position call', revealAnnounce(h, 120_000, -317_000, 'Allosaurus')],
     ['the survival call', survivedAnnounce(h)],
   ]) {
     check(`${what} is plain ASCII`, /^[\x20-\x7E]*$/.test(line), line);
   }
 
   check('a position call gives coordinates',
-    revealAnnounce(h, 120_000, -317_000).includes('Lat -317'));
+    revealAnnounce(h, 120_000, -317_000, 'Allosaurus').includes('Lat -317'));
+  check('and names the dinosaur they are on',
+    revealAnnounce(h, 120_000, -317_000, 'Allosaurus').includes('Allosaurus'));
+  check('an unknown species does not leave a dangling word',
+    revealAnnounce(h, 120_000, -317_000, '').endsWith('.'),
+    revealAnnounce(h, 120_000, -317_000, ''));
   check('the target is named, not their Steam ID',
     huntAnnounce(h).includes('Shadow') && !huntAnnounce(h).includes(TARGET));
 
   const survived = buildHuntEmbed(h, 'survived').toJSON();
   check('surviving explains why nobody won',
-    /direct kill/.test(survived.description ?? ''));
+    /player kill/.test(survived.description ?? ''), survived.description);
 }
 
 const failed = results.filter((r) => !r).length;

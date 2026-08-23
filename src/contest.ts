@@ -39,6 +39,16 @@ export interface Contest {
   /** A skin preset the winner also keeps, if one was chosen. */
   skin?: string;
   name: string;
+  /**
+   * When true, everybody standing on it gains time together and everybody who
+   * reaches the hold wins.
+   *
+   * The default is a fight: a second player freezes the clock, so the way to
+   * stop somebody is to be there too. That makes a group of friends deadlock
+   * each other, which is the opposite of what a group event wants — so this
+   * turns the same point into a gathering.
+   */
+  shared?: boolean;
   startedAt: number;
   /** Steam ID to milliseconds held so far. */
   progress: Record<string, number>;
@@ -81,10 +91,12 @@ export interface TickResult {
   contest: Contest;
   /** Who is standing on it right now. */
   holders: string[];
-  /** True when more than one is, so nobody is gaining. */
+  /** True when more than one is and the point is not shared, so nobody gains. */
   contested: boolean;
   /** Set once somebody has held it long enough. */
   winner: string | null;
+  /** Everybody who has, which is only ever more than one on a shared point. */
+  winners: string[];
 }
 
 /**
@@ -102,7 +114,7 @@ export function tickContest(
     .filter((p) => p.steam && inside(contest, p))
     .map((p) => p.steam as string);
 
-  const contested = holders.length > 1;
+  const contested = !contest.shared && holders.length > 1;
   const wasPresent = new Set(contest.present ?? []);
   const next: Contest = {
     ...contest,
@@ -119,19 +131,21 @@ export function tickContest(
   //
   // Nobody gains while it is contested. That is the whole mechanic: the way to
   // stop somebody taking it is to be standing there too.
-  if (holders.length === 1 && elapsedMs > 0) {
-    const holder = holders[0] as string;
-    if (wasPresent.has(holder)) {
-      next.progress[holder] = (next.progress[holder] ?? 0) + elapsedMs;
+  if (!contested && elapsedMs > 0) {
+    for (const holder of holders) {
+      if (wasPresent.has(holder)) {
+        next.progress[holder] = (next.progress[holder] ?? 0) + elapsedMs;
+      }
     }
   }
 
-  const winner = holders.length === 1
-    && (next.progress[holders[0] as string] ?? 0) >= contest.holdMs
-    ? holders[0] as string
-    : null;
+  // Everybody who is still standing there and has done the time. On a solo
+  // point that can only ever be one person, because a second freezes the clock.
+  const winners = contested
+    ? []
+    : holders.filter((h) => (next.progress[h] ?? 0) >= contest.holdMs);
 
-  return { contest: next, holders, contested, winner };
+  return { contest: next, holders, contested, winner: winners[0] ?? null, winners };
 }
 
 /** Best progress so far, for the panel and the announcement. */
@@ -169,12 +183,17 @@ export function buildContestEmbed(
       `**${hud(contest.radius)}** counts.\n` +
       `🏆 **${contest.reward}** points` +
       (contest.skin ? ` and the **${contest.skin}** skin` : '') + '.\n\n' +
-      (state.contested
-        ? `⚔️ **Contested.** ${state.holders.length} of you are on it, so nobody ` +
-          'is gaining. Somebody has to leave.'
-        : state.holders.length === 1
-          ? '⏳ Someone is holding it right now.'
-          : '🕳️ Nobody is on it.'),
+      (contest.shared
+        ? state.holders.length > 0
+          ? `🤝 **${state.holders.length}** on it, all gaining together. ` +
+            'Everybody who lasts gets paid in full.'
+          : '🤝 Bring friends — everybody who holds it wins.'
+        : state.contested
+          ? `⚔️ **Contested.** ${state.holders.length} of you are on it, so nobody ` +
+            'is gaining. Somebody has to leave.'
+          : state.holders.length === 1
+            ? '⏳ Someone is holding it right now.'
+            : '🕳️ Nobody is on it.'),
     )
     .addFields(best
       ? [{
@@ -191,10 +210,19 @@ export function buildContestEmbed(
 export const contestAnnounce = (contest: Contest): string =>
   `${contest.name}: hold Lat ${hud(contest.y)}, Long ${hud(contest.x)} for `
   + `${Math.round(contest.holdMs / 60000)} minutes to win ${contest.reward} points. `
-  + 'Two or more players on it and nobody gains.';
+  + (contest.shared
+    ? 'Everybody standing there wins it, so bring your group.'
+    : 'Two or more players on it and nobody gains.');
 
 export const winnerAnnounce = (contest: Contest, who: string): string =>
   `${who} held ${contest.name} and takes ${contest.reward} points.`;
+
+/** The shared version, where the whole group is named and each is paid in full. */
+export const winnersAnnounce = (contest: Contest, who: string[]): string =>
+  who.length <= 1
+    ? winnerAnnounce(contest, who[0] ?? 'Nobody')
+    : `${who.slice(0, -1).join(', ')} and ${who[who.length - 1]} held ${contest.name} `
+      + `and take ${contest.reward} points each.`;
 
 // ------------------------------------------------------------------ running --
 
@@ -209,6 +237,8 @@ export const setContestChannel = (ctx: Ctx, channelId: string | null): void =>
 export interface TickOutcome {
   /** Set when somebody just won, so the caller can announce it once. */
   winner: string | null;
+  /** Everybody who won, which is only ever more than one on a shared point. */
+  winners: string[];
   contested: boolean;
   holders: string[];
 }
@@ -230,28 +260,45 @@ export function advanceContest(
 
   const result = tickContest(contest, players, elapsedMs);
 
-  if (!result.winner) {
+  if (result.winners.length === 0) {
     saveContest(ctx, result.contest);
-    return { winner: null, contested: result.contested, holders: result.holders };
+    return {
+      winner: null, winners: [], contested: result.contested, holders: result.holders,
+    };
   }
 
   // Paid and cleared in one go: leaving it active would keep paying the same
-  // person every few seconds for standing still.
-  ctx.db.addPoints(result.winner, contest.reward, 0);
-  if (contest.skin) ctx.db.grantSkin(result.winner, contest.skin, `Won ${contest.name}`);
+  // people every few seconds for standing still. On a shared point everybody
+  // who did the time is paid in full rather than splitting it — a group event
+  // that pays a fraction each is a worse deal for turning up with friends.
+  for (const winner of result.winners) {
+    ctx.db.addPoints(winner, contest.reward, 0);
+    if (contest.skin) ctx.db.grantSkin(winner, contest.skin, `Won ${contest.name}`);
+  }
   saveContest(ctx, null);
 
-  return { winner: result.winner, contested: false, holders: result.holders };
+  return {
+    winner: result.winners[0] ?? null,
+    winners: result.winners,
+    contested: false,
+    holders: result.holders,
+  };
 }
 
-export function buildContestWonEmbed(contest: Contest, winner: string): EmbedBuilder {
+export function buildContestWonEmbed(
+  contest: Contest,
+  winner: string | string[],
+): EmbedBuilder {
   const held = leader(contest);
+  const who = Array.isArray(winner) ? winner : [winner];
+  const many = who.length > 1;
 
   return new EmbedBuilder()
     .setColor(0x57f287)
     .setTitle(`🏆  ${contest.name} claimed`)
     .setDescription(
-      `${winner} held it and takes **${contest.reward}** points` +
+      `${who.join(', ')} held it and take${many ? '' : 's'} ` +
+      `**${contest.reward}** points${many ? ' each' : ''}` +
       (contest.skin ? ` and the **${contest.skin}** skin` : '') + '.\n\n' +
       (held ? `Held for **${minutes(held.heldMs)}**.` : ''),
     )

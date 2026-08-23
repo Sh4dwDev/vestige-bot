@@ -6,11 +6,12 @@ import { hud } from './contest.js';
  * to the end and nobody gets anything.
  *
  * The whole event rests on the killfeed knowing **who** killed whom, which is
- * already true for direct player attacks — that is exactly what the damage hook
- * records. It is also the limit: a quarry who bleeds out, drowns or is taken by
- * wildlife has no killer, so nobody can be paid. That is treated as the quarry
- * surviving rather than quietly awarding it to whoever was nearest, because
- * guessing a winner is worse than having none.
+ * exactly what the damage hook records. A quarry who breaks off wounded and
+ * bleeds out still pays whoever last hit them — that is how most fights here
+ * actually end, and calling it a survival made the fight look like it never
+ * happened. Drowning, starving and wildlife still leave nobody to pay, and
+ * those are treated as the quarry surviving rather than quietly awarding it to
+ * whoever was nearest: guessing a winner is worse than having none.
  *
  * Position is announced on a timer rather than continuously. A quarry whose
  * exact spot is always known cannot play, and one who is never located cannot
@@ -49,12 +50,13 @@ export function huntStep(hunt, players, now) {
     if (!target || target.x === undefined || target.y === undefined) {
         return { kind: 'waiting' };
     }
-    return { kind: 'reveal', x: target.x, y: target.y };
+    return { kind: 'reveal', x: target.x, y: target.y, species: target.species };
 }
 /** ASCII only: these go out over RCON, which drops anything else silently. */
 export const huntAnnounce = (hunt) => `HUNT: ${hunt.targetName} is the target. Kill them for ${hunt.reward} points. `
     + `Their position is called out every ${Math.round(hunt.revealEveryMs / 60000)} minutes.`;
-export const revealAnnounce = (hunt, x, y) => `HUNT: ${hunt.targetName} was last seen at Lat ${hud(y)}, Long ${hud(x)}.`;
+export const revealAnnounce = (hunt, x, y, species) => `HUNT: ${hunt.targetName} was last seen at Lat ${hud(y)}, Long ${hud(x)}`
+    + (species ? ` playing ${species}.` : '.');
 export const caughtAnnounce = (hunt, killer) => `HUNT: ${killer} killed ${hunt.targetName} and takes ${hunt.reward} points.`;
 export const survivedAnnounce = (hunt) => `HUNT: ${hunt.targetName} survived. Nobody wins.`;
 export function buildHuntEmbed(hunt, state, killer) {
@@ -68,8 +70,8 @@ export function buildHuntEmbed(hunt, state, killer) {
             (hunt.skin ? ` and the **${hunt.skin}** skin` : '') + '.'
         : state === 'survived'
             ? `**${hunt.targetName}** survived. Nobody wins.\n\n` +
-                'Only a direct kill counts — bleeding out, drowning or wildlife ' +
-                'leaves no killer to pay.'
+                'It has to be a player kill — drowning, starving or wildlife ' +
+                'leaves nobody to pay.'
             : `**${hunt.targetName}** is the target.\n\n` +
                 `🏆 **${hunt.reward}** points` +
                 (hunt.skin ? ` and the **${hunt.skin}** skin` : '') +

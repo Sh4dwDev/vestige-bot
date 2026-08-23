@@ -32,6 +32,12 @@ export interface KillEvent {
   species: string;
   /** The creature that did it, when the attacker was AI rather than a player. */
   killerAI?: string;
+  /**
+   * The attacker landed the wounds but was not there at the end — the victim
+   * broke off and bled out. Still their kill; worded differently so the feed
+   * does not claim a bite that did not happen.
+   */
+  lingering?: boolean;
   cause: string;
 }
 
@@ -56,7 +62,10 @@ export function buildKillEmbed(
     return new EmbedBuilder()
       .setColor(0xed4245)
       .setDescription(
-        `⚔️  ${withSpecies(event.killer, event.killerSpecies)}  **killed**  ${victim}`,
+        event.lingering
+          ? `🩸  ${withSpecies(event.killer, event.killerSpecies)}  **wounded**  ` +
+            `${victim}, who bled out`
+          : `⚔️  ${withSpecies(event.killer, event.killerSpecies)}  **killed**  ${victim}`,
       )
       .setTimestamp();
   }
@@ -67,7 +76,9 @@ export function buildKillEmbed(
   if (event.killerAI) {
     return new EmbedBuilder()
       .setColor(0x4f545c)
-      .setDescription(`💀  ${victim}  was killed by a  **${event.killerAI}**`)
+      .setDescription(event.lingering
+        ? `💀  ${victim}  bled out from a  **${event.killerAI}**`
+        : `💀  ${victim}  was killed by a  **${event.killerAI}**`)
       .setTimestamp();
   }
 

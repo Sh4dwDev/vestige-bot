@@ -103,3 +103,14 @@ export type ResetResult = 'restored' | 'no-baseline' | 'failed';
  * by "reset". This writes the original back immediately.
  */
 export declare function restoreBaseline(ctx: Ctx, steamId: string, species: string): Promise<ResetResult>;
+/**
+ * A look by name, from the saved presets **or** the built-in ones.
+ *
+ * There are two places a preset can live and only one of them is the database,
+ * so `ctx.db.preset(name)` alone answers "no" for every ready-made look. The
+ * autocomplete offers both, which is how somebody comes to pick `Camouflage`
+ * from a list and be told it does not exist.
+ *
+ * Saved wins: an admin who names their own preset after a built-in meant theirs.
+ */
+export declare const presetLook: (ctx: Ctx, name: string) => Look | null;

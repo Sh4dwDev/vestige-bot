@@ -67,14 +67,16 @@ check('their other skin is untouched', db.ownsSkin(S, 'Ember'));
 
 {
   // A preset can be deleted after being granted. Offering it would hand
-  // somebody a skin that cannot be applied.
-  db.grantSkin(S, 'Ghost', 'event');
+  // somebody a skin that cannot be applied. The name has to belong to neither
+  // the saved presets nor the built-ins, or it resolves and this proves
+  // nothing.
+  db.grantSkin(S, 'Nonesuch', 'event');
   const picker = buildPicker(ctx, S);
   const values = picker.rows[0].toJSON().components[0].options.map((o) => o.value);
-  check('a skin whose preset is gone is not offered', !values.includes('Ghost'),
+  check('a skin whose preset is gone is not offered', !values.includes('Nonesuch'),
     values.join(','));
   check('but the entitlement is still held, so rebuilding the preset restores it',
-    db.ownsSkin(S, 'Ghost'));
+    db.ownsSkin(S, 'Nonesuch'));
 }
 
 {

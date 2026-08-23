@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.35.0"
+local MOD_VERSION = "3.36.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -2274,6 +2274,18 @@ end
 
 local HIT_WINDOW_SEC = 20
 
+-- Bleeding is the normal way a fight ends in Evrima: the loser breaks off and
+-- dies a minute later with nothing hitting them. Attributing only the tight
+-- window called that "died", which read as the fight never happening. A hit
+-- inside this longer window still credits the attacker, flagged `lingering` so
+-- the feed can say it was the wounds rather than the bite.
+--
+-- Safe because a hit *overwrites* the previous one: if wildlife or another
+-- player touched the victim after, they hold the attribution instead. The
+-- residual risk is a wounded player who starves or drowns two minutes later
+-- being credited to whoever last hit them, which is the right call anyway.
+local LINGER_WINDOW_SEC = 150
+
 local lastHit = {}      -- victim steam -> { by = attacker steam, at = unix }
 local lastHealth = {}   -- steam -> last health seen, for the >0 to 0 edge
 local hitSeen = 0
@@ -2291,7 +2303,7 @@ local function pruneHits()
     hitSeen = hitSeen + 1
     if hitSeen < 200 then return end
     hitSeen = 0
-    local cutoff = os.time() - HIT_WINDOW_SEC
+    local cutoff = os.time() - LINGER_WINDOW_SEC
     for victim, hit in pairs(lastHit) do
         if hit.at < cutoff then lastHit[victim] = nil end
     end
@@ -2394,11 +2406,14 @@ local function emitDeath(steam, pawn, cause)
     -- a hit, so anything else — bleed, starvation, drowning, AI, a fall — dies
     -- unattributed. That is a real gap, not a bug to paper over.
     local killer, killerSpecies, killerAI = "", "", ""
+    local lingering = false
     local hit = lastHit[steam]
-    if hit ~= nil and (os.time() - hit.at) <= HIT_WINDOW_SEC then
+    local since = (hit ~= nil) and (os.time() - hit.at) or nil
+    if since ~= nil and since <= LINGER_WINDOW_SEC then
         killer = hit.by
         killerSpecies = hit.bySpecies or ""
         killerAI = hit.byAI or ""
+        lingering = since > HIT_WINDOW_SEC
     end
     lastHit[steam] = nil
 
@@ -2411,9 +2426,9 @@ local function emitDeath(steam, pawn, cause)
     writeResult("kill-" .. steam .. "-" .. tostring(os.time()), "kill", steam, true, species,
         string.format(
             '{"killer":"%s","killerSpecies":"%s","killerAI":"%s",'
-            .. '"victim":"%s","species":"%s","cause":"%s"}',
+            .. '"victim":"%s","species":"%s","cause":"%s","lingering":%s}',
             killer, jsonEscape(killerSpecies), jsonEscape(killerAI),
-            steam, jsonEscape(species), cause))
+            steam, jsonEscape(species), cause, tostring(lingering)))
 end
 
 -- why polling: Evrima fires no death event a server can hook, so health

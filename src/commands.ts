@@ -67,6 +67,7 @@ import {
   linearToHex,
   PARTS,
   PRESETS,
+  presetLook,
   restoreBaseline,
 } from './skins.js';
 import {
@@ -800,7 +801,10 @@ export const commandData = [
               o.setName('name').setDescription('What to call it'))
             .addStringOption((o) =>
               o.setName('skin').setDescription('A skin the winner also keeps')
-                .setAutocomplete(true)))
+                .setAutocomplete(true))
+            .addBooleanOption((o) =>
+              o.setName('shared').setDescription(
+                'Everybody on it wins together, instead of a fight. Default off')))
         .addSubcommand((c) => c.setName('status').setDescription('How the current one is going'))
         .addSubcommand((c) => c.setName('stop').setDescription('Call it off, paying nobody'))
         .addSubcommand((c) =>
@@ -2205,7 +2209,7 @@ async function handleSkin(
 
   if (action === 'grant' || action === 'revoke') {
     const name = i.options.getString('preset', true).trim();
-    if (!ctx.db.preset(name)) {
+    if (!presetLook(ctx, name)) {
       await i.reply({
         embeds: [embed(COLORS.warn, 'No such preset',
           `There is no saved preset called **${name}**. ` +
@@ -2254,7 +2258,7 @@ If they are wearing it right ` +
           ? 'None yet. `/admin skin grant` gives one.'
           : owned.map((o) =>
             `• **${o.preset}**${o.source ? ` — ${o.source}` : ''}` +
-            (ctx.db.preset(o.preset) ? '' : ' _(preset deleted)_')).join('\n'))],
+            (presetLook(ctx, o.preset) ? '' : ' _(preset deleted)_')).join('\n'))],
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -3086,7 +3090,7 @@ async function handleHunt(
   }
 
   const skin = i.options.getString('skin')?.trim();
-  if (skin && !ctx.db.preset(skin)) {
+  if (skin && !presetLook(ctx, skin)) {
     await i.editReply({
       embeds: [embed(COLORS.warn, 'No such skin',
         `There is no preset called **${skin}**.`)],
@@ -3130,8 +3134,9 @@ async function handleHunt(
       + `**${hunt.reward}** points` + (skin ? ` and the **${skin}** skin` : '') + '.\n\n'
       + `Their position is called out every **${revealMinutes} minutes**, starting `
       + 'one interval from now.\n\n'
-      + '⚠️ Only a **direct kill** pays. If they bleed out, drown or are taken by '
-      + 'wildlife there is no killer to credit, and that counts as surviving.')],
+      + '⚠️ It has to be a **player kill**. Bleeding out from a fight counts — '
+      + 'whoever last wounded them is paid — but drowning, starving or being '
+      + 'taken by wildlife leaves nobody to credit, and that is a survival.')],
   });
 }
 
@@ -3228,7 +3233,7 @@ async function handleContest(
   }
 
   const skin = i.options.getString('skin')?.trim();
-  if (skin && !ctx.db.preset(skin)) {
+  if (skin && !presetLook(ctx, skin)) {
     await i.editReply({
       embeds: [embed(COLORS.warn, 'No such skin',
         `There is no preset called **${skin}**. Make one with \`/admin skin save\` `
@@ -3238,8 +3243,10 @@ async function handleContest(
   }
 
   const minutes = i.options.getInteger('minutes') ?? 5;
+  const shared = i.options.getBoolean('shared') ?? false;
   const contest: Contest = {
     x: me.x,
+    ...(shared ? { shared: true } : {}),
     y: me.y,
     // Typed in HUD units, stored in world units, like every other distance here.
     radius: (i.options.getInteger('radius') ?? 30) * 1000,

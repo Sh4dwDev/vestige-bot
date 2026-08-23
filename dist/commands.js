@@ -12,7 +12,7 @@ import { setJoinRole } from './joinrole.js';
 import { buildCatalogue, buildReceipt, mutationPrice, setPending, setSpeciesPrice, setTierPrice, takePending, elderStacks, sellable, setMaxShopTier, totalPrice, } from './shop.js';
 import { forgetPainted } from './skinsync.js';
 import { buildShopPanel, setShopPanelChannel, shopPanelRows, SHOP_PANEL_MESSAGE_KEY, } from './shoppanel.js';
-import { BUILT_IN, encodeColours, captureBaseline, patternLetter, PATTERN_CHOICES, hexToInt, hexToLinear, linearToHex, PARTS, PRESETS, restoreBaseline, } from './skins.js';
+import { BUILT_IN, encodeColours, captureBaseline, patternLetter, PATTERN_CHOICES, hexToInt, hexToLinear, linearToHex, PARTS, PRESETS, presetLook, restoreBaseline, } from './skins.js';
 import { MAX_TIER, multiplierFor, setMultiplier, setTier, TIER_LABEL, tierOf, } from './tiers.js';
 import { cleanSlotName, showPanel, stopAutoRefresh } from './panel.js';
 import { addRequest, askEmbed, askRows, cooldownMinutes, delaySeconds, requestFor, } from './teleport.js';
@@ -394,7 +394,8 @@ export const commandData = [
         .setMinValue(5).setMaxValue(500))
         .addStringOption((o) => o.setName('name').setDescription('What to call it'))
         .addStringOption((o) => o.setName('skin').setDescription('A skin the winner also keeps')
-        .setAutocomplete(true)))
+        .setAutocomplete(true))
+        .addBooleanOption((o) => o.setName('shared').setDescription('Everybody on it wins together, instead of a fight. Default off')))
         .addSubcommand((c) => c.setName('status').setDescription('How the current one is going'))
         .addSubcommand((c) => c.setName('stop').setDescription('Call it off, paying nobody'))
         .addSubcommand((c) => c.setName('channel').setDescription('Where results are posted')
@@ -1461,7 +1462,7 @@ async function handleSkin(ctx, i, action) {
     }
     if (action === 'grant' || action === 'revoke') {
         const name = i.options.getString('preset', true).trim();
-        if (!ctx.db.preset(name)) {
+        if (!presetLook(ctx, name)) {
             await i.reply({
                 embeds: [embed(COLORS.warn, 'No such preset', `There is no saved preset called **${name}**. ` +
                         '`/admin skin presets` lists them.')],
@@ -1500,7 +1501,7 @@ If they are wearing it right ` +
             embeds: [embed(COLORS.info, `Skins ${user} owns`, owned.length === 0
                     ? 'None yet. `/admin skin grant` gives one.'
                     : owned.map((o) => `• **${o.preset}**${o.source ? ` — ${o.source}` : ''}` +
-                        (ctx.db.preset(o.preset) ? '' : ' _(preset deleted)_')).join('\n'))],
+                        (presetLook(ctx, o.preset) ? '' : ' _(preset deleted)_')).join('\n'))],
             flags: MessageFlags.Ephemeral,
         });
         return;
@@ -2177,7 +2178,7 @@ async function handleHunt(ctx, i, action) {
         return;
     }
     const skin = i.options.getString('skin')?.trim();
-    if (skin && !ctx.db.preset(skin)) {
+    if (skin && !presetLook(ctx, skin)) {
         await i.editReply({
             embeds: [embed(COLORS.warn, 'No such skin', `There is no preset called **${skin}**.`)],
         });
@@ -2214,8 +2215,9 @@ async function handleHunt(ctx, i, action) {
                 + `**${hunt.reward}** points` + (skin ? ` and the **${skin}** skin` : '') + '.\n\n'
                 + `Their position is called out every **${revealMinutes} minutes**, starting `
                 + 'one interval from now.\n\n'
-                + '⚠️ Only a **direct kill** pays. If they bleed out, drown or are taken by '
-                + 'wildlife there is no killer to credit, and that counts as surviving.')],
+                + '⚠️ It has to be a **player kill**. Bleeding out from a fight counts — '
+                + 'whoever last wounded them is paid — but drowning, starving or being '
+                + 'taken by wildlife leaves nobody to credit, and that is a survival.')],
     });
 }
 // -------------------------------------------------------------- contest --
@@ -2289,7 +2291,7 @@ async function handleContest(ctx, i, action) {
         return;
     }
     const skin = i.options.getString('skin')?.trim();
-    if (skin && !ctx.db.preset(skin)) {
+    if (skin && !presetLook(ctx, skin)) {
         await i.editReply({
             embeds: [embed(COLORS.warn, 'No such skin', `There is no preset called **${skin}**. Make one with \`/admin skin save\` `
                     + 'first, or leave it out and pay points only.')],
@@ -2297,8 +2299,10 @@ async function handleContest(ctx, i, action) {
         return;
     }
     const minutes = i.options.getInteger('minutes') ?? 5;
+    const shared = i.options.getBoolean('shared') ?? false;
     const contest = {
         x: me.x,
+        ...(shared ? { shared: true } : {}),
         y: me.y,
         // Typed in HUD units, stored in world units, like every other distance here.
         radius: (i.options.getInteger('radius') ?? 30) * 1000,

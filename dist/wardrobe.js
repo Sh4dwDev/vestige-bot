@@ -1,6 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, StringSelectMenuBuilder, } from 'discord.js';
 import { SERVER, SIGNATURE } from './brand.js';
-import { captureBaseline, encodeColours, hexToInt, restoreBaseline } from './skins.js';
+import { captureBaseline, encodeColours, hexToInt, presetLook, restoreBaseline, } from './skins.js';
 /**
  * The skins a player owns, and wearing them.
  *
@@ -70,7 +70,7 @@ export function buildPicker(ctx, steamId) {
     const owned = ctx.db.ownedSkins(steamId)
         // A preset can be deleted after being granted; owning a name that no
         // longer resolves would offer a skin that cannot be worn.
-        .filter((o) => ctx.db.preset(o.preset) !== null);
+        .filter((o) => presetLook(ctx, o.preset) !== null);
     if (owned.length === 0) {
         return {
             embed: new EmbedBuilder()
@@ -158,7 +158,7 @@ async function wear(ctx, interaction, steamId, name) {
         });
         return;
     }
-    const look = ctx.db.preset(name);
+    const look = presetLook(ctx, name);
     if (!look) {
         await interaction.editReply({
             embeds: [new EmbedBuilder().setColor(COLORS.bad).setTitle('That skin is gone')

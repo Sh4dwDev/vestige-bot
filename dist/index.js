@@ -33,7 +33,7 @@ import { handlePanelInteraction } from './panel.js';
 import { handleWardrobe } from './wardrobe.js';
 import { advanceTryout } from './tryout.js';
 import { activeHunt, buildHuntEmbed, caughtAnnounce, claimHunt, huntChannel, huntStep, markRevealed, revealAnnounce, saveHunt, survivedAnnounce, } from './hunt.js';
-import { activeContest, advanceContest, buildContestWonEmbed, contestChannel, winnerAnnounce, } from './contest.js';
+import { activeContest, advanceContest, buildContestWonEmbed, contestChannel, winnersAnnounce, } from './contest.js';
 import { EvrimaRcon } from './rcon.js';
 const log = (message) => {
     console.log(`${new Date().toISOString()} ${message}`);
@@ -314,6 +314,7 @@ async function handleChatEvent(ctx, event, lastReply, client) {
             species: String(raw.species ?? event.text),
             // Omitted rather than set empty, so the embed can simply test for it.
             ...(killerAI ? { killerAI } : {}),
+            ...(raw.lingering ? { lingering: true } : {}),
             cause: String(raw.cause ?? 'health'),
         };
         ctx.db.recordKill(kill.killer, kill.victim, kill.species, kill.cause);
@@ -435,13 +436,15 @@ async function runContest(ctx, client, players, elapsedMs, log) {
     if (!contest)
         return;
     const outcome = advanceContest(ctx, players, elapsedMs);
-    if (!outcome?.winner)
+    if (!outcome || outcome.winners.length === 0)
         return;
-    const named = steamNamer(ctx)(outcome.winner);
-    log(`contest: ${outcome.winner} won ${contest.name} for ${contest.reward}`);
+    const namer = steamNamer(ctx);
+    const named = outcome.winners.map(namer);
+    log(`contest: ${outcome.winners.join(', ')} won ${contest.name} `
+        + `for ${contest.reward} each`);
     // Points are already paid by this point. Everything below is telling people,
     // so each part is allowed to fail on its own.
-    await ctx.rcon.announce(toPlainAscii(winnerAnnounce(contest, named)))
+    await ctx.rcon.announce(toPlainAscii(winnersAnnounce(contest, named)))
         .catch(() => undefined);
     const channelId = contestChannel(ctx);
     if (!channelId)
@@ -482,7 +485,7 @@ async function runHunt(ctx, client, players, log) {
     // Marked before announcing: a failed announcement must not mean trying again
     // every minute for the rest of the hunt.
     markRevealed(ctx, hunt, Date.now());
-    await ctx.rcon.announce(toPlainAscii(revealAnnounce(hunt, step.x, step.y)))
+    await ctx.rcon.announce(toPlainAscii(revealAnnounce(hunt, step.x, step.y, step.species)))
         .catch(() => undefined);
 }
 async function sayInHuntChannel(ctx, client, embed) {

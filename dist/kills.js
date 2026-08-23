@@ -30,7 +30,10 @@ export function buildKillEmbed(event, nameFor) {
     if (event.killer) {
         return new EmbedBuilder()
             .setColor(0xed4245)
-            .setDescription(`⚔️  ${withSpecies(event.killer, event.killerSpecies)}  **killed**  ${victim}`)
+            .setDescription(event.lingering
+            ? `🩸  ${withSpecies(event.killer, event.killerSpecies)}  **wounded**  ` +
+                `${victim}, who bled out`
+            : `⚔️  ${withSpecies(event.killer, event.killerSpecies)}  **killed**  ${victim}`)
             .setTimestamp();
     }
     // Killed by wildlife. Grey rather than red: it is not a player kill, and the
@@ -39,7 +42,9 @@ export function buildKillEmbed(event, nameFor) {
     if (event.killerAI) {
         return new EmbedBuilder()
             .setColor(0x4f545c)
-            .setDescription(`💀  ${victim}  was killed by a  **${event.killerAI}**`)
+            .setDescription(event.lingering
+            ? `💀  ${victim}  bled out from a  **${event.killerAI}**`
+            : `💀  ${victim}  was killed by a  **${event.killerAI}**`)
             .setTimestamp();
     }
     return new EmbedBuilder()

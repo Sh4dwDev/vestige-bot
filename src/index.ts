@@ -71,7 +71,7 @@ import {
   advanceContest,
   buildContestWonEmbed,
   contestChannel,
-  winnerAnnounce,
+  winnersAnnounce,
 } from './contest.js';
 import { EvrimaRcon } from './rcon.js';
 
@@ -370,6 +370,7 @@ async function handleChatEvent(
       species: String(raw.species ?? event.text),
       // Omitted rather than set empty, so the embed can simply test for it.
       ...(killerAI ? { killerAI } : {}),
+      ...(raw.lingering ? { lingering: true } : {}),
       cause: String(raw.cause ?? 'health'),
     };
 
@@ -517,14 +518,16 @@ async function runContest(
   if (!contest) return;
 
   const outcome = advanceContest(ctx, players, elapsedMs);
-  if (!outcome?.winner) return;
+  if (!outcome || outcome.winners.length === 0) return;
 
-  const named = steamNamer(ctx)(outcome.winner);
-  log(`contest: ${outcome.winner} won ${contest.name} for ${contest.reward}`);
+  const namer = steamNamer(ctx);
+  const named = outcome.winners.map(namer);
+  log(`contest: ${outcome.winners.join(', ')} won ${contest.name} `
+    + `for ${contest.reward} each`);
 
   // Points are already paid by this point. Everything below is telling people,
   // so each part is allowed to fail on its own.
-  await ctx.rcon.announce(toPlainAscii(winnerAnnounce(contest, named)))
+  await ctx.rcon.announce(toPlainAscii(winnersAnnounce(contest, named)))
     .catch(() => undefined);
 
   const channelId = contestChannel(ctx);
@@ -580,7 +583,7 @@ async function runHunt(
   // Marked before announcing: a failed announcement must not mean trying again
   // every minute for the rest of the hunt.
   markRevealed(ctx, hunt, Date.now());
-  await ctx.rcon.announce(toPlainAscii(revealAnnounce(hunt, step.x, step.y)))
+  await ctx.rcon.announce(toPlainAscii(revealAnnounce(hunt, step.x, step.y, step.species)))
     .catch(() => undefined);
 }
 

@@ -14,6 +14,16 @@ export interface Contest {
     /** A skin preset the winner also keeps, if one was chosen. */
     skin?: string;
     name: string;
+    /**
+     * When true, everybody standing on it gains time together and everybody who
+     * reaches the hold wins.
+     *
+     * The default is a fight: a second player freezes the clock, so the way to
+     * stop somebody is to be there too. That makes a group of friends deadlock
+     * each other, which is the opposite of what a group event wants — so this
+     * turns the same point into a gathering.
+     */
+    shared?: boolean;
     startedAt: number;
     /** Steam ID to milliseconds held so far. */
     progress: Record<string, number>;
@@ -36,10 +46,12 @@ export interface TickResult {
     contest: Contest;
     /** Who is standing on it right now. */
     holders: string[];
-    /** True when more than one is, so nobody is gaining. */
+    /** True when more than one is and the point is not shared, so nobody gains. */
     contested: boolean;
     /** Set once somebody has held it long enough. */
     winner: string | null;
+    /** Everybody who has, which is only ever more than one on a shared point. */
+    winners: string[];
 }
 /**
  * Advances the hold clock.
@@ -62,11 +74,15 @@ export declare function buildContestEmbed(contest: Contest, nameFor: (steamId: s
 /** ASCII only: this goes out over RCON, which silently drops anything else. */
 export declare const contestAnnounce: (contest: Contest) => string;
 export declare const winnerAnnounce: (contest: Contest, who: string) => string;
+/** The shared version, where the whole group is named and each is paid in full. */
+export declare const winnersAnnounce: (contest: Contest, who: string[]) => string;
 export declare const contestChannel: (ctx: Ctx) => string | null;
 export declare const setContestChannel: (ctx: Ctx, channelId: string | null) => void;
 export interface TickOutcome {
     /** Set when somebody just won, so the caller can announce it once. */
     winner: string | null;
+    /** Everybody who won, which is only ever more than one on a shared point. */
+    winners: string[];
     contested: boolean;
     holders: string[];
 }
@@ -78,4 +94,4 @@ export interface TickOutcome {
  * pure; this only writes the results down and hands out the prize.
  */
 export declare function advanceContest(ctx: Ctx, players: PlayerRow[], elapsedMs: number): TickOutcome | null;
-export declare function buildContestWonEmbed(contest: Contest, winner: string): EmbedBuilder;
+export declare function buildContestWonEmbed(contest: Contest, winner: string | string[]): EmbedBuilder;

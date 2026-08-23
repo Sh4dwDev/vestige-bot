@@ -10,7 +10,7 @@ const load = (f) => import(pathToFileURL(path.join(root, 'dist', f)).href);
 
 const {
   tickContest, inside, leader, advanceContest, saveContest, activeContest,
-  buildContestEmbed, contestAnnounce,
+  buildContestEmbed, contestAnnounce, winnersAnnounce,
 } = await load('contest.js');
 const { Database } = await load('db.js');
 
@@ -155,6 +155,65 @@ const at = (steam, x, y) => ({ steam, species: 'Rex', growth: 1, female: false, 
     joined.contest.progress['a'] === MINUTE, JSON.stringify(joined.contest.progress));
 }
 
+// ---- shared points ----------------------------------------------------------
+//
+// Asked for directly: "if 2 out of 3 players form a group is in the radius
+// those two players both win?" A shared point drops the freeze, so everybody
+// standing there gains together and everybody who lasts is paid in full.
+
+{
+  const c = { ...base(), shared: true };
+  let state = tickContest(c, [
+    at('a', 100_000, 200_000), at('b', 101_000, 200_000),
+  ], MINUTE).contest;
+
+  const two = tickContest(state, [
+    at('a', 100_000, 200_000), at('b', 101_000, 200_000),
+  ], MINUTE);
+  check('a shared point is never contested', two.contested === false);
+  check('and everybody on it gains',
+    two.contest.progress['a'] === MINUTE && two.contest.progress['b'] === MINUTE,
+    JSON.stringify(two.contest.progress));
+
+  // Two of three: the third is stood elsewhere and gets nothing.
+  state = two.contest;
+  for (let n = 0; n < 4; n += 1) {
+    state = tickContest(state, [
+      at('a', 100_000, 200_000), at('b', 101_000, 200_000), at('c', 900_000, 900_000),
+    ], MINUTE).contest;
+  }
+  const done = tickContest(state, [
+    at('a', 100_000, 200_000), at('b', 101_000, 200_000), at('c', 900_000, 900_000),
+  ], MINUTE);
+
+  check('both of the pair win it', done.winners.length === 2
+    && done.winners.includes('a') && done.winners.includes('b'),
+    JSON.stringify(done.winners));
+  check('the one who stayed away does not', !done.winners.includes('c'));
+  check('and winner still names one of them, for callers that want a single',
+    done.winners.includes(done.winner));
+}
+
+{
+  // Somebody who turns up at the last second has not done the time.
+  const c = { ...base(), shared: true, holdMs: 2 * MINUTE };
+  let state = tickContest(c, [at('a', 100_000, 200_000)], MINUTE).contest;
+  state = tickContest(state, [at('a', 100_000, 200_000)], MINUTE).contest;
+  const late = tickContest(state, [
+    at('a', 100_000, 200_000), at('b', 101_000, 200_000),
+  ], MINUTE);
+  check('a latecomer does not ride along', late.winners.length === 1
+    && late.winners[0] === 'a', JSON.stringify(late.winners));
+}
+
+{
+  // The default is unchanged: a rival still freezes it.
+  const solo = tickContest(base(), [
+    at('a', 100_000, 200_000), at('b', 101_000, 200_000),
+  ], MINUTE);
+  check('an ordinary point still freezes with two on it', solo.contested === true);
+}
+
 // ---- the leader --------------------------------------------------------------
 
 {
@@ -188,8 +247,31 @@ const at = (steam, x, y) => ({ steam, species: 'Rex', growth: 1, female: false, 
 
   // Left running, it would pay the same person again every few seconds.
   check('and the contest is cleared', activeContest(ctx) === null);
+  check('one winner is still reported as one', won.winners.length === 1);
   check('so a second tick pays nothing',
     advanceContest(ctx, [at(S, 100_000, 200_000)], MINUTE) === null);
+
+  db.close();
+}
+
+{
+  // Shared payouts are in full each, not split: a group event that pays a
+  // fraction is a worse deal for turning up with friends.
+  const db = new Database(
+    path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'vesta-')), 'shared.sqlite'));
+  const ctx = { db };
+  const A = '76561198000000001';
+  const B = '76561198000000002';
+
+  saveContest(ctx, { ...base(), shared: true, holdMs: MINUTE });
+  advanceContest(ctx, [at(A, 100_000, 200_000), at(B, 101_000, 200_000)], MINUTE);
+  const won = advanceContest(ctx, [at(A, 100_000, 200_000), at(B, 101_000, 200_000)], MINUTE);
+
+  check('both are paid', won.winners.length === 2, JSON.stringify(won.winners));
+  check('and each gets the whole reward, not a share',
+    db.pointsFor(A).balance === 750 && db.pointsFor(B).balance === 750,
+    `${db.pointsFor(A).balance}/${db.pointsFor(B).balance}`);
+  check('and it ends once, not once per winner', activeContest(ctx) === null);
 
   db.close();
 }
@@ -214,6 +296,14 @@ const at = (steam, x, y) => ({ steam, species: 'Rex', growth: 1, female: false, 
   check('the in-game line is plain ASCII', /^[\x20-\x7E]*$/.test(line), line);
   check('and gives coordinates somebody can navigate to',
     line.includes('Lat 200') && line.includes('Long 100'), line);
+  check('a shared one invites the group rather than warning them off',
+    /Everybody/.test(contestAnnounce({ ...c, shared: true })));
+
+  const group = winnersAnnounce(c, ['Shadow', 'Rex', 'Ash']);
+  check('the group announce names all of them and says each',
+    /Shadow, Rex and Ash/.test(group) && /each/.test(group), group);
+  check('and it stays ASCII for RCON', /^[ -~]*$/.test(group), group);
+  check('one winner reads as one', !/each/.test(winnersAnnounce(c, ['Shadow'])));
 }
 
 const failed = results.filter((r) => !r).length;
