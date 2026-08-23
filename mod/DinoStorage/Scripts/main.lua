@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.34.0"
+local MOD_VERSION = "3.35.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -1288,6 +1288,130 @@ local function handlePlayers(cmd)
 end
 
 -- ---------------------------------------------------------------------------
+-- Nests
+--
+-- why this is allowed when AI spawning was not: a nest is a plain world actor
+-- with its mesh baked into the blueprint defaults. There is no controller to
+-- pair with it and no StaticMesh to assign at runtime, which is what upstream
+-- rule 9 warns about -- a mesh set from Lua never replicates and the client
+-- sees an invisible actor.
+--
+-- why nothing here destroys one: upstream rule 9b is blunt about it. Even when
+-- GetAddress() returns non-zero the memory may already be freed, and
+-- K2_DestroyActor on a freed actor crashes the server. Gameplay cleans nests up
+-- on its own; a full reset means restarting. So this spawns and never removes.
+local NEST_CLASSES = {
+    "BP_Nest_Mound_Large_H_C",
+    "BP_Nest_Mound_Small_H_C",
+    "BP_Nest_Burrow_H_C",
+    "BP_Nest_Tree_H_C",
+}
+
+-- The class path is not documented, and StaticFindObject wants one. Rather than
+-- invent a folder, each candidate shape is tried and the one that resolves is
+-- remembered -- the failures cost a nil and nothing else.
+local nestClassCache = {}
+
+local function findNestClass(name)
+    if nestClassCache[name] ~= nil then return nestClassCache[name] end
+
+    local candidates = {
+        name,
+        "/Script/Engine.Class'" .. name .. "'",
+        "/Game/Blueprints/Nests/" .. name:gsub("_C$", "") .. "." .. name,
+        "/Game/Blueprints/World/Nests/" .. name:gsub("_C$", "") .. "." .. name,
+    }
+
+    for _, path in ipairs(candidates) do
+        local cls
+        pcall(function() cls = StaticFindObject(path) end)
+        if cls ~= nil then
+            log("nest: resolved " .. name .. " via " .. path)
+            nestClassCache[name] = cls
+            return cls
+        end
+    end
+
+    log("nest: could not resolve " .. name .. " by any known path")
+    return nil
+end
+
+local function handleNest(cmd)
+    local which = tostring(cmd.args.class or NEST_CLASSES[1])
+
+    local allowed = false
+    for _, n in ipairs(NEST_CLASSES) do if n == which then allowed = true end end
+    if not allowed then
+        writeResult(cmd.id, "nest", cmd.steam, false, "unknown nest class: " .. which)
+        return
+    end
+
+    -- Where the caller is standing, unless coordinates were given.
+    local x, y, z = tonumber(cmd.args.x), tonumber(cmd.args.y), tonumber(cmd.args.z)
+    if x == nil or y == nil then
+        local pawn = resolvePlayer(cmd.steam)
+        if pawn == nil then
+            writeResult(cmd.id, "nest", cmd.steam, false,
+                "give coordinates or be in game so it can spawn where you stand")
+            return
+        end
+        local at = locationOf(pawn)
+        if at == nil then
+            writeResult(cmd.id, "nest", cmd.steam, false, "could not read where you are")
+            return
+        end
+        x, y, z = at.X, at.Y, at.Z
+    end
+
+    local cls = findNestClass(which)
+    if cls == nil then
+        writeResult(cmd.id, "nest", cmd.steam, false,
+            "this build does not expose " .. which .. " by any path tried")
+        return
+    end
+
+    local gm = findGameMode()
+    if gm == nil then
+        writeResult(cmd.id, "nest", cmd.steam, false, "no game mode")
+        return
+    end
+
+    local world
+    pcall(function() world = gm:GetWorld() end)
+    if world == nil then
+        writeResult(cmd.id, "nest", cmd.steam, false, "no world")
+        return
+    end
+
+    local actor
+    local ok = pcall(function()
+        actor = world:SpawnActor(cls, { X = x, Y = y, Z = z }, { Pitch = 0, Yaw = 0, Roll = 0 })
+    end)
+    if not ok or actor == nil then
+        writeResult(cmd.id, "nest", cmd.steam, false, "the server refused the spawn")
+        return
+    end
+
+    -- A wrapper that survives the call but holds a null pointer is the failure
+    -- mode that looks like success.
+    local addr
+    pcall(function() addr = actor:GetAddress() end)
+    if addr == nil or addr == 0 then
+        writeResult(cmd.id, "nest", cmd.steam, false, "spawned nothing usable")
+        return
+    end
+
+    -- Explicit, per upstream rule 10. bAlwaysRelevant is deliberately NOT set:
+    -- it inflates the initial replication burst and crashes clients at scale.
+    pcall(function() actor:SetReplicates(true) end)
+    pcall(function() actor:ForceNetUpdate() end)
+
+    log(string.format("nest: spawned %s at %.0f,%.0f,%.0f", which, x, y, z))
+    writeResult(cmd.id, "nest", cmd.steam, true, "nest placed",
+        string.format('{"class":"%s","x":%.1f,"y":%.1f,"z":%.1f}', which, x, y, z))
+end
+
+-- ---------------------------------------------------------------------------
 -- Prime
 --
 -- why: the ten condition flags already travel through store and restore, so
@@ -1973,6 +2097,7 @@ local function dispatch(cmd)
     elseif verb == "teleport" then handleTeleport(cmd)
     elseif verb == "where" then handleWhere(cmd)
     elseif verb == "prime" then handlePrime(cmd)
+    elseif verb == "nest" then handleNest(cmd)
     elseif verb == "skinget" then handleSkinGet(cmd)
     elseif verb == "skinmany" then handleSkinMany(cmd)
     elseif verb == "pattern" then handlePattern(cmd)
