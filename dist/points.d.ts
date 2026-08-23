@@ -22,8 +22,13 @@ export declare function awardFor(elapsedMs: number, rate: number): {
  * Takes the mod's player rows rather than a list of Steam IDs, because the tier
  * depends on the species — which means someone sitting on the spawn screen
  * earns nothing. That is the intended reading of "earned by playing".
+ *
+ * `at` is a parameter rather than a `new Date()` inside, because the weekend
+ * bonus makes this depend on the clock — and a payout that behaves differently
+ * on a Saturday is untestable when the time is hidden. The tier tests failed on
+ * a Saturday for exactly that reason.
  */
-export declare function awardOnline(ctx: Ctx, players: PlayerRow[], elapsedMs: number): number;
+export declare function awardOnline(ctx: Ctx, players: PlayerRow[], elapsedMs: number, at?: Date): number;
 /** Floored: showing 41.7 points invites arguments about rounding. */
 export declare const display: (balance: number) => number;
 export declare function buildBalanceEmbed(balance: number, minutes: number, rate: number, 

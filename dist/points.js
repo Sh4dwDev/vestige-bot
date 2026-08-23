@@ -75,14 +75,19 @@ export function awardFor(elapsedMs, rate) {
  * Takes the mod's player rows rather than a list of Steam IDs, because the tier
  * depends on the species — which means someone sitting on the spawn screen
  * earns nothing. That is the intended reading of "earned by playing".
+ *
+ * `at` is a parameter rather than a `new Date()` inside, because the weekend
+ * bonus makes this depend on the clock — and a payout that behaves differently
+ * on a Saturday is untestable when the time is hidden. The tier tests failed on
+ * a Saturday for exactly that reason.
  */
-export function awardOnline(ctx, players, elapsedMs) {
+export function awardOnline(ctx, players, elapsedMs, at = new Date()) {
     const { points, minutes } = awardFor(elapsedMs, ratePerHour(ctx));
     if (points <= 0 || players.length === 0)
         return 0;
     // The same for everybody, and added rather than multiplied — see the note on
     // weekendBonus. Worked out once per tick, not once per player.
-    const bonus = weekendActive(ctx) ? (minutes / 60) * weekendBonus(ctx) : 0;
+    const bonus = weekendActive(ctx, at) ? (minutes / 60) * weekendBonus(ctx) : 0;
     let paid = 0;
     for (const player of players) {
         if (!player.steam)

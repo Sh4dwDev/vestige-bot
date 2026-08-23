@@ -76,7 +76,10 @@ setTier(ctx, 'Dryosaurus', 1);
   awardOnline(ctx, [
     { steam: '76561198000000001', species: 'Tyrannosaurus', growth: 1, female: false, prime: false },
     { steam: '76561198000000002', species: 'Dryosaurus', growth: 1, female: false, prime: false },
-  ], minute);
+    // A fixed Wednesday: the weekend bonus is added on top of the multipliers,
+    // so running this on a Saturday would fail on the calendar rather than on
+    // the maths.
+  ], minute, new Date('2026-08-19T10:00:00Z'));
 
   const apex = db.pointsFor('76561198000000001').balance;
   const small = db.pointsFor('76561198000000002').balance;
