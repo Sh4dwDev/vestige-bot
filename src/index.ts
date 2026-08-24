@@ -56,6 +56,7 @@ import { refreshStatusPanel } from './status.js';
 import { handlePanelInteraction } from './panel.js';
 import { handleMarket } from './market.js';
 import { runNesting } from './nesting.js';
+import { runRegions } from './regions.js';
 import { runGameLog } from './gamelog.js';
 import { handleDuty, reconcileDuty } from './duty.js';
 import { handleWardrobe } from './wardrobe.js';
@@ -780,6 +781,8 @@ function startServerPoll(ctx: Ctx, client: Client<true>): void {
         // The game's own log, forwarded to the staff channel. Reads only the
         // bytes that appeared since last time.
         await runGameLog(ctx, client, log);
+        // Reads the positions already in hand; nothing new is enumerated.
+        await runRegions(ctx, client, live, log);
         // After awardOnline, so the minute just played counts towards the hour.
         await awardEarlyMembers(ctx, client, live, log);
       } catch (err) {

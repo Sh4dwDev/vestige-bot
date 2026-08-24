@@ -32,6 +32,7 @@ import { buildWardrobePanel, setWardrobeChannel, WARDROBE_MESSAGE_KEY, wardrobeR
 import { setGameLogEnabled, skipToEnd } from './gamelog.js';
 import { setNoticeStyle } from './tell.js';
 import { describeOptions, setAuditChannel, writeAudit, } from './auditlog.js';
+import { activeEvent, autoRegions, buildStartEmbed, distanceTo, drawRegionMap, finishEvent, nextEventAt, qualified, regionById, regionsFor, scheduleNext, setRegionOverride, setRegionSetting, startEvent, announceRegion, } from './regions.js';
 import { buildActiveEmbed, buildDutyPanel, buildHistoryEmbed, durationBetween, dutyLogChannel, DUTY_PANEL_MESSAGE_KEY, dutyPanelChannel, dutyPanelRows, dutyRanks, removeDutyRank, upsertDutyRank, formatDuration, goOffDuty, goOnDuty, isSenior, isStaff, maxHours, onDutyRole, postEndLog, postStartLog, rankOf, ranksFor, seniorRole, setDutySetting, staffRole, stamp, } from './duty.js';
 import { MAX_PARENTS, nestingSettings, setNestingCondition, setNestingEnabled, setNestingPoints, setNestingRadius, } from './nesting.js';
 import { buildMarketPanel, MARKET_MESSAGE_KEY, marketRows, refreshMarket, setListingsChannel, setMarketChannel, setMarketFee, } from './market.js';
@@ -127,6 +128,34 @@ export const commandData = [
         .setName('teleport')
         .setDescription('Ask a friend if you can travel to them')
         .addUserOption((o) => o.setName('friend').setDescription('Who you want to travel to').setRequired(true)),
+    new SlashCommandBuilder()
+        .setName('active-region')
+        .setDescription('The Active Region event')
+        .addSubcommand((c) => c.setName('setup').setDescription('Announcement channel, and optionally the map')
+        .addChannelOption((o) => o.setName('channel').setDescription('Where events are announced')
+        .addChannelTypes(ChannelType.GuildText).setRequired(true))
+        .addChannelOption((o) => o.setName('map').setDescription('Where the region map is kept')
+        .addChannelTypes(ChannelType.GuildText))
+        .addRoleOption((o) => o.setName('role').setDescription('Pinged on start. Off unless set'))
+        .addBooleanOption((o) => o.setName('auto').setDescription('Run events automatically. Default on')))
+        .addSubcommand((c) => c.setName('start').setDescription('Start one now')
+        .addStringOption((o) => o.setName('region').setDescription('Which one. Random if left out')
+        .setAutocomplete(true))
+        .addIntegerOption((o) => o.setName('minutes').setDescription('How long. Default 45')
+        .setMinValue(1).setMaxValue(240))
+        .addIntegerOption((o) => o.setName('reward').setDescription('Points each. Default 300')
+        .setMinValue(0).setMaxValue(100_000))
+        .addIntegerOption((o) => o.setName('required').setDescription('Active minutes needed. Default 15')
+        .setMinValue(1).setMaxValue(240))
+        .addBooleanOption((o) => o.setName('test').setDescription('Pay nobody, just report who would qualify')))
+        .addSubcommand((c) => c.setName('stop').setDescription('End the running event'))
+        .addSubcommand((c) => c.setName('status').setDescription('What is running, and where you are'))
+        .addSubcommand((c) => c.setName('regions').setDescription('Every region and its centre'))
+        .addSubcommand((c) => c.setName('move').setDescription('Put a region centre where you are standing')
+        .addStringOption((o) => o.setName('region').setDescription('Which one').setRequired(true)
+        .setAutocomplete(true))
+        .addIntegerOption((o) => o.setName('radius').setDescription('Radius in HUD units. Default keeps it')
+        .setMinValue(5).setMaxValue(1000))),
     new SlashCommandBuilder()
         .setName('duty')
         .setDescription('Staff duty sessions')
@@ -636,6 +665,7 @@ export async function handleCommand(ctx, i) {
         case 'points': return handlePoints(ctx, i);
         case 'kills': return handleKills(ctx, i);
         case 'duty': return handleDutyCommand(ctx, i);
+        case 'active-region': return handleRegions(ctx, i);
         case 'teleport': return handleTeleport(ctx, i);
         case 'shop': return handleShop(ctx, i);
         // Same handler and the same permission gate: /setup exists only because
@@ -2559,6 +2589,178 @@ async function handleReferrals(ctx, i, action) {
         flags: MessageFlags.Ephemeral,
     });
 }
+// --------------------------------------------------------- active region --
+const hudUnits = (world) => Math.round(world / 1000);
+async function handleRegions(ctx, i) {
+    if (!mayAdminister(ctx, i)) {
+        await i.reply({
+            embeds: [embed(COLORS.bad, 'Not allowed', 'You need **Manage Server**, or an entry on the bot admin list.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    const action = i.options.getSubcommand(true);
+    if (action === 'setup') {
+        const channel = i.options.getChannel('channel', true);
+        const map = i.options.getChannel('map');
+        const role = i.options.getRole('role');
+        const auto = i.options.getBoolean('auto') ?? true;
+        setRegionSetting(ctx, 'channel', channel.id);
+        if (map)
+            setRegionSetting(ctx, 'mapChannel', map.id);
+        if (role)
+            setRegionSetting(ctx, 'roleMention', role.id);
+        setRegionSetting(ctx, 'auto', auto ? '1' : '0');
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        // Scheduled from now, so switching it on does not fire an event instantly.
+        const due = scheduleNext(ctx);
+        if (map)
+            await drawRegionMap(ctx, i.client, () => undefined);
+        await i.editReply({
+            embeds: [embed(COLORS.good, 'Active Region set up', `Announcements in <#${channel.id}>`
+                    + (map ? `, map kept in <#${map.id}>` : '')
+                    + (role ? `, pinging <@&${role.id}>` : ', with no ping')
+                    + `.\n\nAutomatic events are **${auto ? 'on' : 'off'}**`
+                    + (auto ? `, first one <t:${Math.floor(due / 1000)}:R>` : '')
+                    + '.\n\n⚠️ **The region coordinates are placeholders.** Stand in the '
+                    + 'middle of each area and use `/active-region move` before running one '
+                    + 'for real.')],
+        });
+        return;
+    }
+    if (action === 'regions') {
+        const running = activeEvent(ctx);
+        const lines = regionsFor(ctx).map((r) => `${r.enabled ? '🟢' : '⚪'} **${r.name}** \`${r.id}\`\n`
+            + `-# centre Lat ${hudUnits(r.y)}, Long ${hudUnits(r.x)} · radius `
+            + `${hudUnits(r.radius)}${running?.regionId === r.id ? ' · **active now**' : ''}`);
+        await i.reply({
+            embeds: [embed(COLORS.info, '🗺️  Regions', `${lines.join('\n')}\n\n`
+                    + 'Coordinates ship as placeholders. `/active-region move` puts one '
+                    + 'where you are standing, which is the only way to get them right.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'status') {
+        const running = activeEvent(ctx);
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        // Where the admin is, so a placeholder can be checked without leaving
+        // Discord — and so `move` can be aimed.
+        const link = ctx.db.linkFor(i.user.id);
+        const me = link
+            ? (await ctx.mod.players().catch(() => []))
+                .find((p) => p.steam === link.steamId)
+            : undefined;
+        const where = me?.x !== undefined && me.y !== undefined
+            ? `\n\nYou are at Lat **${hudUnits(me.y)}**, Long **${hudUnits(me.x)}**.`
+            : '\n\nThe bot cannot see where you are right now.';
+        if (!running) {
+            const due = nextEventAt(ctx);
+            await i.editReply({
+                embeds: [embed(COLORS.quiet, 'Nothing running', (autoRegions(ctx) && due > 0
+                        ? `The next one is due <t:${Math.floor(due / 1000)}:R>.`
+                        : 'Automatic events are off. Start one with `/active-region start`.')
+                        + where)],
+            });
+            return;
+        }
+        const region = regionById(ctx, running.regionId);
+        const mine = link ? running.participants[link.steamId] : undefined;
+        const away = region && me?.x !== undefined && me.y !== undefined
+            ? distanceTo(region, me.x, me.y)
+            : null;
+        await i.editReply({
+            embeds: [embed(COLORS.good, `🔥  ${running.regionName}`, `Ends <t:${Math.floor(running.endsAt / 1000)}:R>.\n`
+                    + `**${qualified(running).length}** qualified so far of `
+                    + `**${Object.keys(running.participants).length}** seen inside.\n`
+                    + `Needs **${running.minPlayers}** to pay out.\n\n`
+                    + `Your time: **${Math.round((mine?.seconds ?? 0) / 60)}** of `
+                    + `**${running.requiredMinutes}** minutes.`
+                    + (away !== null
+                        ? `\nYou are **${hudUnits(away)}** from the centre `
+                            + `(radius ${hudUnits(region?.radius ?? 0)}) — `
+                            + `${away <= (region?.radius ?? 0) ? '**inside**' : 'outside'}.`
+                        : '')
+                    + where)],
+        });
+        return;
+    }
+    if (action === 'move') {
+        const id = i.options.getString('region', true);
+        const radius = i.options.getInteger('radius');
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        const region = regionById(ctx, id);
+        if (!region) {
+            await i.editReply({ embeds: [embed(COLORS.bad, 'No such region', `Nothing called \`${id}\`.`)] });
+            return;
+        }
+        const link = ctx.db.linkFor(i.user.id);
+        const me = link
+            ? (await ctx.mod.players().catch(() => []))
+                .find((p) => p.steam === link.steamId)
+            : undefined;
+        if (!me || me.x === undefined || me.y === undefined) {
+            await i.editReply({
+                embeds: [embed(COLORS.warn, 'Cannot see you', 'Stand in the middle of the area in game and run this again.')],
+            });
+            return;
+        }
+        setRegionOverride(ctx, id, {
+            x: me.x,
+            y: me.y,
+            ...(radius ? { radius: radius * 1000 } : {}),
+        });
+        await drawRegionMap(ctx, i.client, () => undefined);
+        await i.editReply({
+            embeds: [embed(COLORS.good, `${region.name} moved`, `Centre is now Lat **${hudUnits(me.y)}**, Long **${hudUnits(me.x)}**`
+                    + (radius ? `, radius **${radius}**` : '')
+                    + '.\n\nSaved as an override, so it survives a redeploy.')],
+        });
+        return;
+    }
+    if (action === 'stop') {
+        const running = activeEvent(ctx);
+        if (!running) {
+            await i.reply({
+                embeds: [embed(COLORS.warn, 'Nothing running', 'There is no Active Region.')],
+                flags: MessageFlags.Ephemeral,
+            });
+            return;
+        }
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        const payout = finishEvent(ctx, running, () => undefined);
+        await i.editReply({
+            embeds: [embed(COLORS.good, 'Stopped', `**${running.regionName}** ended early. `
+                    + (payout.paid.length > 0
+                        ? `**${payout.paid.length}** were paid **${payout.reward}** each.`
+                        : 'Nobody qualified, so nothing was paid.'))],
+        });
+        return;
+    }
+    // start
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    const started = startEvent(ctx, {
+        ...(i.options.getString('region') ? { regionId: i.options.getString('region') } : {}),
+        ...(i.options.getInteger('minutes') !== null
+            ? { minutes: i.options.getInteger('minutes') } : {}),
+        ...(i.options.getInteger('reward') !== null
+            ? { reward: i.options.getInteger('reward') } : {}),
+        ...(i.options.getInteger('required') !== null
+            ? { requiredMinutes: i.options.getInteger('required') } : {}),
+        ...(i.options.getBoolean('test') ? { dryRun: true } : {}),
+    });
+    if (!started.ok) {
+        await i.editReply({ embeds: [embed(COLORS.bad, 'Not started', started.reason)] });
+        return;
+    }
+    await announceRegion(ctx, i.client, buildStartEmbed(started.event), () => undefined);
+    await drawRegionMap(ctx, i.client, () => undefined);
+    await i.editReply({
+        embeds: [embed(COLORS.good, 'Started', `**${started.event.regionName}** is active for `
+                + `**${Math.round((started.event.endsAt - started.event.startedAt) / 60_000)}** minutes.`
+                + (started.event.dryRun ? '\n\n🧪 Test event — nobody will be paid.' : ''))],
+    });
+}
 // ------------------------------------------------------------------ duty --
 /**
  * The slash-command half of Duty Mode.
@@ -4227,7 +4429,14 @@ async function handleGameAdmin(ctx, i, action) {
 export async function handleAutocomplete(ctx, i) {
     const focused = i.options.getFocused(true);
     let choices;
-    if (focused.name === 'species') {
+    if (focused.name === 'region') {
+        const typed = focused.value.trim().toLowerCase();
+        choices = regionsFor(ctx)
+            .filter((r) => !typed || r.name.toLowerCase().includes(typed) || r.id.includes(typed))
+            .slice(0, 25)
+            .map((r) => ({ name: `${r.name}${r.enabled ? '' : ' (off)'}`, value: r.id }));
+    }
+    else if (focused.name === 'species') {
         // Staff manage species that are deliberately absent from the live menu — a
         // cap of zero removes one — so they get the remembered roster. Everybody
         // else gets what can be spawned right now, since offering a buyer a locked

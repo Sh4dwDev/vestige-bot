@@ -382,3 +382,72 @@ export async function decodes(data: Buffer): Promise<boolean> {
 export function forgetBaseImage(): void {
   cached = null;
 }
+
+/**
+ * The Active Region map: the areas, and nothing else.
+ *
+ * Deliberately not the heatmap. That one shows where people are, which is
+ * exactly what the Active Region feature promises not to reveal — so this
+ * shares the projection and the base image and draws only the circles.
+ *
+ * The active one is filled and labelled; the rest are thin outlines, so the
+ * picture doubles as "here are the regions" when nothing is running.
+ */
+export async function renderRegions(
+  regions: Array<{ name: string; x: number; y: number; radius: number; active: boolean }>,
+  bounds: Bounds | null,
+  base: Buffer | null,
+  size = SIZE,
+): Promise<Buffer> {
+  const image = makeCanvas(size);
+
+  if (base) {
+    image.composite((await Jimp.read(base)).resize({ w: size, h: size }), 0, 0);
+  } else {
+    drawGrid(image, size);
+  }
+
+  if (bounds) {
+    const spanX = bounds.maxX - bounds.minX;
+
+    for (const region of regions) {
+      const { px, py } = toPixel({ x: region.x, y: region.y }, bounds, size);
+      // The radius is in world units and the image is a fraction of the span,
+      // so it scales with whatever the bounds turn out to be.
+      const rPixels = spanX !== 0 ? (region.radius / spanX) * size : 0;
+      if (rPixels < 1) continue;
+
+      const colour = region.active ? 0xff6b35 : 0x8899aa;
+      const alpha = region.active ? 0x66 : 0x22;
+
+      for (let y = Math.max(0, Math.floor(py - rPixels));
+        y < Math.min(size, Math.ceil(py + rPixels)); y += 1) {
+        for (let x = Math.max(0, Math.floor(px - rPixels));
+          x < Math.min(size, Math.ceil(px + rPixels)); x += 1) {
+          const away = Math.hypot(x - px, y - py);
+          if (away > rPixels) continue;
+
+          // A filled wash for the active one, a ring for the others: a solid
+          // disc over every region would hide the map underneath.
+          const edge = away > rPixels - 2;
+          if (!region.active && !edge) continue;
+
+          // Mixed rather than stamped, so the map underneath still reads.
+          const weight = (edge ? 0xdd : alpha) / 255;
+          const existing = image.getPixelColor(x, y);
+          const mix = (over: number, under: number): number =>
+            Math.round((over * weight) + (under * (1 - weight)));
+
+          image.setPixelColor(
+            (((mix((colour >>> 16) & 0xff, (existing >>> 24) & 0xff) << 24) >>> 0)
+              + (mix((colour >>> 8) & 0xff, (existing >>> 16) & 0xff) << 16)
+              + (mix(colour & 0xff, (existing >>> 8) & 0xff) << 8) + 0xff) >>> 0,
+            x, y,
+          );
+        }
+      }
+    }
+  }
+
+  return image.getBuffer('image/png');
+}

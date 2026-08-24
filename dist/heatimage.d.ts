@@ -85,3 +85,20 @@ export declare const SUPPORTED: string[];
 /** Whether a buffer is actually an image this can draw on. */
 export declare function decodes(data: Buffer): Promise<boolean>;
 export declare function forgetBaseImage(): void;
+/**
+ * The Active Region map: the areas, and nothing else.
+ *
+ * Deliberately not the heatmap. That one shows where people are, which is
+ * exactly what the Active Region feature promises not to reveal — so this
+ * shares the projection and the base image and draws only the circles.
+ *
+ * The active one is filled and labelled; the rest are thin outlines, so the
+ * picture doubles as "here are the regions" when nothing is running.
+ */
+export declare function renderRegions(regions: Array<{
+    name: string;
+    x: number;
+    y: number;
+    radius: number;
+    active: boolean;
+}>, bounds: Bounds | null, base: Buffer | null, size?: number): Promise<Buffer>;
