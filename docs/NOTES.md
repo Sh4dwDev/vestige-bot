@@ -204,32 +204,46 @@ it cannot be done from here. Do not spend another round trying opcodes: the
 list in `src/rcon.ts` is complete, and the only other candidate,
 `0x84 ToggleGlobalChat`, is a switch rather than a sender.
 
-## The C++ AI controllers do not fight — measured for Rex
+## Spawning AI: use SpawnDefaultController, and mind the typo
 
-Settled on 2026-08-24 with the owner-only prototype (`/spawn-ai rex`), which
-existed to answer exactly this. Previously it was measured for Ceratosaurus and
-only *inferred* for Tyrannosaurus.
+Settled 2026-08-24, correcting an earlier conclusion in this same file.
 
-A Rex spawned on `/Script/TheIsle.TIAIRexController`:
+**The game's own AI is hostile** — a deer killed a player on 2026-08-23 — so
+"AI cannot fight" was never the right reading. What was actually true is
+narrower: a controller spawned *by hand* does not fight.
 
-- **walks.** Confirmed by comparing positions, not by the spawn succeeding: it
-  fell 22m onto terrain and moved 25m within three seconds of spawning.
-- **ignores players.** It wandered away from the owner standing next to it and
-  never turned, chased or attacked.
-- **appears not to take damage** from a player hitting it.
+Three things, measured:
 
-So the earlier finding holds for Rex too: the `/Script/TheIsle.TIAI*` classes
-are the bare C++ bases and movement is all they have. Perception, the behaviour
-tree and combat are configured in the `BP_AI_*` Blueprints, and Tyrannosaurus
-has none — so there is nothing to borrow either.
+1. **`world:SpawnActor` cannot spawn a Blueprint AI controller.** It returns a
+   wrapper whose `GetAddress()` is zero. Possessing that appears as
+   "possession failed", which is misleading — there was never a controller.
+   It works for the `/Script` C++ classes, which is why those were the ones
+   that seemed to work.
 
-**What this closes.** Spawning AI that fights is not reachable from Lua on this
-build, by any controller currently known. Anything wanting hostile AI needs the
-Blueprint side, which means a cooked asset change rather than a mod.
+2. **`pawn:SpawnDefaultController()` is the right call.** A pawn already knows
+   which controller it wants, in its own `AIControllerClass`, and this honours
+   it. It is what the game uses for its own AI. No path needs to be named.
 
-The prototype also never gained a cleanup path: `K2_DestroyActor` remains an
-uncatchable crash, so it logs `would despawn now` and the Rex persists until it
-dies or the server restarts.
+3. **The Rex controller is misspelled in the game's assets:**
+
+   ```
+   /Game/TheIsle/Core/AI/Controllers/Dinos/BP_AI_Tyrannasarus_Controller.BP_AI_Tyrannasarus_Controller_C
+   ```
+
+   "Tyrann**asarus**". Every correct spelling misses it, which is why upstream's
+   table recorded no Blueprint controller for Tyrannosaurus and fell back to the
+   bare C++ base. There was one all along.
+
+The game's live ambient AI uses the same family, e.g.
+`BP_AI_Dino_Dryosaurus_Controller_C`, so the naming is inconsistent across
+species too. **Do not guess these paths.** Spawn the pawn, call
+`SpawnDefaultController()`, then read `GetController():GetClass():GetFullName()`
+to learn what it chose.
+
+Still unsolved: there is no safe way to remove a spawned AI from Lua.
+`K2_DestroyActor` on a pawn gameplay already freed is an uncatchable crash, so
+the prototype logs `would despawn now` and the Rex persists until it dies or the
+server restarts.
 
 ## AI wildlife
 

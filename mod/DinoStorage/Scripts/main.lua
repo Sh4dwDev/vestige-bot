@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.43.0"
+local MOD_VERSION = "3.47.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -2620,12 +2620,16 @@ local function handleAiSpawn(cmd)
             "stage 1: the Rex pawn class is not on this build")
         return
     end
-    local ctrlCls = classExists(REX_CTRL)
+    -- Overridable: the C++ base walks and never fights, and finding which
+    -- Blueprint controller does is the whole point of the exercise.
+    local ctrlPath = tostring((cmd.args and cmd.args.ctrl) or REX_CTRL)
+    local ctrlCls = classExists(ctrlPath)
     if ctrlCls == nil then
         writeResult(cmd.id, "aispawn", cmd.steam, false,
-            "stage 1: TIAIRexController is not on this build")
+            "stage 1: no such controller on this build: " .. ctrlPath)
         return
     end
+    log("rex: using controller " .. ctrlPath)
 
     local where, why = pickSpawnPoint(origin)
     if where == nil then
@@ -2659,25 +2663,47 @@ local function handleAiSpawn(cmd)
         return
     end
 
+    -- How the engine itself does it.
+    --
+    -- Spawning a controller with SpawnActor works for the C++ base and returns
+    -- a null-address wrapper for the Blueprint ones -- which is what
+    -- "possession failed" really was, possessing nothing. A pawn already knows
+    -- which controller it wants, in its own AIControllerClass, and
+    -- SpawnDefaultController is the call that honours it. That is the path the
+    -- game uses for its own hostile AI, so it is the one tried first.
     local brain
-    pcall(function()
-        brain = world:SpawnActor(ctrlCls, where, { Pitch = 0, Yaw = 0, Roll = 0 })
-    end)
-    if brain == nil then
-        -- Nothing is cleaned up here, and that is deliberate: there is no safe
-        -- destroy from Lua, so a half-spawned Rex is left standing rather than
-        -- risking the server to tidy it.
-        writeResult(cmd.id, "aispawn", cmd.steam, false,
-            "stage 5: the controller would not spawn. The pawn is out there and "
-            .. "cannot be safely removed -- it will go on the next restart.")
-        return
-    end
+    pcall(function() pawn:SpawnDefaultController() end)
+    pcall(function() brain = pawn:GetController() end)
 
-    -- Possess boots the brain; there is no separate start call.
-    local possessed = pcall(function() brain:Possess(pawn) end)
-    if not possessed then
-        writeResult(cmd.id, "aispawn", cmd.steam, false, "stage 6: possession failed")
-        return
+    local brainAddr
+    if brain ~= nil then pcall(function() brainAddr = brain:GetAddress() end) end
+
+    if brain ~= nil and brainAddr ~= nil and brainAddr ~= 0 then
+        local brainClass = "?"
+        pcall(function() brainClass = brain:GetClass():GetFullName() end)
+        log("rex: default controller spawned -- " .. brainClass)
+    else
+        -- Fall back to naming one explicitly, which is all the C++ base needs.
+        log("rex: no default controller, falling back to " .. ctrlPath)
+        pcall(function()
+            brain = world:SpawnActor(ctrlCls, where, { Pitch = 0, Yaw = 0, Roll = 0 })
+        end)
+
+        brainAddr = nil
+        if brain ~= nil then pcall(function() brainAddr = brain:GetAddress() end) end
+        if brain == nil or brainAddr == nil or brainAddr == 0 then
+            writeResult(cmd.id, "aispawn", cmd.steam, false,
+                "stage 5: no controller could be attached (" .. ctrlPath .. ")")
+            return
+        end
+
+        local possessed, possessErr = pcall(function() brain:Possess(pawn) end)
+        if not possessed then
+            log("rex: Possess threw -- " .. tostring(possessErr))
+            writeResult(cmd.id, "aispawn", cmd.steam, false,
+                "stage 6: possession failed -- " .. tostring(possessErr))
+            return
+        end
     end
 
     -- Growth first, then vitals: SetGrowth refills food on its own, so the
@@ -2842,6 +2868,81 @@ local function handleAiStatus(cmd)
             tostring(rex.farSince ~= nil)))
 end
 
+-- What the game's OWN hostile AI is made of.
+--
+-- The prototype spawned a Rex that walks and ignores everybody, and the
+-- conclusion drawn from that was too broad: the game's ambient AI plainly does
+-- attack -- a deer killed a player on 2026-08-23. So hostile AI works. The
+-- open question is what a gameplay-spawned one has that a Lua-spawned one does
+-- not.
+--
+-- This reads that off live instances rather than guessing. Only calls already
+-- proven safe on this build are used: FindAllOf, and GetFullName on something
+-- that is definitely instanced. No property reads, no GetSuperStruct -- both
+-- crashed the server on 2026-08-23.
+local function handleAiScan(cmd)
+    log("aiscan: ---- start ----")
+
+    -- Every AI pawn and controller currently alive, by base class. Whatever
+    -- the game spawned for itself is in here.
+    local bases = {
+        "TIAIController", "AIController", "Controller",
+        "TICharacterAI", "TICharacterBase",
+    }
+
+    local seenClasses = {}
+
+    for _, base in ipairs(bases) do
+        local all
+        pcall(function() all = FindAllOf(base) end)
+        local list = (type(all) == "table") and all or {}
+        if #list > 0 then
+            log(string.format("aiscan: %d live %s", #list, base))
+        end
+
+        -- The class of a live object is the answer. Capped: a busy server has
+        -- hundreds of these and the interesting part is the distinct set.
+        local shown = 0
+        for _, obj in ipairs(list) do
+            if shown >= 60 then break end
+            local full
+            pcall(function() full = obj:GetClass():GetFullName() end)
+            if full ~= nil and seenClasses[full] == nil then
+                seenClasses[full] = true
+                shown = shown + 1
+                log("aiscan:   class " .. full)
+            end
+        end
+    end
+
+    -- And the Blueprint controllers upstream documented, checked by path so we
+    -- learn whether they exist on this build even with nothing instanced.
+    local ctrlRoot = "/Game/TheIsle/Core/AI/Controllers/"
+    local candidates = {
+        ctrlRoot .. "Dinos/BP_AI_Dino_Tyrannosaurus_Controller.BP_AI_Dino_Tyrannosaurus_Controller_C",
+        ctrlRoot .. "Dinos/BP_AI_Dino_Rex_Controller.BP_AI_Dino_Rex_Controller_C",
+        ctrlRoot .. "Dinos/BP_AI_Dino_Dryosaurus_Controller.BP_AI_Dino_Dryosaurus_Controller_C",
+        ctrlRoot .. "Dinos/BP_AI_Rex_Controller.BP_AI_Rex_Controller_C",
+        ctrlRoot .. "Dinos/BP_AI_Tyrannosaurus_Controller.BP_AI_Tyrannosaurus_Controller_C",
+        ctrlRoot .. "Dinos/BP_AI_Cerato_Controller.BP_AI_Cerato_Controller_C",
+        ctrlRoot .. "Dinos/BP_AI_Omniraptor_Controller.BP_AI_Omniraptor_Controller_C",
+        ctrlRoot .. "Dinos/BP_AI_Compsognathus_Controller.BP_AI_Compsognathus_Controller_C",
+        ctrlRoot .. "Dinos/BP_AI_Deinosuchus_Controller.BP_AI_Deinosuchus_Controller_C",
+        ctrlRoot .. "BP_AI_Controller.BP_AI_Controller_C",
+        "/Script/TheIsle.TIAIRexController",
+        "/Script/TheIsle.TIAIController",
+    }
+
+    for _, path in ipairs(candidates) do
+        local cls
+        pcall(function() cls = StaticFindObject(path) end)
+        log(string.format("aiscan: %s %s", cls ~= nil and "EXISTS " or "missing", path))
+    end
+
+    log("aiscan: ---- end ----")
+    writeResult(cmd.id, "aiscan", cmd.steam, true, "written to the mod log")
+end
+
 local function dispatch(cmd)
     if type(cmd) ~= "table" then return end
 
@@ -2868,6 +2969,7 @@ local function dispatch(cmd)
     elseif verb == "slotinfo" then handleSlotInfo(cmd)
     elseif verb == "aispawn" then handleAiSpawn(cmd)
     elseif verb == "aistatus" then handleAiStatus(cmd)
+    elseif verb == "aiscan" then handleAiScan(cmd)
     elseif verb == "slay" then handleSlay(cmd)
     elseif verb == "players" then handlePlayers(cmd)
     elseif verb == "give" then handleGive(cmd)
