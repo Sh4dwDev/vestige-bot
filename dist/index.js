@@ -32,7 +32,6 @@ import { refreshStatusPanel } from './status.js';
 import { handlePanelInteraction } from './panel.js';
 import { handleMarket } from './market.js';
 import { runNesting } from './nesting.js';
-import { activeEvent, autoRegions, runRegions } from './regions.js';
 import { runGameLog } from './gamelog.js';
 import { handleDuty, reconcileDuty } from './duty.js';
 import { handleWardrobe } from './wardrobe.js';
@@ -734,11 +733,7 @@ function startServerPoll(ctx, client) {
             return;
         const contest = activeContest(ctx);
         const hunt = activeHunt(ctx);
-        // Regions are here rather than on the minute tick: an event that ended
-        // sixty seconds ago is still showing as running, and a boundary crossing
-        // noticed a minute late is not a boundary anybody can feel.
-        const region = activeEvent(ctx) !== null || autoRegions(ctx);
-        if (!contest && !hunt && !region) {
+        if (!contest && !hunt) {
             // Still moved on, or the first tick after one starts would credit every
             // second since the bot booted.
             lastContest = Date.now();
@@ -756,8 +751,6 @@ function startServerPoll(ctx, client) {
                 await runContest(ctx, client, live, elapsed, log);
             if (hunt)
                 await runHunt(ctx, client, live, log);
-            if (region)
-                await runRegions(ctx, client, live, log);
         }
         catch (err) {
             log(`events: tick failed: ${describeError(err)}`);

@@ -85,22 +85,3 @@ export declare const SUPPORTED: string[];
 /** Whether a buffer is actually an image this can draw on. */
 export declare function decodes(data: Buffer): Promise<boolean>;
 export declare function forgetBaseImage(): void;
-/**
- * The Active Region map: one region, drawn like the heatmap.
- *
- * Deliberately not the heatmap itself. That one shows where people are, which
- * is exactly what this feature promises not to reveal — so this shares the
- * projection, the base image and the glow, and draws a single area instead of
- * a crowd.
- *
- * Only the active region is drawn. Showing all of them would tell everybody
- * where the next few events might be, which turns a rotation into a timetable;
- * and an empty map when nothing is running is the honest picture.
- */
-export declare function renderRegions(regions: Array<{
-    name: string;
-    x: number;
-    y: number;
-    radius: number;
-    active: boolean;
-}>, bounds: Bounds | null, base: Buffer | null, size?: number): Promise<Buffer>;
