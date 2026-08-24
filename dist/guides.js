@@ -95,7 +95,7 @@ export function buildStorageGuideEmbed() {
  * channel, and listing it for everybody would invite people to press a button
  * that will only tell them no.
  */
-export const STAFF_COMMANDS = new Set(['admin', 'setup', 'duty', 'spawn-ai']);
+export const STAFF_COMMANDS = new Set(['admin', 'setup', 'duty']);
 export function buildCommandsEmbed() {
     return new EmbedBuilder()
         .setColor(ACCENT)

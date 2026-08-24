@@ -204,46 +204,41 @@ it cannot be done from here. Do not spend another round trying opcodes: the
 list in `src/rcon.ts` is complete, and the only other candidate,
 `0x84 ToggleGlobalChat`, is a switch rather than a sender.
 
-## Spawning AI: use SpawnDefaultController, and mind the typo
+## Spawning AI: what the Rex prototype found, and what it did not
 
-Settled 2026-08-24, correcting an earlier conclusion in this same file.
+Built and removed on 2026-08-24. Kept here because the findings cost a day and
+the next attempt should start from them rather than from scratch.
 
-**The game's own AI is hostile** — a deer killed a player on 2026-08-23 — so
-"AI cannot fight" was never the right reading. What was actually true is
-narrower: a controller spawned *by hand* does not fight.
+**Trustworthy, because it came from live objects:**
 
-Three things, measured:
+- **`world:SpawnActor` cannot spawn a Blueprint AI controller.** It returns a
+  wrapper whose `GetAddress()` is zero, and possessing that looks like
+  "possession failed". It works for the `/Script` C++ classes, which is why
+  those were the ones that appeared to work — and why the original AI feature
+  ended up on them.
+- **`pawn:SpawnDefaultController()` is the right call.** The pawn knows its own
+  `AIControllerClass`; this honours it, as the game does for its own AI.
+- **A Rex resolves to `BP_AI_Tyrannasarus_Controller_C`** — misspelled in the
+  game's assets, which is why no correct spelling ever found it and why
+  Tyrannosaurus was recorded as having no Blueprint controller.
+- **The game's own live ambient AI uses `BP_AI_Dino_Dryosaurus_Controller_C`**,
+  so naming is inconsistent across species too.
+- **Killing is a safe despawn.** `SetHealth(0)`, with food and rotten value
+  zeroed first, exactly as storing does. `K2_DestroyActor` remains an
+  uncatchable crash and is never needed.
 
-1. **`world:SpawnActor` cannot spawn a Blueprint AI controller.** It returns a
-   wrapper whose `GetAddress()` is zero. Possessing that appears as
-   "possession failed", which is misleading — there was never a controller.
-   It works for the `/Script` C++ classes, which is why those were the ones
-   that seemed to work.
+**`StaticFindObject` CANNOT be used to test whether an asset exists.** Measured
+with a control: it returns non-nil for
+`BP_AI_Dino_Notarealdinosaur_Controller_C` and for `/Game/Nonsense/Made/Up`. It
+also accepted a path with `C:/Program Files/Git/` spliced into it. Any
+"does this class exist" answer from it is worthless — read the class off a live
+instance instead.
 
-2. **`pawn:SpawnDefaultController()` is the right call.** A pawn already knows
-   which controller it wants, in its own `AIControllerClass`, and this honours
-   it. It is what the game uses for its own AI. No path needs to be named.
-
-3. **The Rex controller is misspelled in the game's assets:**
-
-   ```
-   /Game/TheIsle/Core/AI/Controllers/Dinos/BP_AI_Tyrannasarus_Controller.BP_AI_Tyrannasarus_Controller_C
-   ```
-
-   "Tyrann**asarus**". Every correct spelling misses it, which is why upstream's
-   table recorded no Blueprint controller for Tyrannosaurus and fell back to the
-   bare C++ base. There was one all along.
-
-The game's live ambient AI uses the same family, e.g.
-`BP_AI_Dino_Dryosaurus_Controller_C`, so the naming is inconsistent across
-species too. **Do not guess these paths.** Spawn the pawn, call
-`SpawnDefaultController()`, then read `GetController():GetClass():GetFullName()`
-to learn what it chose.
-
-Still unsolved: there is no safe way to remove a spawned AI from Lua.
-`K2_DestroyActor` on a pawn gameplay already freed is an uncatchable crash, so
-the prototype logs `would despawn now` and the Rex persists until it dies or the
-server restarts.
+**What was never solved.** A Rex spawned this way walks, ignores players and
+does not fight, and its client-side hitbox trails the server position. So the
+pawn exists and moves but is not a properly registered AI, and it does not
+replicate to clients the way a game-spawned one does. Whether that is fixable
+from Lua is unknown; it is the same wall the original ambient AI feature hit.
 
 ## AI wildlife
 

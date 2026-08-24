@@ -128,12 +128,6 @@ export const commandData = [
         .setDescription('Ask a friend if you can travel to them')
         .addUserOption((o) => o.setName('friend').setDescription('Who you want to travel to').setRequired(true)),
     new SlashCommandBuilder()
-        .setName('spawn-ai')
-        .setDescription('Owner only: the Rex prototype')
-        .addSubcommand((c) => c.setName('rex').setDescription('Spawn one prototype Rex'))
-        .addSubcommand((c) => c.setName('status').setDescription('What the prototype is doing'))
-        .addSubcommand((c) => c.setName('despawn').setDescription('Remove the prototype Rex')),
-    new SlashCommandBuilder()
         .setName('duty')
         .setDescription('Staff duty sessions')
         .addSubcommand((c) => c.setName('on').setDescription('Start a duty session'))
@@ -173,8 +167,6 @@ export const commandData = [
         .addChannelOption((o) => o.setName('channel').setDescription('The log channel')
         .addChannelTypes(ChannelType.GuildText)))
         .addSubcommand((s) => s.setName('logoff').setDescription('Stop the staff log'))
-        .addSubcommand((s) => s.setName('owner').setDescription('Who may use the AI prototype')
-        .addUserOption((o) => o.setName('user').setDescription('The single owner').setRequired(true)))
         .addSubcommand((s) => s.setName('notices').setDescription('How on-screen notices are shown')
         .addStringOption((o) => o.setName('style').setDescription('banner leaves prime alone').setRequired(true)
         .addChoices({ name: 'Banner (keeps prime visible)', value: 'banner' }, { name: 'Persistent (hides prime)', value: 'persistent' })))
@@ -644,7 +636,6 @@ export async function handleCommand(ctx, i) {
         case 'points': return handlePoints(ctx, i);
         case 'kills': return handleKills(ctx, i);
         case 'duty': return handleDutyCommand(ctx, i);
-        case 'spawn-ai': return handlePrototype(ctx, i);
         case 'teleport': return handleTeleport(ctx, i);
         case 'shop': return handleShop(ctx, i);
         // Same handler and the same permission gate: /setup exists only because
@@ -2568,92 +2559,6 @@ async function handleReferrals(ctx, i, action) {
         flags: MessageFlags.Ephemeral,
     });
 }
-// --------------------------------------------------------------- prototype --
-const PROTOTYPE_OWNER_KEY = 'prototype_owner';
-/**
- * Owner only, by configured Discord ID.
- *
- * Never by username or display name: both are changeable by the person being
- * checked, which makes them a claim rather than an identity. Fails closed —
- * with no owner configured nobody qualifies, including whoever set it up.
- */
-const isPrototypeOwner = (ctx, discordId) => {
-    const owner = ctx.db.getSetting(PROTOTYPE_OWNER_KEY);
-    return owner !== '' && owner === discordId;
-};
-async function handlePrototype(ctx, i) {
-    if (!isPrototypeOwner(ctx, i.user.id)) {
-        await i.reply({
-            embeds: [embed(COLORS.bad, 'Owner only', 'The AI prototype is owner-only. It spawns something that cannot be '
-                    + 'safely removed, so it is deliberately not delegated.')],
-            flags: MessageFlags.Ephemeral,
-        });
-        return;
-    }
-    const link = ctx.db.linkFor(i.user.id);
-    if (!link) {
-        await i.reply({
-            embeds: [embed(COLORS.warn, 'Link first', 'It spawns next to you, so the bot has to know which character is yours.')],
-            flags: MessageFlags.Ephemeral,
-        });
-        return;
-    }
-    await i.deferReply({ flags: MessageFlags.Ephemeral });
-    const action = i.options.getSubcommand(true);
-    if (action === 'status') {
-        const state = await ctx.mod.run('aistatus', link.steamId, {})
-            .catch((err) => ({ ok: false, msg: describeError(err), data: undefined }));
-        const data = (state.data ?? {});
-        await i.editReply({
-            embeds: [embed(state.ok ? COLORS.info : COLORS.bad, '🦖  Rex prototype', `${state.msg}
-
-`
-                    + (typeof data['id'] === 'string'
-                        ? `**${String(data['id'])}**
-`
-                            + `Alive **${String(data['age'] ?? 0)}s** · growth `
-                            + `**${Math.round(Number(data['growth'] ?? 0) * 100)}%** · health `
-                            + `**${Math.round(Number(data['health'] ?? 0))}**
-`
-                            + `Moved: **${data['moved'] === true ? 'yes' : 'not yet'}**
-`
-                            + `Nearest player: **${Number(data['nearest'] ?? -1) < 0
-                                ? 'nobody' : `${Math.round(Number(data['nearest']))}m`}**
-`
-                            + `Despawn pending: **${data['pendingDespawn'] === true ? 'yes' : 'no'}**`
-                        : ''))],
-        });
-        return;
-    }
-    if (action === 'despawn') {
-        const gone = await ctx.mod.run('aidespawn', link.steamId, {})
-            .catch((err) => ({ ok: false, msg: describeError(err) }));
-        await i.editReply({
-            embeds: [embed(gone.ok ? COLORS.good : COLORS.warn, gone.ok ? 'Rex removed' : 'Not removed', `${gone.msg}
-
-`
-                    + 'Removed by killing it rather than destroying the actor — gameplay '
-                    + 'owns the corpse, which is what makes it safe. The body clears with '
-                    + 'the next cleanup.')],
-        });
-        return;
-    }
-    const spawned = await ctx.mod.run('aispawn', link.steamId, {})
-        .catch((err) => ({ ok: false, msg: describeError(err) }));
-    await i.editReply({
-        embeds: [embed(spawned.ok ? COLORS.good : COLORS.bad, spawned.ok ? '🦖  Rex out' : 'Not spawned', `${spawned.msg}
-
-`
-                + (spawned.ok
-                    ? '⚠️ It **cannot be removed**. There is no safe destroy from Lua on '
-                        + 'this build, so it stays until something kills it or the server '
-                        + 'restarts. The despawn logic runs and writes "would despawn now" '
-                        + 'to the mod log rather than acting.\n\n'
-                        + 'Expect it to walk. Do not expect it to bite — it runs the bare C++ '
-                        + 'controller, and combat lives in a Blueprint Lua cannot reach.'
-                    : 'Nothing was left behind unless the message says otherwise.'))],
-    });
-}
 // ------------------------------------------------------------------ duty --
 /**
  * The slash-command half of Duty Mode.
@@ -4160,18 +4065,6 @@ async function handleBotAdmin(ctx, i, action) {
                     + 'engine from Lua, which has taken this server down before.\n\n'
                     + 'Make it a channel staff cannot delete from, or the log is only as '
                     + 'trustworthy as the person being logged.')],
-            flags: MessageFlags.Ephemeral,
-        });
-        return;
-    }
-    if (action === 'owner') {
-        const user = i.options.getUser('user', true);
-        ctx.db.setSetting(PROTOTYPE_OWNER_KEY, user.id);
-        await i.reply({
-            embeds: [embed(COLORS.good, 'Prototype owner set', `${user} may use \`/spawn-ai\`. Nobody else, including other admins.
-
-`
-                    + 'It is one person because what it spawns cannot be removed safely.')],
             flags: MessageFlags.Ephemeral,
         });
         return;
