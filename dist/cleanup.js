@@ -66,11 +66,11 @@ export const CLEANUP_WARNINGS = [10, 1];
  * ASCII only, like everything else the bot sends in game.
  */
 export function cleanupWarning(minutes) {
+    // Short on purpose: it sits across the screen while somebody is playing, and
+    // the only thing they need from it is how long they have to finish eating.
     return minutes === 1
-        ? 'Server cleanup in 1 minute to keep performance smooth. Bodies will be '
-            + 'cleared, so finish eating.'
-        : `Server cleanup in ${minutes} minutes to keep performance smooth. Bodies `
-            + 'and excess AI will be cleared.';
+        ? 'Cleanup in 1 minute - finish eating.'
+        : `Cleanup in ${minutes} minutes - bodies will be cleared.`;
 }
 export async function wipeNow(ctx, log) {
     try {

@@ -204,6 +204,33 @@ it cannot be done from here. Do not spend another round trying opcodes: the
 list in `src/rcon.ts` is complete, and the only other candidate,
 `0x84 ToggleGlobalChat`, is a switch rather than a sender.
 
+## The C++ AI controllers do not fight — measured for Rex
+
+Settled on 2026-08-24 with the owner-only prototype (`/spawn-ai rex`), which
+existed to answer exactly this. Previously it was measured for Ceratosaurus and
+only *inferred* for Tyrannosaurus.
+
+A Rex spawned on `/Script/TheIsle.TIAIRexController`:
+
+- **walks.** Confirmed by comparing positions, not by the spawn succeeding: it
+  fell 22m onto terrain and moved 25m within three seconds of spawning.
+- **ignores players.** It wandered away from the owner standing next to it and
+  never turned, chased or attacked.
+- **appears not to take damage** from a player hitting it.
+
+So the earlier finding holds for Rex too: the `/Script/TheIsle.TIAI*` classes
+are the bare C++ bases and movement is all they have. Perception, the behaviour
+tree and combat are configured in the `BP_AI_*` Blueprints, and Tyrannosaurus
+has none — so there is nothing to borrow either.
+
+**What this closes.** Spawning AI that fights is not reachable from Lua on this
+build, by any controller currently known. Anything wanting hostile AI needs the
+Blueprint side, which means a cooked asset change rather than a mod.
+
+The prototype also never gained a cleanup path: `K2_DestroyActor` remains an
+uncatchable crash, so it logs `would despawn now` and the Rex persists until it
+dies or the server restarts.
+
 ## AI wildlife
 
 There is no config or RCON route to *add* AI. `0x90 ToggleAI` only switches what

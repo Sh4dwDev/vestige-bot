@@ -196,9 +196,13 @@ fs.rmSync(path.dirname(file), { recursive: true, force: true });
   check('players are warned twice, not once', CLEANUP_WARNINGS.length === 2,
     CLEANUP_WARNINGS.join(','));
   check('the early warning gives real notice', Math.max(...CLEANUP_WARNINGS) >= 10);
-  check('the ten minute notice says what will be cleared',
-    /10 minutes/.test(cleanupWarning(10)) && /Bodies/.test(cleanupWarning(10)),
+  check('the ten minute notice says how long and what goes',
+    /10 minutes/.test(cleanupWarning(10)) && /bodies/i.test(cleanupWarning(10)),
     cleanupWarning(10));
+  // It sits across the screen while somebody is playing, so length is a
+  // feature rather than a detail.
+  check('and stays short enough to read at a glance',
+    cleanupWarning(10).length <= 60, `${cleanupWarning(10).length} characters`);
   check('the last one tells people to finish eating',
     /\b1 minute\b/.test(cleanupWarning(1)) && /eating/.test(cleanupWarning(1)),
     cleanupWarning(1));
