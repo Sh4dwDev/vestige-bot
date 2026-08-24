@@ -58,6 +58,13 @@ export declare function eventAnnounce(event: SpeciesEvent, bonus: number): strin
 export declare function overAnnounce(species: string, kind: EventKind): string;
 /** So the next event tells everybody again rather than staying quiet. */
 export declare function forgetTold(): void;
+/**
+ * The reminder that an event is still running.
+ *
+ * Impersonal on purpose. It goes to chat, and RCON has no per-player chat line
+ * — `announce` is the whole server or nothing — so "you earn" would be wrong
+ * for everybody not playing that species.
+ */
 export declare function personalMessage(species: string, bonus: number): string;
 /**
  * Notifies the players who are on an endangered species right now.

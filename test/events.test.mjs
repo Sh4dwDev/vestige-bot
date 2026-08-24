@@ -122,18 +122,27 @@ check('turning events off stops every multiplier',
 db.close();
 fs.rmSync(path.dirname(file), { recursive: true, force: true });
 
-// The personal notice. It goes through the mod as ClientShowNotification: the
-// only per-player channel that is legible. announce is server-wide, and
-// directmessage draws a banner over the game's own ANNOUNCEMENT label -
-// verified live 2026-08-21, and it was unreadable.
+// The reminder that an event is still running. It goes to chat over RCON
+// announce, which is red, persists in the log, and is what was asked for.
+//
+// The two alternatives were both tried and both rejected. directmessage draws
+// a banner over the game's own ANNOUNCEMENT label - verified live 2026-08-21
+// and again 2026-08-23, and it is unreadable both times.
+// ClientShowNotification is legible but it is the widget the game draws the
+// prime checklist in, so it hides that until a condition changes.
+//
+// announce is server-wide with no per-player form, which is why the wording is
+// impersonal: "you earn" would be wrong for everybody not on that species.
 {
   const msg = ev.personalMessage('Ceratosaurus', 2);
 
   check('it names the species', /Ceratosaurus/.test(msg), msg);
   check('it says it is endangered', /Endangered/.test(msg));
-  check('it says what they earn', /2x/.test(msg));
-  check('it says what earns it - staying alive, not killing',
-    /stay alive/.test(msg) && !/kill/i.test(msg));
+  check('it says what it pays', /2x/.test(msg));
+  check('it says what earns it - playing one, not killing',
+    /Playing one/.test(msg) && !/kill/i.test(msg));
+  // Everybody reads this, not only the people it applies to.
+  check('it does not address one player', !/you/i.test(msg), msg);
   check('it is plain ASCII, like every in-game line', /^[ -~]*$/.test(msg));
 
   // One line on the HUD, and the mod truncates at 120. A message that gets cut

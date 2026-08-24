@@ -1,11 +1,11 @@
 import { EmbedBuilder, type Client } from 'discord.js';
 
 import { SIGNATURE } from './brand.js';
+import { toPlainAscii } from './bridge.js';
 import type { Ctx } from './commands.js';
 import type { PlayerRow } from './population.js';
 import { tally } from './population.js';
 import { speciesChannel } from './species.js';
-import { tell } from './tell.js';
 
 /**
  * Population events: the island pushing back on its own imbalance.
@@ -235,7 +235,7 @@ export function overAnnounce(species: string, kind: EventKind): string {
 /** Repeated this often while an event runs, so late arrivals still find out. */
 const REMIND_MS = 15 * 60_000;
 
-/** `steam|species` -> when they were last told. */
+/** Species -> when the server was last reminded about it. */
 const told = new Map<string, number>();
 
 /** So the next event tells everybody again rather than staying quiet. */
@@ -243,8 +243,16 @@ export function forgetTold(): void {
   told.clear();
 }
 
+/**
+ * The reminder that an event is still running.
+ *
+ * Impersonal on purpose. It goes to chat, and RCON has no per-player chat line
+ * — `announce` is the whole server or nothing — so "you earn" would be wrong
+ * for everybody not playing that species.
+ */
 export function personalMessage(species: string, bonus: number): string {
-  return `Endangered: ${species}. You earn ${bonus}x points per minute you stay alive.`;
+  return `Endangered: ${species}. Playing one pays ${bonus}x points per minute `
+    + 'while it lasts.';
 }
 
 /**
@@ -266,16 +274,25 @@ export async function tellPlayersInEvents(
 
   const now = Date.now();
 
-  for (const player of players) {
-    if (!player.steam || !player.species) continue;
-    if (active.get(player.species) !== 'rare') continue;
+  // Species, not player. This goes to chat, which is server-wide, so the
+  // reminder is once per species per interval rather than once per player —
+  // the same line repeated for every Carnotaurus alive would be unreadable.
+  const endangered = new Set(
+    players
+      .filter((p) => p.species && active.get(p.species) === 'rare')
+      .map((p) => p.species),
+  );
 
-    const key = `${player.steam}|${player.species}`;
-    if (now - (told.get(key) ?? 0) < REMIND_MS) continue;
-    told.set(key, now);
+  for (const species of endangered) {
+    if (now - (told.get(species) ?? 0) < REMIND_MS) continue;
+    told.set(species, now);
 
-    await tell(ctx, player.steam, personalMessage(player.species, settings.rareBonus));
-    log(`event: told ${player.steam} they are an endangered ${player.species}`);
+    // Chat rather than the banner: it is red, it persists in the log, and it
+    // is what was asked for. The cost is that everybody sees it, which is why
+    // the wording no longer says "you".
+    await ctx.rcon.announce(toPlainAscii(personalMessage(species, settings.rareBonus)))
+      .catch(() => undefined);
+    log(`event: reminded the server that ${species} is endangered`);
   }
 }
 
