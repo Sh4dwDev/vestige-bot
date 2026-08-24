@@ -3877,7 +3877,14 @@ async function handleRegions(
         + `**${Object.keys(running.participants).length}** seen inside.\n`
         + `Needs **${running.minPlayers}** to pay out.\n\n`
         + `Your time: **${Math.round((mine?.seconds ?? 0) / 60)}** of `
-        + `**${running.requiredMinutes}** minutes.`
+        + `**${running.requiredMinutes}** minutes.
+`
+        // What the record thinks, which is what the notices fire from. If this
+        // disagrees with the distance below, the bug is in the tracking rather
+        // than in the geometry.
+        + `Tracked as: **${mine === undefined
+          ? 'not seen yet'
+          : mine.lastX !== undefined ? 'inside' : 'outside'}**`
         + (away !== null
           ? `\nYou are **${hudUnits(away)}** from the centre `
             + `(radius ${hudUnits(region?.radius ?? 0)}) — `
