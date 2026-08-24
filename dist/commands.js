@@ -2645,8 +2645,9 @@ async function handleRegions(ctx, i) {
             + `${hudUnits(r.radius)}${running?.regionId === r.id ? ' · **active now**' : ''}`);
         await i.reply({
             embeds: [embed(COLORS.info, '🗺️  Regions', `${lines.join('\n')}\n\n`
-                    + 'Coordinates ship as placeholders. `/active-region move` puts one '
-                    + 'where you are standing, which is the only way to get them right.')],
+                    + '`/active-region add` places a new one where you are standing, and '
+                    + '`move` repositions an existing one. Standing in the area is the only '
+                    + 'way to get its coordinates right.')],
             flags: MessageFlags.Ephemeral,
         });
         return;
@@ -2742,8 +2743,7 @@ It joins the rotation straight away. Adding the same `
             return;
         }
         await i.reply({
-            embeds: [embed(COLORS.warn, 'Not yours to remove', `\`${id}\` is one of the built-in regions. Those cannot be deleted — `
-                    + 'move it instead, or leave it out by disabling it.')],
+            embeds: [embed(COLORS.warn, 'No such region', `Nothing called \`${id}\`. \`/active-region regions\` lists what exists.`)],
             flags: MessageFlags.Ephemeral,
         });
         return;

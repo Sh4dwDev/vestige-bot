@@ -79,30 +79,19 @@ export interface Region {
 }
 
 /**
- * The regions, as shipped.
+ * No regions ship with the feature.
  *
- * ⚠️ **EVERY COORDINATE BELOW IS A PLACEHOLDER.** They are spaced out across
- * the map so the feature can be exercised, but none of them has been measured
- * against the real Gateway landmarks and none should be trusted for a live
- * event until it has been.
+ * There were five, with invented coordinates, and they were worse than
+ * nothing: a placeholder that looks like data gets used like data, and an
+ * event running against a made-up centre sends people to an empty patch of
+ * map. The areas worth gathering in already have names on this server, and the
+ * only way to get their coordinates right is to stand in them.
  *
- * To fix one: stand in the middle of the area in game, read your position from
- * `/active-region status`, and set it with `/active-region move`. That writes
- * an override to the database, so no redeploy is needed and this list stays as
- * the fallback.
- *
- * The radius is in world units, the same scale positions arrive in — roughly
- * 1000 per HUD unit. 150000 is about 150 HUD units across the radius, which is
- * a large area on purpose: this is meant to gather people loosely, not to
- * stand them on a spot.
+ * So the list is empty and `/active-region add` is the way in. It places a
+ * region where the admin is standing, which makes naming an area the same act
+ * as walking to it.
  */
-export const REGIONS: Region[] = [
-  { id: 'highlands', name: 'Highlands', x: -143_000, y: 60_000, radius: 150_000, enabled: true },
-  { id: 'hexagon', name: 'Hexagon', x: -40_634, y: 114_107, radius: 150_000, enabled: true },
-  { id: 'crater', name: 'Crater', x: 267_709, y: -278_431, radius: 150_000, enabled: true },
-  { id: 'lakes', name: 'The Lakes', x: 0, y: 0, radius: 150_000, enabled: true },
-  { id: 'swamp', name: 'The Swamp', x: 150_000, y: 150_000, radius: 150_000, enabled: true },
-];
+export const REGIONS: Region[] = [];
 
 /**
  * Regions somebody added themselves.
@@ -145,7 +134,10 @@ export function removeRegion(ctx: Ctx, id: string): boolean {
   const before = customRegions(ctx);
   const next = before.filter((r) => r.id !== id);
   if (next.length === before.length) return false;
+
   saveCustom(ctx, next);
+  // The override would otherwise linger and reappear if the name were reused.
+  clearRegionOverride(ctx, id);
   return true;
 }
 
@@ -176,6 +168,18 @@ export function setRegionOverride(ctx: Ctx, id: string, patch: Partial<Region>):
   }
   overrides[id] = { ...(overrides[id] ?? {}), ...patch };
   ctx.db.setSetting(KEYS.overrides, JSON.stringify(overrides));
+}
+
+export function clearRegionOverride(ctx: Ctx, id: string): void {
+  try {
+    const raw = ctx.db.getSetting(KEYS.overrides);
+    if (!raw) return;
+    const overrides = JSON.parse(raw) as Record<string, Partial<Region>>;
+    delete overrides[id];
+    ctx.db.setSetting(KEYS.overrides, JSON.stringify(overrides));
+  } catch {
+    // Nothing to clear if it was unreadable anyway.
+  }
 }
 
 export const regionById = (ctx: Ctx, id: string): Region | null =>

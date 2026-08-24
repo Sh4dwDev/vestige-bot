@@ -219,7 +219,10 @@ const baseEvent = (over = {}) => ({
 
 {
   saveEvent(ctx, null);
-  const started = startEvent(ctx, { regionId: 'highlands', minutes: 5 }, 1_000);
+  addRegion(ctx, {
+    id: 'lifecycle', name: 'Lifecycle', x: 0, y: 0, radius: 100_000, enabled: true,
+  });
+  const started = startEvent(ctx, { regionId: 'lifecycle', minutes: 5 }, 1_000);
   check('an event starts', started.ok === true, started.ok ? '' : started.reason);
   check('and is the active one', activeEvent(ctx)?.eventId === started.event.eventId);
 
@@ -231,6 +234,9 @@ const baseEvent = (over = {}) => ({
   check('finishing clears it', activeEvent(ctx) === null);
   check('nobody qualified in five seconds', payout.paid.length === 0);
   check('and the next one is scheduled', nextEventAt(ctx) > 0);
+
+  // Tidied up, or it counts against the custom-region checks further down.
+  removeRegion(ctx, 'lifecycle');
 }
 
 {
@@ -242,20 +248,28 @@ const baseEvent = (over = {}) => ({
 // ---- regions and overrides --------------------------------------------------
 
 {
-  check('regions ship with the feature', REGIONS.length > 0);
-  check('and every one is a circle with a centre',
-    REGIONS.every((r) => typeof r.x === 'number' && typeof r.radius === 'number'));
+  // Nothing ships. Invented coordinates that look like data get used like
+  // data, and an event on a made-up centre sends people to an empty patch.
+  check('no regions ship with the feature', REGIONS.length === 0);
 
-  setRegionOverride(ctx, 'highlands', { x: 12_345, y: 67_890 });
-  const moved = regionById(ctx, 'highlands');
+  addRegion(ctx, {
+    id: 'basin', name: 'Basin', x: 10_000, y: 20_000, radius: 100_000, enabled: true,
+  });
+  setRegionOverride(ctx, 'basin', { x: 12_345, y: 67_890 });
+  const moved = regionById(ctx, 'basin');
   check('a region can be moved', moved?.x === 12_345 && moved?.y === 67_890);
-  check('and the rest are untouched',
-    regionById(ctx, 'hexagon')?.x === REGIONS.find((r) => r.id === 'hexagon')?.x);
 
-  // A broken override must not hide every region.
+  // Otherwise the old position returns if the name is ever reused.
+  removeRegion(ctx, 'basin');
+  addRegion(ctx, {
+    id: 'basin', name: 'Basin', x: 999, y: 888, radius: 100_000, enabled: true,
+  });
+  check('removing clears its override too', regionById(ctx, 'basin')?.x === 999,
+    String(regionById(ctx, 'basin')?.x));
+  removeRegion(ctx, 'basin');
+
   db.setSetting('region_overrides', 'not json');
-  check('unreadable overrides fall back to the shipped list',
-    regionsFor(ctx).length === REGIONS.length);
+  check('unreadable overrides are survivable', Array.isArray(regionsFor(ctx)));
 }
 
 // ---- regions of your own ----------------------------------------------------
@@ -299,14 +313,12 @@ const baseEvent = (over = {}) => ({
   check('a custom region can be removed', removeRegion(ctx, 'north-plains') === true);
   check('and is gone', !regionsFor(ctx).some((r) => r.id === 'north-plains'));
 
-  // The built-ins are not deletable — move or disable them instead.
-  check('removing a built-in is refused', removeRegion(ctx, 'highlands') === false);
-  check('and it is still there', regionsFor(ctx).some((r) => r.id === 'highlands'));
+  check('removing something that does not exist is refused',
+    removeRegion(ctx, 'never-existed') === false);
 
-  // A broken custom list must not hide the shipped ones.
+  // A broken list must be survivable rather than throwing on every read.
   db.setSetting('region_custom', 'not json');
-  check('unreadable custom regions fall back safely',
-    regionsFor(ctx).length === REGIONS.length);
+  check('unreadable custom regions read as empty', regionsFor(ctx).length === 0);
   db.setSetting('region_custom', '');
 }
 

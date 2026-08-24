@@ -45,22 +45,17 @@ export interface Region {
     enabled: boolean;
 }
 /**
- * The regions, as shipped.
+ * No regions ship with the feature.
  *
- * ⚠️ **EVERY COORDINATE BELOW IS A PLACEHOLDER.** They are spaced out across
- * the map so the feature can be exercised, but none of them has been measured
- * against the real Gateway landmarks and none should be trusted for a live
- * event until it has been.
+ * There were five, with invented coordinates, and they were worse than
+ * nothing: a placeholder that looks like data gets used like data, and an
+ * event running against a made-up centre sends people to an empty patch of
+ * map. The areas worth gathering in already have names on this server, and the
+ * only way to get their coordinates right is to stand in them.
  *
- * To fix one: stand in the middle of the area in game, read your position from
- * `/active-region status`, and set it with `/active-region move`. That writes
- * an override to the database, so no redeploy is needed and this list stays as
- * the fallback.
- *
- * The radius is in world units, the same scale positions arrive in — roughly
- * 1000 per HUD unit. 150000 is about 150 HUD units across the radius, which is
- * a large area on purpose: this is meant to gather people loosely, not to
- * stand them on a spot.
+ * So the list is empty and `/active-region add` is the way in. It places a
+ * region where the admin is standing, which makes naming an area the same act
+ * as walking to it.
  */
 export declare const REGIONS: Region[];
 /**
@@ -79,6 +74,7 @@ export declare function removeRegion(ctx: Ctx, id: string): boolean;
 /** Regions with any admin overrides applied, plus the custom ones. */
 export declare function regionsFor(ctx: Ctx): Region[];
 export declare function setRegionOverride(ctx: Ctx, id: string, patch: Partial<Region>): void;
+export declare function clearRegionOverride(ctx: Ctx, id: string): void;
 export declare const regionById: (ctx: Ctx, id: string) => Region | null;
 export declare const regionChannel: (ctx: Ctx) => string | null;
 export declare const regionMapChannel: (ctx: Ctx) => string | null;
