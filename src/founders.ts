@@ -11,7 +11,8 @@ import { SERVER, SIGNATURE } from './brand.js';
 import { describeError, type Ctx } from './commands.js';
 import { earlyRole, hasEarlyRole } from './earlymember.js';
 import {
-  applyLookIndexes, captureBaseline, encodeColours, hexToInt, restoreBaseline,
+  applyLookIndexes, captureBaseline, completeLook, encodeColours, hexToInt,
+  restoreBaseline,
   type Look,
 } from './skins.js';
 
@@ -335,7 +336,9 @@ async function applyFounderSkin(
     await applyLookIndexes(ctx, steamId, skin);
 
     const result = await ctx.mod.run('skinmany', steamId, {
-      colors: encodeColours(skin.colours),
+      // Completed the same way a preset is: these define six of the ten
+      // fields too, and the rest would keep whatever was hatched with.
+      colors: encodeColours(completeLook(skin.colours)),
     });
 
     if (!result.ok) {

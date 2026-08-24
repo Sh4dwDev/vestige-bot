@@ -140,4 +140,19 @@ export declare function restoreBaseline(ctx: Ctx, steamId: string, species: stri
  *
  * Saved wins: an admin who names their own preset after a built-in meant theirs.
  */
+/**
+ * Fills in the colour fields a palette does not name.
+ *
+ * Every ready-made look defines six of the ten: body, flanks, underbelly,
+ * markings, detail and eyes. The other four were simply left alone, so a
+ * repainted dinosaur kept the male display, teeth, mouth and claws it hatched
+ * with — reported as "the orange part won't change with the presets", which on
+ * a male Carnotaurus is `MaleDisplayColor` down the back and neck.
+ *
+ * The missing four are derived from the palette rather than given fixed
+ * values, so a look stays internally consistent instead of acquiring a stock
+ * mouth in somebody else's colour. An explicit value always wins, so a palette
+ * that does name all ten is untouched.
+ */
+export declare function completeLook(colours: Record<string, string>): Record<string, string>;
 export declare const presetLook: (ctx: Ctx, name: string) => Look | null;

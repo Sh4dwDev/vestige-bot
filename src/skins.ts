@@ -523,5 +523,49 @@ export async function restoreBaseline(
  *
  * Saved wins: an admin who names their own preset after a built-in meant theirs.
  */
-export const presetLook = (ctx: Ctx, name: string): Look | null =>
-  ctx.db.preset(name) ?? BUILT_IN[name] ?? null;
+/**
+ * Fills in the colour fields a palette does not name.
+ *
+ * Every ready-made look defines six of the ten: body, flanks, underbelly,
+ * markings, detail and eyes. The other four were simply left alone, so a
+ * repainted dinosaur kept the male display, teeth, mouth and claws it hatched
+ * with — reported as "the orange part won't change with the presets", which on
+ * a male Carnotaurus is `MaleDisplayColor` down the back and neck.
+ *
+ * The missing four are derived from the palette rather than given fixed
+ * values, so a look stays internally consistent instead of acquiring a stock
+ * mouth in somebody else's colour. An explicit value always wins, so a palette
+ * that does name all ten is untouched.
+ */
+export function completeLook(colours: Record<string, string>): Record<string, string> {
+  const pick = (...names: string[]): string | undefined => {
+    for (const name of names) {
+      const value = colours[name];
+      if (value) return value;
+    }
+    return undefined;
+  };
+
+  const filled = { ...colours };
+  const fallbacks: Record<string, string | undefined> = {
+    // An accent, so it follows the detail colour that is already the accent.
+    MaleDisplayColor: pick('Detail1Color', 'MarkingsColor', 'BodyColor'),
+    MouthColor: pick('MarkingsColor', 'BodyColor'),
+    // Teeth read as the pale part of the animal.
+    TeethColor: pick('UnderbellyColor', 'BodyColor'),
+    ClawsColor: pick('MarkingsColor', 'BodyColor'),
+  };
+
+  for (const [field, fallback] of Object.entries(fallbacks)) {
+    if (!filled[field] && fallback) filled[field] = fallback;
+  }
+
+  return filled;
+}
+
+export const presetLook = (ctx: Ctx, name: string): Look | null => {
+  const look = ctx.db.preset(name) ?? BUILT_IN[name] ?? null;
+  // Completed here rather than at each call site: this is the one place a
+  // named look is turned into something to paint, so nothing can skip it.
+  return look ? { ...look, colours: completeLook(look.colours) } : null;
+};

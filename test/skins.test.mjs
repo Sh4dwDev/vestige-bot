@@ -9,6 +9,7 @@ const root = path.resolve(import.meta.dirname, '..');
 const {
   PARTS, PRESETS, parseHex, toLinear, hexToLinear, hexToInt,
   toSrgb, linearToHex, encodeColours, BUILT_IN, patternLetter, PATTERN_CHOICES,
+  completeLook,
 } = await import(pathToFileURL(path.join(root, 'dist/skins.js')).href);
 
 const results = [];
@@ -197,6 +198,74 @@ check('preset names are unique', new Set(PRESETS.map((p) => p.name)).size === PR
     /if \(!applied\.ok\)/.test(apply.slice(0, 1200)));
   check('and a refused pattern is not saved as though it worked',
     apply.indexOf('setPattern') > apply.indexOf('if (!applied.ok)'));
+}
+
+// ---- completing a palette ---------------------------------------------------
+//
+// Reported in play: "the orange part won't change with the presets". Every
+// ready-made look defines six of the ten fields, so the other four kept
+// whatever the dinosaur hatched with — and on a male Carnotaurus the one that
+// shows is MaleDisplayColor, down the back and neck.
+
+{
+  const partial = {
+    BodyColor: '#101010',
+    MarkingsColor: '#202020',
+    FlankColor: '#303030',
+    UnderbellyColor: '#404040',
+    Detail1Color: '#505050',
+    EyesColor: '#606060',
+  };
+  const full = completeLook(partial);
+
+  for (const { field } of PARTS) {
+    check(`a completed look sets ${field}`, typeof full[field] === 'string', full[field]);
+  }
+
+  // Derived from the palette, not from a stock colour, or a look acquires a
+  // mouth in somebody else's scheme.
+  check('the male display follows the detail colour', full.MaleDisplayColor === '#505050');
+  check('teeth follow the underbelly', full.TeethColor === '#404040');
+  check('mouth and claws follow the markings',
+    full.MouthColor === '#202020' && full.ClawsColor === '#202020');
+
+  check('what was given is never overwritten',
+    full.BodyColor === '#101010' && full.EyesColor === '#606060');
+}
+
+{
+  // A palette that names all ten is already complete and must come back
+  // unchanged.
+  const whole = Object.fromEntries(PARTS.map(({ field }, n) =>
+    [field, `#0000${String(n).padStart(2, '0')}`]));
+  const same = completeLook(whole);
+  check('a complete palette is untouched',
+    PARTS.every(({ field }) => same[field] === whole[field]));
+}
+
+{
+  // Body alone is enough to derive the four from. The other six are a
+  // palette's own business — completing is about the fields nothing ever set,
+  // not inventing a whole look from one colour.
+  const sparse = completeLook({ BodyColor: '#ABCDEF' });
+  check('body alone still fills the four that presets miss',
+    ['MaleDisplayColor', 'TeethColor', 'MouthColor', 'ClawsColor']
+      .every((field) => sparse[field] === '#ABCDEF'),
+    JSON.stringify(sparse));
+  check('and does not invent the ones a palette should name',
+    sparse.MarkingsColor === undefined && sparse.EyesColor === undefined);
+
+  check('and an empty one invents nothing',
+    Object.keys(completeLook({})).length === 0);
+}
+
+{
+  // The built-ins are the things people actually pick, so check the real ones.
+  for (const [name, look] of Object.entries(BUILT_IN)) {
+    const full = completeLook(look.colours);
+    check(`${name} covers the male display once completed`,
+      typeof full.MaleDisplayColor === 'string', name);
+  }
 }
 
 const failed = results.filter((r) => !r).length;
