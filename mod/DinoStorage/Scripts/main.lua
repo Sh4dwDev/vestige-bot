@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.42.0"
+local MOD_VERSION = "3.43.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -2556,56 +2556,36 @@ local function classExists(path)
     return cls
 end
 
--- Where to put it: a ring around the owner, dropped onto whatever the world
--- says is under that point.
+-- Where to put it: a ring around the owner, dropped from above.
 --
--- Honest about its limits. There is no verified navmesh query from Lua on this
--- build, so "suitable for navigation" cannot be answered before spawning --
--- what this does instead is reject the cases that are cheap to detect, and
--- then prove the result by watching whether the thing actually moves.
+-- The first version traced downward for ground and failed every time, because
+-- `LineTraceSingleByChannel` on the world object is not something this build
+-- exposes to Lua -- it threw inside the pcall on all eight attempts and
+-- reported "could not find ground". That was an invented call, and the fix is
+-- the approach the removed ambient spawner actually used and proved:
+--
+--   drop them from above so they settle on the ground rather than in it
+--
+-- **This means water and cliffs are NOT rejected before spawning.** There is no
+-- verified trace or navmesh query from Lua here, so the honest position is that
+-- placement is best-effort and the proof comes afterwards: the watch loop
+-- reports whether the Rex ever actually moves. One that spawned in the sea or
+-- inside a rock will sit still, and that shows up within a few ticks.
 local function pickSpawnPoint(origin)
-    local gm = findGameMode()
-    if gm == nil then return nil, "no game mode" end
+    local angle = math.random() * math.pi * 2
+    local away = (SPAWN_MIN_M + (math.random() * (SPAWN_MAX_M - SPAWN_MIN_M))) * UU
 
-    local world
-    pcall(function() world = gm:GetWorld() end)
-    if world == nil then return nil, "no world" end
+    local point = {
+        X = origin.X + (math.cos(angle) * away),
+        Y = origin.Y + (math.sin(angle) * away),
+        -- Above the owner's own feet. Falling a few metres is harmless and is
+        -- what makes it settle on terrain instead of embedding in it.
+        Z = origin.Z + (5 * UU),
+    }
 
-    for attempt = 1, 8 do
-        local angle = math.random() * math.pi * 2
-        local away = (SPAWN_MIN_M + (math.random() * (SPAWN_MAX_M - SPAWN_MIN_M))) * UU
-        local x = origin.X + (math.cos(angle) * away)
-        local y = origin.Y + (math.sin(angle) * away)
-
-        -- Straight down from well above the owner. A trace is the only thing
-        -- here that can tell ground from the void, and spawning into the void
-        -- is something SpawnActor will do perfectly happily.
-        local hit, groundZ
-        local traced = pcall(function()
-            local result = {}
-            local from = { X = x, Y = y, Z = origin.Z + (200 * UU) }
-            local to = { X = x, Y = y, Z = origin.Z - (500 * UU) }
-            hit = world:LineTraceSingleByChannel(result, from, to, 0, nil)
-            if result.Location ~= nil then groundZ = result.Location.Z end
-        end)
-
-        if traced and hit and type(groundZ) == "number" then
-            -- Reject a drop that is really a cliff: far below the owner means
-            -- a ravine or the sea, and far above means a rock face.
-            local drop = (origin.Z - groundZ) / UU
-            if drop > -60 and drop < 60 then
-                log(string.format("rex: spawn point %d at %.0f,%.0f,%.0f (%.0fm out)",
-                    attempt, x, y, groundZ, away / UU))
-                return { X = x, Y = y, Z = groundZ + (2 * UU) }, nil
-            end
-            log(string.format("rex: rejected point %d, %.0fm above/below the owner",
-                attempt, drop))
-        end
-    end
-
-    -- Every trace failed or every point was unusable. Better to refuse than to
-    -- drop a Rex into the sea.
-    return nil, "could not find ground near you after 8 tries"
+    log(string.format("rex: spawn point %.0f,%.0f,%.0f (%.0fm out)",
+        point.X, point.Y, point.Z, away / UU))
+    return point, nil
 end
 
 local function handleAiSpawn(cmd)
