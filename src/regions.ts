@@ -440,6 +440,38 @@ export function payOut(ctx: Ctx, event: RegionEvent, log: (m: string) => void): 
 }
 
 /**
+ * Tells people as they cross the boundary.
+ *
+ * Persistent rather than the brief banner, by request: this is the same widget
+ * the game draws the prime checklist in, so it stays on screen until something
+ * replaces it. That is the right trade here — the boundary is invisible, and a
+ * line that vanishes in a second cannot tell somebody they are in the right
+ * place for the next fifteen minutes. It does mean the prime list is hidden
+ * until the game next redraws it.
+ */
+export async function notifyEdges(
+  ctx: Ctx,
+  event: RegionEvent,
+  region: Region,
+  result: TickResult,
+): Promise<void> {
+  for (const steam of result.entered) {
+    void tell(ctx, steam,
+      `ACTIVE REGION: you are inside ${region.name}. `
+      + `${event.requiredMinutes} active minutes earns ${event.reward} points.`,
+      { persist: true });
+  }
+
+  for (const steam of result.left) {
+    const held = Math.round((result.event.participants[steam]?.seconds ?? 0) / 60);
+    void tell(ctx, steam,
+      `ACTIVE REGION: you left ${region.name}. `
+      + `${held} minute${held === 1 ? '' : 's'} kept - come back to carry on.`,
+      { persist: true });
+  }
+}
+
+/**
  * The in-game lines.
  *
  * ASCII only: RCON drops anything else silently. Short, because these land in
@@ -708,15 +740,7 @@ export async function runRegions(
     // The same on-screen notices the contest gives, for the same reason: the
     // boundary is invisible, so crossing it is the only way anybody knows they
     // are in. Edges only — one every check would be unreadable.
-    for (const steam of result.entered) {
-      void tell(ctx, steam, `ACTIVE REGION: you are inside ${region.name}. `
-        + `${event.requiredMinutes} active minutes earns ${event.reward} points.`);
-    }
-    for (const steam of result.left) {
-      const held = Math.round((result.event.participants[steam]?.seconds ?? 0) / 60);
-      void tell(ctx, steam, `ACTIVE REGION: you left ${region.name}. `
-        + `${held} minute${held === 1 ? '' : 's'} kept - come back to carry on.`);
-    }
+    await notifyEdges(ctx, event, region, result);
     return;
   }
 
@@ -744,6 +768,15 @@ export async function runRegions(
     await renderRegionMap(ctx, log));
   await ctx.rcon.announce(toPlainAscii(startAnnounce(started.event)))
     .catch(() => undefined);
+
+  // Somebody already standing in it should hear so now, not at the first
+  // check — otherwise the people best placed to take part are the last to know.
+  const region = regionById(ctx, started.event.regionId);
+  if (region) {
+    const seeded = tickEvent(started.event, region, players, now);
+    saveEvent(ctx, seeded.event);
+    await notifyEdges(ctx, started.event, region, seeded);
+  }
 }
 
 /**

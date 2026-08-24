@@ -32,7 +32,7 @@ import { buildWardrobePanel, setWardrobeChannel, WARDROBE_MESSAGE_KEY, wardrobeR
 import { setGameLogEnabled, skipToEnd } from './gamelog.js';
 import { setNoticeStyle } from './tell.js';
 import { describeOptions, setAuditChannel, writeAudit, } from './auditlog.js';
-import { activeEvent, addRegion, autoRegions, customRegions, removeRegion, slugFor, buildStartEmbed, distanceTo, renderRegionMap, startAnnounce, finishEvent, nextEventAt, qualified, regionById, regionsFor, scheduleNext, setRegionOverride, setRegionSetting, startEvent, announceRegion, } from './regions.js';
+import { activeEvent, addRegion, autoRegions, customRegions, removeRegion, slugFor, buildStartEmbed, distanceTo, renderRegionMap, startAnnounce, notifyEdges, tickEvent, saveEvent, finishEvent, nextEventAt, qualified, regionById, regionsFor, scheduleNext, setRegionOverride, setRegionSetting, startEvent, announceRegion, } from './regions.js';
 import { buildActiveEmbed, buildDutyPanel, buildHistoryEmbed, durationBetween, dutyLogChannel, DUTY_PANEL_MESSAGE_KEY, dutyPanelChannel, dutyPanelRows, dutyRanks, removeDutyRank, upsertDutyRank, formatDuration, goOffDuty, goOnDuty, isSenior, isStaff, maxHours, onDutyRole, postEndLog, postStartLog, rankOf, ranksFor, seniorRole, setDutySetting, staffRole, stamp, } from './duty.js';
 import { MAX_PARENTS, nestingSettings, setNestingCondition, setNestingEnabled, setNestingPoints, setNestingRadius, } from './nesting.js';
 import { buildMarketPanel, MARKET_MESSAGE_KEY, marketRows, refreshMarket, setListingsChannel, setMarketChannel, setMarketFee, } from './market.js';
@@ -2815,6 +2815,16 @@ It joins the rotation straight away. Adding the same `
     await announceRegion(ctx, i.client, buildStartEmbed(started.event), () => undefined, await renderRegionMap(ctx, () => undefined));
     await ctx.rcon.announce(toPlainAscii(startAnnounce(started.event)))
         .catch(() => undefined);
+    // Same as the automatic path: anybody already standing in it is told now
+    // rather than at the first check, which would leave the people best placed
+    // to take part the last to hear about it.
+    const inRegion = regionById(ctx, started.event.regionId);
+    if (inRegion) {
+        const live = await ctx.mod.players().catch(() => []);
+        const seeded = tickEvent(started.event, inRegion, live, Date.now());
+        saveEvent(ctx, seeded.event);
+        await notifyEdges(ctx, started.event, inRegion, seeded);
+    }
     await i.editReply({
         embeds: [embed(COLORS.good, 'Started', `**${started.event.regionName}** is active for `
                 + `**${Math.round((started.event.endsAt - started.event.startedAt) / 60_000)}** minutes.`

@@ -162,6 +162,17 @@ export interface Payout {
  */
 export declare function payOut(ctx: Ctx, event: RegionEvent, log: (m: string) => void): Payout;
 /**
+ * Tells people as they cross the boundary.
+ *
+ * Persistent rather than the brief banner, by request: this is the same widget
+ * the game draws the prime checklist in, so it stays on screen until something
+ * replaces it. That is the right trade here — the boundary is invisible, and a
+ * line that vanishes in a second cannot tell somebody they are in the right
+ * place for the next fifteen minutes. It does mean the prime list is hidden
+ * until the game next redraws it.
+ */
+export declare function notifyEdges(ctx: Ctx, event: RegionEvent, region: Region, result: TickResult): Promise<void>;
+/**
  * The in-game lines.
  *
  * ASCII only: RCON drops anything else silently. Short, because these land in

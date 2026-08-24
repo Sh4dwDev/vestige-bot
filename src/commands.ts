@@ -180,6 +180,9 @@ import {
   distanceTo,
   renderRegionMap,
   startAnnounce,
+  notifyEdges,
+  tickEvent,
+  saveEvent,
   finishEvent,
   nextEventAt,
   qualified,
@@ -4018,7 +4021,18 @@ It joins the rotation straight away. Adding the same `
     await renderRegionMap(ctx, () => undefined));
   await ctx.rcon.announce(toPlainAscii(startAnnounce(started.event)))
     .catch(() => undefined);
-  
+
+  // Same as the automatic path: anybody already standing in it is told now
+  // rather than at the first check, which would leave the people best placed
+  // to take part the last to hear about it.
+  const inRegion = regionById(ctx, started.event.regionId);
+  if (inRegion) {
+    const live = await ctx.mod.players().catch(() => [] as PlayerRow[]);
+    const seeded = tickEvent(started.event, inRegion, live, Date.now());
+    saveEvent(ctx, seeded.event);
+    await notifyEdges(ctx, started.event, inRegion, seeded);
+  }
+
   await i.editReply({
     embeds: [embed(COLORS.good, 'Started',
       `**${started.event.regionName}** is active for `
