@@ -178,7 +178,8 @@ import {
   slugFor,
   buildStartEmbed,
   distanceTo,
-  drawRegionMap,
+  renderRegionMap,
+  startAnnounce,
   finishEvent,
   nextEventAt,
   qualified,
@@ -3783,8 +3784,7 @@ async function handleRegions(
     await i.deferReply({ flags: MessageFlags.Ephemeral });
     // Scheduled from now, so switching it on does not fire an event instantly.
     const due = scheduleNext(ctx);
-    if (map) await drawRegionMap(ctx, i.client, () => undefined);
-
+    if (map) 
     await i.editReply({
       embeds: [embed(COLORS.good, 'Active Region set up',
         `Announcements in <#${channel.id}>`
@@ -3902,8 +3902,7 @@ async function handleRegions(
     addRegion(ctx, {
       id, name, x: me.x, y: me.y, radius: radius * 1000, enabled: true,
     });
-    await drawRegionMap(ctx, i.client, () => undefined);
-
+    
     await i.editReply({
       embeds: [embed(COLORS.good, `${name} added`,
         `Centre Lat **${hudUnits(me.y)}**, Long **${hudUnits(me.x)}**, radius `
@@ -3918,8 +3917,7 @@ It joins the rotation straight away. Adding the same `
   if (action === 'remove') {
     const id = i.options.getString('region', true);
     if (removeRegion(ctx, id)) {
-      await drawRegionMap(ctx, i.client, () => undefined);
-      await i.reply({
+            await i.reply({
         embeds: [embed(COLORS.good, 'Removed', `\`${id}\` is out of the rotation.`)],
         flags: MessageFlags.Ephemeral,
       });
@@ -3964,8 +3962,7 @@ It joins the rotation straight away. Adding the same `
       y: me.y,
       ...(radius ? { radius: radius * 1000 } : {}),
     });
-    await drawRegionMap(ctx, i.client, () => undefined);
-
+    
     await i.editReply({
       embeds: [embed(COLORS.good, `${region.name} moved`,
         `Centre is now Lat **${hudUnits(me.y)}**, Long **${hudUnits(me.x)}**`
@@ -4017,9 +4014,11 @@ It joins the rotation straight away. Adding the same `
     return;
   }
 
-  await announceRegion(ctx, i.client, buildStartEmbed(started.event), () => undefined);
-  await drawRegionMap(ctx, i.client, () => undefined);
-
+  await announceRegion(ctx, i.client, buildStartEmbed(started.event), () => undefined,
+    await renderRegionMap(ctx, () => undefined));
+  await ctx.rcon.announce(toPlainAscii(startAnnounce(started.event)))
+    .catch(() => undefined);
+  
   await i.editReply({
     embeds: [embed(COLORS.good, 'Started',
       `**${started.event.regionName}** is active for `

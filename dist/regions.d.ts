@@ -1,5 +1,5 @@
 import { EmbedBuilder, type Client } from 'discord.js';
-import type { PlayerRow } from './bridge.js';
+import { type PlayerRow } from './bridge.js';
 import type { Ctx } from './commands.js';
 declare const KEYS: {
     readonly channel: "region_channel";
@@ -161,6 +161,16 @@ export interface Payout {
  * its own transaction: one failure must not cost everybody else theirs.
  */
 export declare function payOut(ctx: Ctx, event: RegionEvent, log: (m: string) => void): Payout;
+/**
+ * The in-game lines.
+ *
+ * ASCII only: RCON drops anything else silently. Short, because these land in
+ * the announcement banner rather than a channel somebody can scroll back
+ * through — and most players are not reading Discord while they play, which is
+ * exactly who the event is for.
+ */
+export declare const startAnnounce: (event: RegionEvent) => string;
+export declare const endAnnounce: (event: RegionEvent, payout: Payout) => string;
 export declare function buildStartEmbed(event: RegionEvent): EmbedBuilder;
 export declare function buildEndEmbed(event: RegionEvent, payout: Payout, gapMinutes: [number, number]): EmbedBuilder;
 export declare const nextEventAt: (ctx: Ctx) => number;
@@ -194,7 +204,7 @@ export declare function startEvent(ctx: Ctx, options?: StartOptions, now?: numbe
  */
 export declare function finishEvent(ctx: Ctx, event: RegionEvent, log: (m: string) => void): Payout;
 /** Posts an embed to the announcement channel, mentioning a role if configured. */
-export declare function announceRegion(ctx: Ctx, client: Client, embed: EmbedBuilder, log: (m: string) => void): Promise<void>;
+export declare function announceRegion(ctx: Ctx, client: Client, embed: EmbedBuilder, log: (m: string) => void, map?: Buffer | null): Promise<void>;
 /**
  * One pass of the whole feature: count participation, finish what is due, and
  * start the next when it is time.
@@ -210,5 +220,5 @@ export declare function runRegions(ctx: Ctx, client: Client, players: PlayerRow[
  * where the same coordinates land there — which is what makes it possible to
  * check a placeholder against the real map.
  */
-export declare function drawRegionMap(ctx: Ctx, client: Client, log: (m: string) => void): Promise<void>;
+export declare function renderRegionMap(ctx: Ctx, log: (m: string) => void): Promise<Buffer | null>;
 export {};

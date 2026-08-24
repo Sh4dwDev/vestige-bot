@@ -1,11 +1,10 @@
 import { EmbedBuilder, type Client } from 'discord.js';
 
-import type { PlayerRow } from './bridge.js';
+import { toPlainAscii, type PlayerRow } from './bridge.js';
 import { SERVER, SIGNATURE } from './brand.js';
 import type { Ctx } from './commands.js';
 import { renderRegions } from './heatimage.js';
 import { resolveMapImage, storedBounds } from './heatmap.js';
-import { postOrEdit } from './pinned.js';
 import { tell } from './tell.js';
 
 /**
@@ -440,6 +439,25 @@ export function payOut(ctx: Ctx, event: RegionEvent, log: (m: string) => void): 
   return { paid, reward: event.reward, enough, dryRun };
 }
 
+/**
+ * The in-game lines.
+ *
+ * ASCII only: RCON drops anything else silently. Short, because these land in
+ * the announcement banner rather than a channel somebody can scroll back
+ * through — and most players are not reading Discord while they play, which is
+ * exactly who the event is for.
+ */
+export const startAnnounce = (event: RegionEvent): string =>
+  `ACTIVE REGION: ${event.regionName} for ${
+    Math.round((event.endsAt - event.startedAt) / 60_000)} minutes. `
+  + `${event.requiredMinutes} active minutes inside it earns ${event.reward} points.`;
+
+export const endAnnounce = (event: RegionEvent, payout: Payout): string =>
+  payout.paid.length > 0
+    ? `ACTIVE REGION: ${event.regionName} is over. ${payout.paid.length} paid `
+      + `${payout.reward} points each.`
+    : `ACTIVE REGION: ${event.regionName} is over. Nobody qualified.`;
+
 // ------------------------------------------------------------------ embeds --
 
 export function buildStartEmbed(event: RegionEvent): EmbedBuilder {
@@ -609,6 +627,7 @@ export async function announceRegion(
   client: Client,
   embed: EmbedBuilder,
   log: (m: string) => void,
+  map: Buffer | null = null,
 ): Promise<void> {
   const channelId = regionChannel(ctx);
   if (!channelId) {
@@ -626,9 +645,14 @@ export async function announceRegion(
     // Off by default. Nobody wants an every-hour ping, so it is opt-in and
     // limited to the one role that asked for it.
     const role = regionRole(ctx);
+    // Attached rather than posted separately: two messages for one event made
+    // the channel twice as long and said the same thing twice.
+    if (map) embed.setImage('attachment://region.png');
+
     await channel.send({
       ...(role ? { content: `<@&${role}>` } : {}),
       embeds: [embed],
+      ...(map ? { files: [{ attachment: map, name: 'region.png' }] } : {}),
       allowedMentions: role ? { roles: [role] } : { parse: [] },
     });
   } catch (err) {
@@ -670,7 +694,8 @@ export async function runRegions(
       log(`region: ${event.eventId} ended, ${payout.paid.length} paid`);
       await announceRegion(ctx, client, buildEndEmbed(event, payout,
         [DEFAULTS.gapMinMinutes, DEFAULTS.gapMaxMinutes]), log);
-      await drawRegionMap(ctx, client, log);
+      await ctx.rcon.announce(toPlainAscii(endAnnounce(event, payout)))
+        .catch(() => undefined);
       return;
     }
 
@@ -715,8 +740,10 @@ export async function runRegions(
   }
 
   log(`region: ${started.event.eventId} started in ${started.event.regionName}`);
-  await announceRegion(ctx, client, buildStartEmbed(started.event), log);
-  await drawRegionMap(ctx, client, log);
+  await announceRegion(ctx, client, buildStartEmbed(started.event), log,
+    await renderRegionMap(ctx, log));
+  await ctx.rcon.announce(toPlainAscii(startAnnounce(started.event)))
+    .catch(() => undefined);
 }
 
 /**
@@ -726,14 +753,10 @@ export async function runRegions(
  * where the same coordinates land there — which is what makes it possible to
  * check a placeholder against the real map.
  */
-export async function drawRegionMap(
+export async function renderRegionMap(
   ctx: Ctx,
-  client: Client,
   log: (m: string) => void,
-): Promise<void> {
-  const channelId = regionMapChannel(ctx);
-  if (!channelId) return;
-
+): Promise<Buffer | null> {
   try {
     const event = activeEvent(ctx);
     const shapes = regionsFor(ctx)
@@ -749,23 +772,10 @@ export async function drawRegionMap(
     const base = await resolveMapImage(ctx);
     const png = await renderRegions(shapes, storedBounds(ctx), base);
 
-    const embed = new EmbedBuilder()
-      .setColor(event ? 0xff6b35 : 0x5865f2)
-      .setTitle(event ? `🔥  Active Region: ${event.regionName}` : '🗺️  Active Regions')
-      .setDescription(event
-        ? `**${event.regionName}** is active until `
-          + `<t:${Math.floor(event.endsAt / 1000)}:t>. Head for the middle — the `
-          + 'glow is brightest where the centre is.'
-        : 'Nothing is active. The map shows the region only while an event is '
-          + 'running, and never shows where players are.')
-      .setImage('attachment://regions.png')
-      .setFooter({ text: `${SERVER} · ${SIGNATURE}` })
-      .setTimestamp();
-
-    await postOrEdit(ctx.db, client, channelId, REGION_MAP_MESSAGE_KEY, [embed], [],
-      [{ attachment: png, name: 'regions.png' }]);
+    return png;
   } catch (err) {
     log(`region: could not draw the map: ${
       err instanceof Error ? err.message : String(err)}`);
+    return null;
   }
 }

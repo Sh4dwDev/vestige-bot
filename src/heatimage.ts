@@ -427,12 +427,18 @@ export async function renderRegions(
       const away = Math.hypot(x - px, y - py) / rPixels;
       if (away > 1) continue;
 
-      // The same gaussian the heatmap uses, so the two pictures look like they
-      // belong together — a bright middle with a wide soft skirt rather than a
-      // disc with an edge. The centre is where people should aim for, and a
-      // hard rim would read as a fence.
-      const value = Math.exp(-4.5 * away * away);
-      const t = 1 - Math.exp(-value / FULL_HEAT);
+      // The same gaussian falloff the heatmap uses, so the two pictures look
+      // like they belong together — a bright middle with a wide soft skirt
+      // rather than a disc with an edge. The centre is where people should aim
+      // for, and a hard rim would read as a fence.
+      //
+      // The heat curve is NOT reused. The heatmap's saturating curve exists so
+      // a crowd of overlapping players keeps a gradient instead of clipping,
+      // and it assumes values that stack well past one. A region is a single
+      // shape that never stacks, so that curve left the centre a quarter of the
+      // way up the ramp and the whole thing came out faint and cold. Here the
+      // falloff IS the ramp, so the middle is fully hot.
+      const t = Math.exp(-4.5 * away * away);
       const [r, g, b] = colourFor(t);
       const weight = MAX_WEIGHT * (t ** LIFT);
       if (weight <= 0.01) continue;

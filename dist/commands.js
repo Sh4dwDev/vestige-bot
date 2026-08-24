@@ -32,7 +32,7 @@ import { buildWardrobePanel, setWardrobeChannel, WARDROBE_MESSAGE_KEY, wardrobeR
 import { setGameLogEnabled, skipToEnd } from './gamelog.js';
 import { setNoticeStyle } from './tell.js';
 import { describeOptions, setAuditChannel, writeAudit, } from './auditlog.js';
-import { activeEvent, addRegion, autoRegions, customRegions, removeRegion, slugFor, buildStartEmbed, distanceTo, drawRegionMap, finishEvent, nextEventAt, qualified, regionById, regionsFor, scheduleNext, setRegionOverride, setRegionSetting, startEvent, announceRegion, } from './regions.js';
+import { activeEvent, addRegion, autoRegions, customRegions, removeRegion, slugFor, buildStartEmbed, distanceTo, renderRegionMap, startAnnounce, finishEvent, nextEventAt, qualified, regionById, regionsFor, scheduleNext, setRegionOverride, setRegionSetting, startEvent, announceRegion, } from './regions.js';
 import { buildActiveEmbed, buildDutyPanel, buildHistoryEmbed, durationBetween, dutyLogChannel, DUTY_PANEL_MESSAGE_KEY, dutyPanelChannel, dutyPanelRows, dutyRanks, removeDutyRank, upsertDutyRank, formatDuration, goOffDuty, goOnDuty, isSenior, isStaff, maxHours, onDutyRole, postEndLog, postStartLog, rankOf, ranksFor, seniorRole, setDutySetting, staffRole, stamp, } from './duty.js';
 import { MAX_PARENTS, nestingSettings, setNestingCondition, setNestingEnabled, setNestingPoints, setNestingRadius, } from './nesting.js';
 import { buildMarketPanel, MARKET_MESSAGE_KEY, marketRows, refreshMarket, setListingsChannel, setMarketChannel, setMarketFee, } from './market.js';
@@ -2623,17 +2623,16 @@ async function handleRegions(ctx, i) {
         // Scheduled from now, so switching it on does not fire an event instantly.
         const due = scheduleNext(ctx);
         if (map)
-            await drawRegionMap(ctx, i.client, () => undefined);
-        await i.editReply({
-            embeds: [embed(COLORS.good, 'Active Region set up', `Announcements in <#${channel.id}>`
-                    + (map ? `, map kept in <#${map.id}>` : '')
-                    + (role ? `, pinging <@&${role.id}>` : ', with no ping')
-                    + `.\n\nAutomatic events are **${auto ? 'on' : 'off'}**`
-                    + (auto ? `, first one <t:${Math.floor(due / 1000)}:R>` : '')
-                    + '.\n\n⚠️ **The region coordinates are placeholders.** Stand in the '
-                    + 'middle of each area and use `/active-region move` before running one '
-                    + 'for real.')],
-        });
+            await i.editReply({
+                embeds: [embed(COLORS.good, 'Active Region set up', `Announcements in <#${channel.id}>`
+                        + (map ? `, map kept in <#${map.id}>` : '')
+                        + (role ? `, pinging <@&${role.id}>` : ', with no ping')
+                        + `.\n\nAutomatic events are **${auto ? 'on' : 'off'}**`
+                        + (auto ? `, first one <t:${Math.floor(due / 1000)}:R>` : '')
+                        + '.\n\n⚠️ **The region coordinates are placeholders.** Stand in the '
+                        + 'middle of each area and use `/active-region move` before running one '
+                        + 'for real.')],
+            });
         return;
     }
     if (action === 'regions') {
@@ -2722,7 +2721,6 @@ async function handleRegions(ctx, i) {
         addRegion(ctx, {
             id, name, x: me.x, y: me.y, radius: radius * 1000, enabled: true,
         });
-        await drawRegionMap(ctx, i.client, () => undefined);
         await i.editReply({
             embeds: [embed(COLORS.good, `${name} added`, `Centre Lat **${hudUnits(me.y)}**, Long **${hudUnits(me.x)}**, radius `
                     + `**${radius}**.
@@ -2735,7 +2733,6 @@ It joins the rotation straight away. Adding the same `
     if (action === 'remove') {
         const id = i.options.getString('region', true);
         if (removeRegion(ctx, id)) {
-            await drawRegionMap(ctx, i.client, () => undefined);
             await i.reply({
                 embeds: [embed(COLORS.good, 'Removed', `\`${id}\` is out of the rotation.`)],
                 flags: MessageFlags.Ephemeral,
@@ -2773,7 +2770,6 @@ It joins the rotation straight away. Adding the same `
             y: me.y,
             ...(radius ? { radius: radius * 1000 } : {}),
         });
-        await drawRegionMap(ctx, i.client, () => undefined);
         await i.editReply({
             embeds: [embed(COLORS.good, `${region.name} moved`, `Centre is now Lat **${hudUnits(me.y)}**, Long **${hudUnits(me.x)}**`
                     + (radius ? `, radius **${radius}**` : '')
@@ -2816,8 +2812,9 @@ It joins the rotation straight away. Adding the same `
         await i.editReply({ embeds: [embed(COLORS.bad, 'Not started', started.reason)] });
         return;
     }
-    await announceRegion(ctx, i.client, buildStartEmbed(started.event), () => undefined);
-    await drawRegionMap(ctx, i.client, () => undefined);
+    await announceRegion(ctx, i.client, buildStartEmbed(started.event), () => undefined, await renderRegionMap(ctx, () => undefined));
+    await ctx.rcon.announce(toPlainAscii(startAnnounce(started.event)))
+        .catch(() => undefined);
     await i.editReply({
         embeds: [embed(COLORS.good, 'Started', `**${started.event.regionName}** is active for `
                 + `**${Math.round((started.event.endsAt - started.event.startedAt) / 60_000)}** minutes.`

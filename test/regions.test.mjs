@@ -16,7 +16,7 @@ const {
   pickRegion, tickEvent, qualified, payOut, startEvent, finishEvent,
   activeEvent, saveEvent, buildStartEmbed, buildEndEmbed, CHECK_SECONDS,
   AFK_MINUTES, DEFAULTS, scheduleNext, nextEventAt,
-  addRegion, removeRegion, customRegions, slugFor,
+  addRegion, removeRegion, customRegions, slugFor, startAnnounce, endAnnounce,
 } = await load('regions.js');
 const { Database } = await load('db.js');
 
@@ -345,6 +345,26 @@ const baseEvent = (over = {}) => ({
   check('both fit Discord limits',
     [start, short, paid].every((e) => JSON.stringify(e).length < 6000
       && (e.fields ?? []).every((f) => f.value.length <= 1024)));
+}
+
+{
+  // Most players are not reading Discord while they play, which is exactly who
+  // the event is for — so it has to reach them in game too.
+  const event = baseEvent();
+  const start = startAnnounce(event);
+  check('the in-game line names the region', /Test/.test(start), start);
+  check('and what it takes', /15 active minutes/.test(start), start);
+  check('and what it pays', /300/.test(start));
+  // RCON drops anything outside ASCII silently.
+  check('it is plain ASCII', /^[ -~]*$/.test(start), start);
+  check('and short enough for the banner', start.length <= 140, String(start.length));
+
+  const paid = endAnnounce(event, { paid: ['a', 'b'], reward: 300, enough: true, dryRun: false });
+  check('the ending line reports the payout', /2 paid/.test(paid), paid);
+  check('and stays ASCII', /^[ -~]*$/.test(paid));
+
+  const none = endAnnounce(event, { paid: [], reward: 300, enough: false, dryRun: false });
+  check('nobody qualifying is said plainly', /Nobody qualified/.test(none), none);
 }
 
 check('the check interval is sane', CHECK_SECONDS >= 10 && CHECK_SECONDS <= 120);
