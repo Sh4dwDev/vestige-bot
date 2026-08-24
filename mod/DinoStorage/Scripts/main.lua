@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.41.0"
+local MOD_VERSION = "3.42.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -2479,6 +2479,389 @@ local function handleChat(cmd)
         sent and "sent" or "the message was refused")
 end
 
+-- ---------------------------------------------------------------------------
+-- Rex prototype
+--
+-- One owner-spawned Tyrannosaurus, watched and logged. This is an experiment
+-- with a specific question behind it, and the answer is not assumed here.
+--
+-- **What is already known.** This project built ambient AI, ran it for four
+-- commits and removed it (c4a2b60). The finding that killed it, verified live
+-- on 2026-08-18: the `/Script/TheIsle.TIAI*` controllers are the bare C++
+-- bases, and movement is all they have. Perception, the behaviour tree and
+-- combat are configured in the `BP_AI_*` Blueprints, which Lua cannot reach --
+-- so a Ceratosaurus on the C++ controller would chase a player and then stand
+-- inside them doing nothing.
+--
+-- Tyrannosaurus has no documented Blueprint controller, so it runs
+-- `TIAIRexController`, the same bare base. The prototype therefore expects
+-- movement and does NOT expect biting. Nothing here reports a behaviour as
+-- working because the spawn succeeded; movement is proven by comparing
+-- positions over time, and everything else is left to the manual checklist.
+--
+-- **Cleanup is deliberately not implemented.** Upstream is blunt that
+-- K2_DestroyActor on a pawn gameplay has already freed is an uncatchable
+-- native access violation -- it takes the server down, not the mod, and pcall
+-- does not catch it. There is no verified safe destroy from Lua on this build.
+-- So the despawn logic runs in full, decides, and logs "would despawn now"
+-- without touching the actor. THE REX PERSISTS UNTIL IT DIES OR THE SERVER
+-- RESTARTS.
+-- ---------------------------------------------------------------------------
+
+local REX_PAWN = "/Game/TheIsle/Core/Characters/Dinosaurs/Tyrannosaurus/BP_Tyrannosaurus.BP_Tyrannosaurus_C"
+local REX_CTRL = "/Script/TheIsle.TIAIRexController"
+
+-- Metres, converted to Unreal units at the point of use. The game is 100 uu to
+-- the metre.
+local UU = 100
+
+local SPAWN_MIN_M = 100
+local SPAWN_MAX_M = 200
+
+local DESPAWN_DISTANCE_M = 2000
+local DESPAWN_GRACE_SEC = 300
+local COMBAT_PROTECT_SEC = 120
+local HUNTING_PROXIMITY_M = 300
+
+-- Far enough apart to be a real move rather than collision jitter, in uu.
+local MOVED_UU = 300
+
+-- One at a time, by request. A second would double every risk here for no
+-- extra information.
+local rex = nil
+
+local function nowSec() return os.time() end
+
+-- Distance in metres between two location tables.
+local function metresBetween(a, b)
+    if a == nil or b == nil then return nil end
+    local dx, dy, dz = a.X - b.X, a.Y - b.Y, (a.Z or 0) - (b.Z or 0)
+    return math.sqrt((dx * dx) + (dy * dy) + (dz * dz)) / UU
+end
+
+-- A live pawn answers with three sane numbers. A freed one does not, which is
+-- why every access below goes through this rather than trusting the wrapper.
+local function stillThere(pawn)
+    if pawn == nil then return nil end
+    local at
+    local ok = pcall(function() at = locationOf(pawn) end)
+    if not ok or at == nil then return nil end
+    if type(at.X) ~= "number" or at.X ~= at.X then return nil end
+    return at
+end
+
+local function classExists(path)
+    local cls
+    pcall(function() cls = StaticFindObject(path) end)
+    return cls
+end
+
+-- Where to put it: a ring around the owner, dropped onto whatever the world
+-- says is under that point.
+--
+-- Honest about its limits. There is no verified navmesh query from Lua on this
+-- build, so "suitable for navigation" cannot be answered before spawning --
+-- what this does instead is reject the cases that are cheap to detect, and
+-- then prove the result by watching whether the thing actually moves.
+local function pickSpawnPoint(origin)
+    local gm = findGameMode()
+    if gm == nil then return nil, "no game mode" end
+
+    local world
+    pcall(function() world = gm:GetWorld() end)
+    if world == nil then return nil, "no world" end
+
+    for attempt = 1, 8 do
+        local angle = math.random() * math.pi * 2
+        local away = (SPAWN_MIN_M + (math.random() * (SPAWN_MAX_M - SPAWN_MIN_M))) * UU
+        local x = origin.X + (math.cos(angle) * away)
+        local y = origin.Y + (math.sin(angle) * away)
+
+        -- Straight down from well above the owner. A trace is the only thing
+        -- here that can tell ground from the void, and spawning into the void
+        -- is something SpawnActor will do perfectly happily.
+        local hit, groundZ
+        local traced = pcall(function()
+            local result = {}
+            local from = { X = x, Y = y, Z = origin.Z + (200 * UU) }
+            local to = { X = x, Y = y, Z = origin.Z - (500 * UU) }
+            hit = world:LineTraceSingleByChannel(result, from, to, 0, nil)
+            if result.Location ~= nil then groundZ = result.Location.Z end
+        end)
+
+        if traced and hit and type(groundZ) == "number" then
+            -- Reject a drop that is really a cliff: far below the owner means
+            -- a ravine or the sea, and far above means a rock face.
+            local drop = (origin.Z - groundZ) / UU
+            if drop > -60 and drop < 60 then
+                log(string.format("rex: spawn point %d at %.0f,%.0f,%.0f (%.0fm out)",
+                    attempt, x, y, groundZ, away / UU))
+                return { X = x, Y = y, Z = groundZ + (2 * UU) }, nil
+            end
+            log(string.format("rex: rejected point %d, %.0fm above/below the owner",
+                attempt, drop))
+        end
+    end
+
+    -- Every trace failed or every point was unusable. Better to refuse than to
+    -- drop a Rex into the sea.
+    return nil, "could not find ground near you after 8 tries"
+end
+
+local function handleAiSpawn(cmd)
+    if rex ~= nil and stillThere(rex.pawn) ~= nil then
+        writeResult(cmd.id, "aispawn", cmd.steam, false,
+            "a prototype Rex is already out. Only one at a time.")
+        return
+    end
+    -- The registry entry outlived its pawn: gameplay removed it.
+    if rex ~= nil then
+        log("rex: the previous one is gone, clearing the registry")
+        rex = nil
+    end
+
+    local owner = resolvePlayer(cmd.steam)
+    if owner == nil then
+        writeResult(cmd.id, "aispawn", cmd.steam, false, "you have to be in game")
+        return
+    end
+
+    local origin = stillThere(owner)
+    if origin == nil then
+        writeResult(cmd.id, "aispawn", cmd.steam, false, "could not read where you are")
+        return
+    end
+
+    -- Confirmed before use, per the brief. A class that has moved between
+    -- builds would otherwise fail somewhere much less obvious.
+    local pawnCls = classExists(REX_PAWN)
+    if pawnCls == nil then
+        writeResult(cmd.id, "aispawn", cmd.steam, false,
+            "stage 1: the Rex pawn class is not on this build")
+        return
+    end
+    local ctrlCls = classExists(REX_CTRL)
+    if ctrlCls == nil then
+        writeResult(cmd.id, "aispawn", cmd.steam, false,
+            "stage 1: TIAIRexController is not on this build")
+        return
+    end
+
+    local where, why = pickSpawnPoint(origin)
+    if where == nil then
+        writeResult(cmd.id, "aispawn", cmd.steam, false, "stage 2: " .. tostring(why))
+        return
+    end
+
+    local gm = findGameMode()
+    local world
+    pcall(function() world = gm:GetWorld() end)
+    if world == nil then
+        writeResult(cmd.id, "aispawn", cmd.steam, false, "stage 3: no world")
+        return
+    end
+
+    local pawn
+    pcall(function()
+        pawn = world:SpawnActor(pawnCls, where, { Pitch = 0, Yaw = 0, Roll = 0 })
+    end)
+    if pawn == nil then
+        writeResult(cmd.id, "aispawn", cmd.steam, false, "stage 4: the server refused the pawn")
+        return
+    end
+
+    -- A wrapper that survives the call while holding a null pointer is the
+    -- failure that looks like success.
+    local addr
+    pcall(function() addr = pawn:GetAddress() end)
+    if addr == nil or addr == 0 then
+        writeResult(cmd.id, "aispawn", cmd.steam, false, "stage 4: the pawn came back unusable")
+        return
+    end
+
+    local brain
+    pcall(function()
+        brain = world:SpawnActor(ctrlCls, where, { Pitch = 0, Yaw = 0, Roll = 0 })
+    end)
+    if brain == nil then
+        -- Nothing is cleaned up here, and that is deliberate: there is no safe
+        -- destroy from Lua, so a half-spawned Rex is left standing rather than
+        -- risking the server to tidy it.
+        writeResult(cmd.id, "aispawn", cmd.steam, false,
+            "stage 5: the controller would not spawn. The pawn is out there and "
+            .. "cannot be safely removed -- it will go on the next restart.")
+        return
+    end
+
+    -- Possess boots the brain; there is no separate start call.
+    local possessed = pcall(function() brain:Possess(pawn) end)
+    if not possessed then
+        writeResult(cmd.id, "aispawn", cmd.steam, false, "stage 6: possession failed")
+        return
+    end
+
+    -- Growth first, then vitals: SetGrowth refills food on its own, so the
+    -- other order silently undoes itself.
+    pcall(function() pawn:SetGrowth(1.0) end)
+    for _, fill in ipairs({
+        { "SetHealth", "GetMaxHealth" },
+        { "SetFoodValue", "GetMaxFoodValue" },
+        { "SetWaterValue", "GetMaxWaterValue" },
+        { "SetStaminaValue", "GetMaxStaminaValue" },
+    }) do
+        pcall(function()
+            local max = pawn[fill[2]](pawn)
+            if type(max) == "number" and max > 0 then pawn[fill[1]](pawn, max) end
+        end)
+    end
+
+    -- Distance-based relevance, never bAlwaysRelevant: upstream records that
+    -- one crashing clients during join bursts.
+    pcall(function() pawn:SetReplicates(true) end)
+    pcall(function() pawn:ForceNetUpdate() end)
+
+    rex = {
+        id = string.format("REX-%d", nowSec()),
+        pawn = pawn,
+        brain = brain,
+        addr = addr,
+        owner = cmd.steam,
+        born = nowSec(),
+        spawnAt = where,
+        lastAt = where,
+        movedAt = nil,
+        lastCombat = nil,
+        farSince = nil,
+        despawnLogged = false,
+    }
+
+    log(string.format("rex: %s spawned for %s at %.0f,%.0f,%.0f",
+        rex.id, cmd.steam, where.X, where.Y, where.Z))
+
+    writeResult(cmd.id, "aispawn", cmd.steam, true,
+        string.format("%s spawned about %.0fm away", rex.id,
+            metresBetween(origin, where) or 0),
+        string.format('{"id":"%s","x":%.1f,"y":%.1f,"z":%.1f}',
+            rex.id, where.X, where.Y, where.Z))
+end
+
+local function nearestPlayerMetres(at)
+    local nearest, who = nil, nil
+    for _, p in ipairs(onlinePlayers()) do
+        local theirs = stillThere(p.pawn)
+        if theirs ~= nil then
+            local away = metresBetween(at, theirs)
+            if away ~= nil and (nearest == nil or away < nearest) then
+                nearest, who = away, p.steam
+            end
+        end
+    end
+    return nearest, who
+end
+
+-- Every few seconds, not every frame, and only while one exists.
+local function watchRex()
+    if rex == nil then return end
+
+    local at = stillThere(rex.pawn)
+    if at == nil then
+        -- Gameplay removed it: eaten, killed, or cleaned up by the server.
+        -- Monitoring stops, and nothing is respawned.
+        log(string.format("rex: %s is gone after %ds -- monitoring stopped",
+            rex.id, nowSec() - rex.born))
+        rex = nil
+        return
+    end
+
+    -- Movement is the one behaviour that can be proven from here, and it is
+    -- proven by comparing positions rather than by the spawn having worked.
+    local moved = metresBetween(rex.lastAt, at)
+    if moved ~= nil and (moved * UU) > MOVED_UU then
+        if rex.movedAt == nil then
+            log(string.format("rex: %s MOVED for the first time (%.0fm) -- "
+                .. "the controller is driving it", rex.id, moved))
+        end
+        rex.movedAt = nowSec()
+    end
+    rex.lastAt = at
+
+    local nearest, who = nearestPlayerMetres(at)
+    rex.nearest = nearest
+    rex.nearestWho = who
+
+    -- Despawn eligibility, evaluated in full and then NOT acted on. Every
+    -- condition below is real; the only missing piece is a safe way to remove
+    -- the actor, which this build does not offer from Lua.
+    local combatRecent = rex.lastCombat ~= nil
+        and (nowSec() - rex.lastCombat) < COMBAT_PROTECT_SEC
+    local far = nearest == nil or nearest > DESPAWN_DISTANCE_M
+    local hunted = nearest ~= nil and nearest < HUNTING_PROXIMITY_M
+
+    if not far or combatRecent or hunted then
+        if rex.farSince ~= nil then
+            log(string.format("rex: %s despawn cancelled -- %s", rex.id,
+                (not far) and string.format("a player is %.0fm away", nearest or 0)
+                or combatRecent and "combat within the last two minutes"
+                or "a player is inside the hunting radius"))
+            rex.farSince = nil
+            rex.despawnLogged = false
+        end
+        return
+    end
+
+    if rex.farSince == nil then
+        rex.farSince = nowSec()
+        log(string.format("rex: %s despawn pending -- everybody is over %dm away",
+            rex.id, DESPAWN_DISTANCE_M))
+        return
+    end
+
+    if (nowSec() - rex.farSince) >= DESPAWN_GRACE_SEC and not rex.despawnLogged then
+        rex.despawnLogged = true
+        -- The line this whole prototype stops at. Removing the actor here is
+        -- what would crash the server, so it is written down instead.
+        log(string.format(
+            "rex: %s WOULD DESPAWN NOW -- alone for %ds, no combat for %ds. "
+            .. "NOT removed: there is no safe destroy from Lua on this build.",
+            rex.id, nowSec() - rex.farSince,
+            rex.lastCombat and (nowSec() - rex.lastCombat) or -1))
+    end
+end
+
+local function handleAiStatus(cmd)
+    if rex == nil then
+        writeResult(cmd.id, "aistatus", cmd.steam, true, "no prototype Rex is out")
+        return
+    end
+
+    local at = stillThere(rex.pawn)
+    if at == nil then
+        writeResult(cmd.id, "aistatus", cmd.steam, true,
+            string.format("%s is gone (it was out for %ds)", rex.id, nowSec() - rex.born))
+        rex = nil
+        return
+    end
+
+    local growth = 0
+    pcall(function() growth = rex.pawn:GetGrowth() end)
+    local health = 0
+    pcall(function() health = rex.pawn:GetHealth() end)
+
+    local age = nowSec() - rex.born
+    local movedFor = rex.movedAt and (rex.movedAt - rex.born) or nil
+
+    writeResult(cmd.id, "aistatus", cmd.steam, true,
+        string.format("%s alive %ds, %s", rex.id, age,
+            movedFor and "MOVING" or "has not moved yet"),
+        string.format(
+            '{"id":"%s","age":%d,"growth":%.3f,"health":%.1f,"moved":%s,'
+            .. '"x":%.1f,"y":%.1f,"z":%.1f,"nearest":%.1f,"spawnedBy":"%s",'
+            .. '"pendingDespawn":%s}',
+            rex.id, age, growth, health, tostring(rex.movedAt ~= nil),
+            at.X, at.Y, at.Z, rex.nearest or -1, rex.owner,
+            tostring(rex.farSince ~= nil)))
+end
+
 local function dispatch(cmd)
     if type(cmd) ~= "table" then return end
 
@@ -2503,6 +2886,8 @@ local function dispatch(cmd)
     elseif verb == "delete" then handleDelete(cmd)
     elseif verb == "transfer" then handleTransfer(cmd)
     elseif verb == "slotinfo" then handleSlotInfo(cmd)
+    elseif verb == "aispawn" then handleAiSpawn(cmd)
+    elseif verb == "aistatus" then handleAiStatus(cmd)
     elseif verb == "slay" then handleSlay(cmd)
     elseif verb == "players" then handlePlayers(cmd)
     elseif verb == "give" then handleGive(cmd)
@@ -2990,6 +3375,12 @@ else
     end)
 
     local ticks = 0
+    -- The Rex prototype, watched every few seconds rather than every
+    -- frame. Cheap: it reads one location and the online list.
+    LoopInGameThreadWithDelay(7000, function()
+        safeCall("rex", watchRex)
+    end)
+
     LoopInGameThreadWithDelay(POLL_TICK_MS, function()
         safeCall("poll", function()
             ticks = ticks + 1
