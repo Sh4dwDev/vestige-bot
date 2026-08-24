@@ -53,8 +53,16 @@ export const DEFAULTS = {
   gapMaxMinutes: 90,
 } as const;
 
-/** How often participation is counted. Cheap: it reads the existing poll. */
-export const CHECK_SECONDS = 30;
+/**
+ * How often participation is counted.
+ *
+ * Ten rather than thirty. Costs nothing — it reads positions the poll already
+ * has, so it is arithmetic more often, not another round trip — and thirty was
+ * long enough to miss a crossing entirely: step out and back inside one sample
+ * and no check ever sees you outside, so no notice fires. Correct, and
+ * indistinguishable from broken.
+ */
+export const CHECK_SECONDS = 10;
 
 /**
  * No meaningful movement for this long and somebody stops accruing.
