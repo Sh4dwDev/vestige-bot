@@ -16,6 +16,7 @@ const {
   pickRegion, tickEvent, qualified, payOut, startEvent, finishEvent,
   activeEvent, saveEvent, buildStartEmbed, buildEndEmbed, CHECK_SECONDS,
   AFK_MINUTES, DEFAULTS, scheduleNext, nextEventAt,
+  addRegion, removeRegion, customRegions, slugFor,
 } = await load('regions.js');
 const { Database } = await load('db.js');
 
@@ -255,6 +256,58 @@ const baseEvent = (over = {}) => ({
   db.setSetting('region_overrides', 'not json');
   check('unreadable overrides fall back to the shipped list',
     regionsFor(ctx).length === REGIONS.length);
+}
+
+// ---- regions of your own ----------------------------------------------------
+//
+// The shipped five are a starting point, not the map. The areas a server
+// actually gathers in already have names, and those are the ones people will
+// travel to.
+
+{
+  check('a name becomes a readable id', slugFor('North Plains') === 'north-plains');
+  check('punctuation and doubles collapse', slugFor("The  Devil's Pass!") === 'the-devil-s-pass');
+  check('a nonsense name yields nothing to save', slugFor('!!!') === '');
+
+  addRegion(ctx, {
+    id: 'north-plains', name: 'North Plains', x: 500_000, y: 500_000,
+    radius: 120_000, enabled: true,
+  });
+
+  check('a custom region is kept', customRegions(ctx).length === 1);
+  check('and appears alongside the built-in ones',
+    regionsFor(ctx).some((r) => r.id === 'north-plains'));
+  check('with its own centre', regionById(ctx, 'north-plains')?.x === 500_000);
+
+  // It has to be pickable, or adding one achieves nothing.
+  check('and it can be chosen for an event',
+    pickRegion(regionsFor(ctx), null, 0.99) !== null);
+
+  // Adding the same name again edits rather than duplicating.
+  addRegion(ctx, {
+    id: 'north-plains', name: 'North Plains', x: 1_000, y: 2_000,
+    radius: 90_000, enabled: true,
+  });
+  check('adding it twice moves it rather than duplicating',
+    customRegions(ctx).length === 1 && regionById(ctx, 'north-plains')?.x === 1_000);
+
+  // move works on a custom one exactly as on a built-in.
+  setRegionOverride(ctx, 'north-plains', { x: 7_777 });
+  check('a custom region can be moved too',
+    regionById(ctx, 'north-plains')?.x === 7_777);
+
+  check('a custom region can be removed', removeRegion(ctx, 'north-plains') === true);
+  check('and is gone', !regionsFor(ctx).some((r) => r.id === 'north-plains'));
+
+  // The built-ins are not deletable — move or disable them instead.
+  check('removing a built-in is refused', removeRegion(ctx, 'highlands') === false);
+  check('and it is still there', regionsFor(ctx).some((r) => r.id === 'highlands'));
+
+  // A broken custom list must not hide the shipped ones.
+  db.setSetting('region_custom', 'not json');
+  check('unreadable custom regions fall back safely',
+    regionsFor(ctx).length === REGIONS.length);
+  db.setSetting('region_custom', '');
 }
 
 // ---- what people see --------------------------------------------------------

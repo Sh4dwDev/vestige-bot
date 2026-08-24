@@ -39,6 +39,7 @@ const KEYS = {
   roleMention: 'region_role',
   overrides: 'region_overrides',
   lastRegion: 'region_last',
+  custom: 'region_custom',
 } as const;
 
 export const DEFAULTS = {
@@ -103,7 +104,52 @@ export const REGIONS: Region[] = [
   { id: 'swamp', name: 'The Swamp', x: 150_000, y: 150_000, radius: 150_000, enabled: true },
 ];
 
-/** Regions with any admin overrides applied. */
+/**
+ * Regions somebody added themselves.
+ *
+ * The shipped five are a starting point, not the map. Anywhere worth gathering
+ * has a name the server already uses, and those are the ones people will
+ * actually travel to — so a custom region is a first-class one, not an
+ * afterthought.
+ */
+export function customRegions(ctx: Ctx): Region[] {
+  try {
+    const raw = ctx.db.getSetting(KEYS.custom);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? (parsed as Region[]).filter((r) => typeof r?.id === 'string' && r.id !== '')
+      : [];
+  } catch {
+    // A broken list must not hide the shipped ones too.
+    return [];
+  }
+}
+
+const saveCustom = (ctx: Ctx, regions: Region[]): void =>
+  ctx.db.setSetting(KEYS.custom, JSON.stringify(regions));
+
+/** A readable id from a name: "The Lakes" becomes "the-lakes". */
+export const slugFor = (name: string): string =>
+  name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24);
+
+export function addRegion(ctx: Ctx, region: Region): Region[] {
+  // Replaces rather than duplicating, so adding the same name twice edits it.
+  const kept = customRegions(ctx).filter((r) => r.id !== region.id);
+  const next = [...kept, region];
+  saveCustom(ctx, next);
+  return next;
+}
+
+export function removeRegion(ctx: Ctx, id: string): boolean {
+  const before = customRegions(ctx);
+  const next = before.filter((r) => r.id !== id);
+  if (next.length === before.length) return false;
+  saveCustom(ctx, next);
+  return true;
+}
+
+/** Regions with any admin overrides applied, plus the custom ones. */
 export function regionsFor(ctx: Ctx): Region[] {
   let overrides: Record<string, Partial<Region>> = {};
   try {
@@ -113,7 +159,11 @@ export function regionsFor(ctx: Ctx): Region[] {
     // A broken override must not hide every region.
   }
 
-  return REGIONS.map((region) => ({ ...region, ...(overrides[region.id] ?? {}) }));
+  return [
+    ...REGIONS.map((region) => ({ ...region, ...(overrides[region.id] ?? {}) })),
+    // Custom ones take overrides too, so `move` works the same on both.
+    ...customRegions(ctx).map((region) => ({ ...region, ...(overrides[region.id] ?? {}) })),
+  ];
 }
 
 export function setRegionOverride(ctx: Ctx, id: string, patch: Partial<Region>): void {

@@ -13,6 +13,7 @@ declare const KEYS: {
     readonly roleMention: "region_role";
     readonly overrides: "region_overrides";
     readonly lastRegion: "region_last";
+    readonly custom: "region_custom";
 };
 export declare const DEFAULTS: {
     readonly reward: 300;
@@ -62,7 +63,20 @@ export interface Region {
  * stand them on a spot.
  */
 export declare const REGIONS: Region[];
-/** Regions with any admin overrides applied. */
+/**
+ * Regions somebody added themselves.
+ *
+ * The shipped five are a starting point, not the map. Anywhere worth gathering
+ * has a name the server already uses, and those are the ones people will
+ * actually travel to — so a custom region is a first-class one, not an
+ * afterthought.
+ */
+export declare function customRegions(ctx: Ctx): Region[];
+/** A readable id from a name: "The Lakes" becomes "the-lakes". */
+export declare const slugFor: (name: string) => string;
+export declare function addRegion(ctx: Ctx, region: Region): Region[];
+export declare function removeRegion(ctx: Ctx, id: string): boolean;
+/** Regions with any admin overrides applied, plus the custom ones. */
 export declare function regionsFor(ctx: Ctx): Region[];
 export declare function setRegionOverride(ctx: Ctx, id: string, patch: Partial<Region>): void;
 export declare const regionById: (ctx: Ctx, id: string) => Region | null;

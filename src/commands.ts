@@ -171,7 +171,11 @@ import {
 } from './auditlog.js';
 import {
   activeEvent,
+  addRegion,
   autoRegions,
+  customRegions,
+  removeRegion,
+  slugFor,
   buildStartEmbed,
   distanceTo,
   drawRegionMap,
@@ -460,6 +464,19 @@ export const commandData = [
     .addSubcommand((c) => c.setName('stop').setDescription('End the running event'))
     .addSubcommand((c) => c.setName('status').setDescription('What is running, and where you are'))
     .addSubcommand((c) => c.setName('regions').setDescription('Every region and its centre'))
+    .addSubcommand((c) =>
+      c.setName('add').setDescription('Add a region where you are standing')
+        .addStringOption((o) =>
+          o.setName('name').setDescription('What players will see, e.g. North Plains')
+            .setRequired(true))
+        .addIntegerOption((o) =>
+          o.setName('radius').setDescription('Radius in HUD units. Default 150')
+            .setMinValue(5).setMaxValue(1000)))
+    .addSubcommand((c) =>
+      c.setName('remove').setDescription('Remove a region you added')
+        .addStringOption((o) =>
+          o.setName('region').setDescription('Which one').setRequired(true)
+            .setAutocomplete(true)))
     .addSubcommand((c) =>
       c.setName('move').setDescription('Put a region centre where you are standing')
         .addStringOption((o) =>
@@ -3784,8 +3801,10 @@ async function handleRegions(
 
   if (action === 'regions') {
     const running = activeEvent(ctx);
+    const mine = new Set(customRegions(ctx).map((r) => r.id));
     const lines = regionsFor(ctx).map((r) =>
-      `${r.enabled ? '🟢' : '⚪'} **${r.name}** \`${r.id}\`\n`
+      `${r.enabled ? '🟢' : '⚪'} **${r.name}** \`${r.id}\``
+      + `${mine.has(r.id) ? ' · yours' : ''}\n`
       + `-# centre Lat ${hudUnits(r.y)}, Long ${hudUnits(r.x)} · radius `
       + `${hudUnits(r.radius)}${running?.regionId === r.id ? ' · **active now**' : ''}`);
 
@@ -3846,6 +3865,71 @@ async function handleRegions(
             + `${away <= (region?.radius ?? 0) ? '**inside**' : 'outside'}.`
           : '')
         + where)],
+    });
+    return;
+  }
+
+  if (action === 'add') {
+    const name = i.options.getString('name', true).trim().slice(0, 40);
+    const radius = i.options.getInteger('radius') ?? 150;
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const id = slugFor(name);
+    if (!id) {
+      await i.editReply({
+        embeds: [embed(COLORS.warn, 'Give it a real name',
+          'That name has nothing usable in it — letters or numbers, please.')],
+      });
+      return;
+    }
+
+    const link = ctx.db.linkFor(i.user.id);
+    const me = link
+      ? (await ctx.mod.players().catch(() => [] as PlayerRow[]))
+        .find((p) => p.steam === link.steamId)
+      : undefined;
+
+    if (!me || me.x === undefined || me.y === undefined) {
+      await i.editReply({
+        embeds: [embed(COLORS.warn, 'Cannot see you',
+          'Stand in the middle of the area in game and run this again — the '
+          + 'region is placed where you are.')],
+      });
+      return;
+    }
+
+    addRegion(ctx, {
+      id, name, x: me.x, y: me.y, radius: radius * 1000, enabled: true,
+    });
+    await drawRegionMap(ctx, i.client, () => undefined);
+
+    await i.editReply({
+      embeds: [embed(COLORS.good, `${name} added`,
+        `Centre Lat **${hudUnits(me.y)}**, Long **${hudUnits(me.x)}**, radius `
+        + `**${radius}**.
+
+It joins the rotation straight away. Adding the same `
+        + 'name again moves it rather than making a second one.')],
+    });
+    return;
+  }
+
+  if (action === 'remove') {
+    const id = i.options.getString('region', true);
+    if (removeRegion(ctx, id)) {
+      await drawRegionMap(ctx, i.client, () => undefined);
+      await i.reply({
+        embeds: [embed(COLORS.good, 'Removed', `\`${id}\` is out of the rotation.`)],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    await i.reply({
+      embeds: [embed(COLORS.warn, 'Not yours to remove',
+        `\`${id}\` is one of the built-in regions. Those cannot be deleted — `
+        + 'move it instead, or leave it out by disabling it.')],
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
