@@ -32,7 +32,7 @@ import { buildWardrobePanel, setWardrobeChannel, WARDROBE_MESSAGE_KEY, wardrobeR
 import { setGameLogEnabled, skipToEnd } from './gamelog.js';
 import { setNoticeStyle } from './tell.js';
 import { describeOptions, setAuditChannel, writeAudit, } from './auditlog.js';
-import { activeEvent, addRegion, autoRegions, customRegions, removeRegion, slugFor, buildStartEmbed, distanceTo, renderRegionMap, startAnnounce, notifyEdges, tickEvent, saveEvent, finishEvent, nextEventAt, qualified, regionById, regionsFor, scheduleNext, setRegionOverride, setRegionSetting, startEvent, announceRegion, } from './regions.js';
+import { activeEvent, addRegion, autoRegions, customRegions, removeRegion, slugFor, buildStartEmbed, distanceTo, renderRegionMap, startAnnounce, notifyEdges, tickEvent, saveEvent, finishEvent, nextEventAt, qualified, regionById, regionsFor, regionSettings, scheduleNext, setRegionOverride, setRegionSetting, startEvent, announceRegion, } from './regions.js';
 import { buildActiveEmbed, buildDutyPanel, buildHistoryEmbed, durationBetween, dutyLogChannel, DUTY_PANEL_MESSAGE_KEY, dutyPanelChannel, dutyPanelRows, dutyRanks, removeDutyRank, upsertDutyRank, formatDuration, goOffDuty, goOnDuty, isSenior, isStaff, maxHours, onDutyRole, postEndLog, postStartLog, rankOf, ranksFor, seniorRole, setDutySetting, staffRole, stamp, } from './duty.js';
 import { MAX_PARENTS, nestingSettings, setNestingCondition, setNestingEnabled, setNestingPoints, setNestingRadius, } from './nesting.js';
 import { buildMarketPanel, MARKET_MESSAGE_KEY, marketRows, refreshMarket, setListingsChannel, setMarketChannel, setMarketFee, } from './market.js';
@@ -148,6 +148,15 @@ export const commandData = [
         .addIntegerOption((o) => o.setName('required').setDescription('Active minutes needed. Default 15')
         .setMinValue(1).setMaxValue(240))
         .addBooleanOption((o) => o.setName('test').setDescription('Pay nobody, just report who would qualify')))
+        .addSubcommand((c) => c.setName('config').setDescription('Defaults for automatic events')
+        .addIntegerOption((o) => o.setName('minplayers').setDescription('Qualifiers needed to pay. 1 allows solo')
+        .setMinValue(1).setMaxValue(50))
+        .addIntegerOption((o) => o.setName('reward').setDescription('Points each. Default 300')
+        .setMinValue(0).setMaxValue(100_000))
+        .addIntegerOption((o) => o.setName('minutes').setDescription('How long an event runs. Default 45')
+        .setMinValue(1).setMaxValue(240))
+        .addIntegerOption((o) => o.setName('required').setDescription('Active minutes to qualify. Default 15')
+        .setMinValue(1).setMaxValue(240)))
         .addSubcommand((c) => c.setName('stop').setDescription('End the running event'))
         .addSubcommand((c) => c.setName('status').setDescription('What is running, and where you are'))
         .addSubcommand((c) => c.setName('regions').setDescription('Every region and its centre'))
@@ -2774,6 +2783,43 @@ It joins the rotation straight away. Adding the same `
             embeds: [embed(COLORS.good, `${region.name} moved`, `Centre is now Lat **${hudUnits(me.y)}**, Long **${hudUnits(me.x)}**`
                     + (radius ? `, radius **${radius}**` : '')
                     + '.\n\nSaved as an override, so it survives a redeploy.')],
+        });
+        return;
+    }
+    if (action === 'config') {
+        const minPlayers = i.options.getInteger('minplayers');
+        const reward = i.options.getInteger('reward');
+        const minutes = i.options.getInteger('minutes');
+        const required = i.options.getInteger('required');
+        if (minPlayers === null && reward === null && minutes === null && required === null) {
+            await i.reply({
+                embeds: [embed(COLORS.warn, 'Nothing to change', 'Give at least one of `minplayers`, `reward`, `minutes` or `required`.')],
+                flags: MessageFlags.Ephemeral,
+            });
+            return;
+        }
+        if (minPlayers !== null)
+            setRegionSetting(ctx, 'minPlayers', String(minPlayers));
+        if (reward !== null)
+            setRegionSetting(ctx, 'reward', String(reward));
+        if (minutes !== null)
+            setRegionSetting(ctx, 'minutes', String(minutes));
+        if (required !== null)
+            setRegionSetting(ctx, 'required', String(required));
+        const now = regionSettings(ctx);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Defaults set', `Reward **${now.reward}** · runs **${now.minutes}m** · qualify at `
+                    + `**${now.requiredMinutes}m** · needs **${now.minPlayers}** to pay.
+
+`
+                    + (now.minPlayers <= 1
+                        ? 'One qualifier is enough, so somebody alone can take it. Reasonable '
+                            + 'on a quiet server — it does mean the event pays for standing '
+                            + 'still rather than for gathering anybody.'
+                        : `**${now.minPlayers}** are needed, so it only pays when the event `
+                            + 'actually brought people together. On a quiet server that can '
+                            + 'mean it never pays; drop it to 1 if that happens.'))],
+            flags: MessageFlags.Ephemeral,
         });
         return;
     }
