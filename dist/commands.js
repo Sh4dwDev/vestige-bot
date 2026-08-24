@@ -131,7 +131,8 @@ export const commandData = [
         .setName('spawn-ai')
         .setDescription('Owner only: the Rex prototype')
         .addSubcommand((c) => c.setName('rex').setDescription('Spawn one prototype Rex'))
-        .addSubcommand((c) => c.setName('status').setDescription('What the prototype is doing')),
+        .addSubcommand((c) => c.setName('status').setDescription('What the prototype is doing'))
+        .addSubcommand((c) => c.setName('despawn').setDescription('Remove the prototype Rex')),
     new SlashCommandBuilder()
         .setName('duty')
         .setDescription('Staff duty sessions')
@@ -2621,6 +2622,19 @@ async function handlePrototype(ctx, i) {
 `
                             + `Despawn pending: **${data['pendingDespawn'] === true ? 'yes' : 'no'}**`
                         : ''))],
+        });
+        return;
+    }
+    if (action === 'despawn') {
+        const gone = await ctx.mod.run('aidespawn', link.steamId, {})
+            .catch((err) => ({ ok: false, msg: describeError(err) }));
+        await i.editReply({
+            embeds: [embed(gone.ok ? COLORS.good : COLORS.warn, gone.ok ? 'Rex removed' : 'Not removed', `${gone.msg}
+
+`
+                    + 'Removed by killing it rather than destroying the actor — gameplay '
+                    + 'owns the corpse, which is what makes it safe. The body clears with '
+                    + 'the next cleanup.')],
         });
         return;
     }

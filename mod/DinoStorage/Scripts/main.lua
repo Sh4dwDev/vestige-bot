@@ -14,7 +14,7 @@
 -- unpick them without reading docs/NOTES.md first.
 
 local MOD_NAME = "DinoStorage"
-local MOD_VERSION = "3.47.0"
+local MOD_VERSION = "3.48.0"
 
 local SCHEMA_VERSION = 1
 local MAX_SLOTS = 3
@@ -2824,14 +2824,60 @@ local function watchRex()
 
     if (nowSec() - rex.farSince) >= DESPAWN_GRACE_SEC and not rex.despawnLogged then
         rex.despawnLogged = true
-        -- The line this whole prototype stops at. Removing the actor here is
-        -- what would crash the server, so it is written down instead.
-        log(string.format(
-            "rex: %s WOULD DESPAWN NOW -- alone for %ds, no combat for %ds. "
-            .. "NOT removed: there is no safe destroy from Lua on this build.",
-            rex.id, nowSec() - rex.farSince,
-            rex.lastCombat and (nowSec() - rex.lastCombat) or -1))
+        log(string.format("rex: %s despawning -- alone for %ds",
+            rex.id, nowSec() - rex.farSince))
+        -- Acts now rather than only reporting: killing it is a despawn, and
+        -- that needs nothing unsafe.
+        despawnRex("distance")
     end
+end
+
+-- Removing one, without freeing anything.
+--
+-- K2_DestroyActor is still off the table: on a pawn gameplay has already freed
+-- it is an uncatchable access violation that takes the server down. But there
+-- is no need to free anything -- **killing it is a despawn**, and the mod has
+-- been doing exactly that to player dinosaurs since the storage feature
+-- shipped. SetHealth(0) hands the removal to gameplay, which owns the actor
+-- and knows whether it is still there.
+--
+-- Food and rotten value go to zero first, the same order storing uses: a
+-- full-size corpse left behind feeds the whole server, and shrinking after
+-- death does not work.
+local function despawnRex(why)
+    if rex == nil then return false, "nothing is out" end
+
+    local at = stillThere(rex.pawn)
+    if at == nil then
+        -- Already gone. Clearing the registry is the whole job.
+        rex = nil
+        return true, "it was already gone"
+    end
+
+    local id = rex.id
+    local killed = false
+
+    pcall(function() rex.pawn:SetFoodValue(0) end)
+    pcall(function() rex.pawn:SetRottenValue(0) end)
+    pcall(function()
+        rex.pawn:SetHealth(0)
+        killed = true
+    end)
+
+    if not killed then
+        return false, "the server would not accept the kill"
+    end
+
+    -- Idempotent by construction: the registry entry goes now, so a second call
+    -- finds nothing to do rather than touching the pawn twice.
+    rex = nil
+    log(string.format("rex: %s despawned by %s", id, why))
+    return true, id .. " removed"
+end
+
+local function handleAiDespawn(cmd)
+    local ok, msg = despawnRex("command")
+    writeResult(cmd.id, "aidespawn", cmd.steam, ok, msg)
 end
 
 local function handleAiStatus(cmd)
@@ -2970,6 +3016,7 @@ local function dispatch(cmd)
     elseif verb == "aispawn" then handleAiSpawn(cmd)
     elseif verb == "aistatus" then handleAiStatus(cmd)
     elseif verb == "aiscan" then handleAiScan(cmd)
+    elseif verb == "aidespawn" then handleAiDespawn(cmd)
     elseif verb == "slay" then handleSlay(cmd)
     elseif verb == "players" then handlePlayers(cmd)
     elseif verb == "give" then handleGive(cmd)
