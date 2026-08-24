@@ -111,7 +111,10 @@ fs.rmSync(path.dirname(file), { recursive: true, force: true });
   check('a lock says it is locked, in words', /has been locked/.test(call));
   check('and says why, with the numbers', /population limit reached/.test(call)
     && /change\.count/.test(call) && /change\.cap/.test(call));
-  check('and tells players what to do about it', /pick another species/.test(call));
+  // Deliberately no "pick another species": the lock itself already removes it
+  // from the menu, so telling somebody to choose differently is stating the
+  // obvious to a player who has just been shown a shorter list.
+  check('and does not tell them the obvious', !/pick another/i.test(call), call);
   check('an unlock says it is unlocked', /has been unlocked/.test(call));
   check('and why it reopened', /population below limit/.test(call));
   // Only executable lines: the comment above the call quotes the old form on

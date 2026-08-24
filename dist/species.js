@@ -97,7 +97,7 @@ export async function checkSpeciesLocks(ctx, client, players, log) {
         await ctx.rcon
             .announce(change.locked
             ? `${change.species} has been locked (population limit reached: ` +
-                `${change.count}/${change.cap}). Please pick another species for now.`
+                `${change.count}/${change.cap}).`
             : `${change.species} has been unlocked (population below limit).`)
             .catch(() => undefined);
     }

@@ -178,6 +178,32 @@ Three rules, all enforced in `handleNotify`:
 It is a **Client RPC on one controller**, so it reaches one player. There is no
 broadcast form — a server-wide notice means looping the online list.
 
+## RCON cannot write to game chat
+
+Measured on 0.21.784, twice, with screenshots: **both `0x10 Announce` and
+`0x11 DirectMessage` render into the ANNOUNCEMENT banner**, not into the Local
+chat panel. An earlier version of this file said Announce "shows as `<RCON>` in
+chat"; that is wrong. It shows a line reading `RCON:` inside the banner, which
+is what that claim was built on.
+
+The difference between the two is how long they last and who gets them, not
+where they appear:
+
+| Call | Reaches | Renders |
+| --- | --- | --- |
+| `0x10 Announce` | everybody | ANNOUNCEMENT banner, persists |
+| `0x11 DirectMessage` | one player | ANNOUNCEMENT banner, about a second |
+| `ClientShowNotification` | one player | the prime checklist widget, persists |
+
+So there are three ways to put text on screen and **none of them is chat**. The
+mod cannot write to chat either — it can only read it, via the
+`GetChatMessage` hook that `!link` uses.
+
+If somebody wants a message in the Local chat panel, the answer today is that
+it cannot be done from here. Do not spend another round trying opcodes: the
+list in `src/rcon.ts` is complete, and the only other candidate,
+`0x84 ToggleGlobalChat`, is a switch rather than a sender.
+
 ## AI wildlife
 
 There is no config or RCON route to *add* AI. `0x90 ToggleAI` only switches what
