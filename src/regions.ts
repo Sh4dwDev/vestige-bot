@@ -753,9 +753,11 @@ export async function drawRegionMap(
       .setColor(event ? 0xff6b35 : 0x5865f2)
       .setTitle(event ? `🔥  Active Region: ${event.regionName}` : '🗺️  Active Regions')
       .setDescription(event
-        ? `**${event.regionName}** is active until <t:${Math.floor(event.endsAt / 1000)}:t>.`
-        : 'These are the areas that can become active. No player positions are '
-          + 'shown here, and none ever will be.')
+        ? `**${event.regionName}** is active until `
+          + `<t:${Math.floor(event.endsAt / 1000)}:t>. Head for the middle — the `
+          + 'glow is brightest where the centre is.'
+        : 'Nothing is active. The map shows the region only while an event is '
+          + 'running, and never shows where players are.')
       .setImage('attachment://regions.png')
       .setFooter({ text: `${SERVER} · ${SIGNATURE}` })
       .setTimestamp();

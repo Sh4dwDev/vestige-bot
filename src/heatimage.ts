@@ -384,14 +384,16 @@ export function forgetBaseImage(): void {
 }
 
 /**
- * The Active Region map: the areas, and nothing else.
+ * The Active Region map: one region, drawn like the heatmap.
  *
- * Deliberately not the heatmap. That one shows where people are, which is
- * exactly what the Active Region feature promises not to reveal — so this
- * shares the projection and the base image and draws only the circles.
+ * Deliberately not the heatmap itself. That one shows where people are, which
+ * is exactly what this feature promises not to reveal — so this shares the
+ * projection, the base image and the glow, and draws a single area instead of
+ * a crowd.
  *
- * The active one is filled and labelled; the rest are thin outlines, so the
- * picture doubles as "here are the regions" when nothing is running.
+ * Only the active region is drawn. Showing all of them would tell everybody
+ * where the next few events might be, which turns a rotation into a timetable;
+ * and an empty map when nothing is running is the honest picture.
  */
 export async function renderRegions(
   regions: Array<{ name: string; x: number; y: number; radius: number; active: boolean }>,
@@ -407,45 +409,44 @@ export async function renderRegions(
     drawGrid(image, size);
   }
 
-  if (bounds) {
-    const spanX = bounds.maxX - bounds.minX;
+  const active = regions.find((r) => r.active);
+  if (!active || !bounds) return image.getBuffer('image/png');
 
-    for (const region of regions) {
-      const { px, py } = toPixel({ x: region.x, y: region.y }, bounds, size);
-      // The radius is in world units and the image is a fraction of the span,
-      // so it scales with whatever the bounds turn out to be.
-      const rPixels = spanX !== 0 ? (region.radius / spanX) * size : 0;
-      if (rPixels < 1) continue;
+  const spanX = bounds.maxX - bounds.minX;
+  const { px, py } = toPixel({ x: active.x, y: active.y }, bounds, size);
+  const rPixels = spanX !== 0 ? (active.radius / spanX) * size : 0;
+  if (rPixels < 1) return image.getBuffer('image/png');
 
-      const colour = region.active ? 0xff6b35 : 0x8899aa;
-      const alpha = region.active ? 0x66 : 0x22;
+  const x0 = Math.max(0, Math.floor(px - rPixels));
+  const x1 = Math.min(size - 1, Math.ceil(px + rPixels));
+  const y0 = Math.max(0, Math.floor(py - rPixels));
+  const y1 = Math.min(size - 1, Math.ceil(py + rPixels));
 
-      for (let y = Math.max(0, Math.floor(py - rPixels));
-        y < Math.min(size, Math.ceil(py + rPixels)); y += 1) {
-        for (let x = Math.max(0, Math.floor(px - rPixels));
-          x < Math.min(size, Math.ceil(px + rPixels)); x += 1) {
-          const away = Math.hypot(x - px, y - py);
-          if (away > rPixels) continue;
+  for (let y = y0; y <= y1; y += 1) {
+    for (let x = x0; x <= x1; x += 1) {
+      const away = Math.hypot(x - px, y - py) / rPixels;
+      if (away > 1) continue;
 
-          // A filled wash for the active one, a ring for the others: a solid
-          // disc over every region would hide the map underneath.
-          const edge = away > rPixels - 2;
-          if (!region.active && !edge) continue;
+      // The same gaussian the heatmap uses, so the two pictures look like they
+      // belong together — a bright middle with a wide soft skirt rather than a
+      // disc with an edge. The centre is where people should aim for, and a
+      // hard rim would read as a fence.
+      const value = Math.exp(-4.5 * away * away);
+      const t = 1 - Math.exp(-value / FULL_HEAT);
+      const [r, g, b] = colourFor(t);
+      const weight = MAX_WEIGHT * (t ** LIFT);
+      if (weight <= 0.01) continue;
 
-          // Mixed rather than stamped, so the map underneath still reads.
-          const weight = (edge ? 0xdd : alpha) / 255;
-          const existing = image.getPixelColor(x, y);
-          const mix = (over: number, under: number): number =>
-            Math.round((over * weight) + (under * (1 - weight)));
+      const existing = image.getPixelColor(x, y);
+      const mix = (over: number, under: number): number =>
+        Math.round((over * weight) + (under * (1 - weight)));
 
-          image.setPixelColor(
-            (((mix((colour >>> 16) & 0xff, (existing >>> 24) & 0xff) << 24) >>> 0)
-              + (mix((colour >>> 8) & 0xff, (existing >>> 16) & 0xff) << 16)
-              + (mix(colour & 0xff, (existing >>> 8) & 0xff) << 8) + 0xff) >>> 0,
-            x, y,
-          );
-        }
-      }
+      image.setPixelColor(
+        (((mix(r, (existing >>> 24) & 0xff) << 24) >>> 0)
+          + (mix(g, (existing >>> 16) & 0xff) << 16)
+          + (mix(b, (existing >>> 8) & 0xff) << 8) + 0xff) >>> 0,
+        x, y,
+      );
     }
   }
 
