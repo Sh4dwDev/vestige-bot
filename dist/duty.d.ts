@@ -28,6 +28,7 @@ declare const KEYS: {
     readonly panelChannel: "duty_panel_channel";
     readonly panelMessage: "duty_panel_message";
     readonly maxHours: "duty_max_hours";
+    readonly ranks: "duty_ranks";
 };
 /** Long enough for a real session, short enough that a forgotten one closes. */
 export declare const DEFAULT_MAX_HOURS = 4;
@@ -62,6 +63,37 @@ export declare function formatDuration(seconds: number): string;
 export declare const durationBetween: (startUtc: string, endUtc: string) => number;
 /** Discord renders this in each viewer's own timezone, which beats picking one. */
 export declare const stamp: (iso: string) => string;
+export interface DutyRank {
+    roleId: string;
+    label: string;
+    /** Higher is more senior. Decides which label a multi-role member gets. */
+    level: number;
+    /** May take somebody else off duty and read their history. */
+    canForceOff: boolean;
+}
+/**
+ * Every role that counts as staff, most senior first.
+ *
+ * A list rather than one role because staff are not one rank: a trial mod, a
+ * moderator and a head admin all need the panel, and a session log that called
+ * them all "Staff" would be useless for supervision.
+ *
+ * Falls back to the single-role settings when the list is empty, so a server
+ * set up before ranks existed keeps working without being touched.
+ */
+export declare function dutyRanks(ctx: Ctx): DutyRank[];
+/**
+ * Only what was explicitly configured, with no legacy fallback.
+ *
+ * Editing the list and reading it are different questions. Folding the old
+ * single-role settings into an edit would quietly re-add them every time
+ * somebody defined a rank, so three additions produced five entries.
+ */
+export declare function storedRanks(ctx: Ctx): DutyRank[];
+export declare const setDutyRanks: (ctx: Ctx, ranks: DutyRank[]) => void;
+/** Adds or replaces one rank, keeping the list sorted by seniority. */
+export declare function upsertDutyRank(ctx: Ctx, rank: DutyRank): DutyRank[];
+export declare function removeDutyRank(ctx: Ctx, roleId: string): DutyRank[];
 /**
  * The rank shown in the log.
  *
@@ -128,7 +160,14 @@ export declare function ranksFor(ctx: Ctx): Array<{
     roleId: string;
     label: string;
 }>;
+/**
+ * Any configured rank admits somebody.
+ *
+ * Holding a senior role without the base one is enough: forgetting to also
+ * give somebody the lower role should never lock them out of their own panel.
+ */
 export declare const isStaff: (ctx: Ctx, roleIds: readonly string[]) => boolean;
+/** Whether any rank they hold is allowed to act on other people's sessions. */
 export declare const isSenior: (ctx: Ctx, roleIds: readonly string[]) => boolean;
 /**
  * Posts the start log and remembers where, so the completion can edit it.

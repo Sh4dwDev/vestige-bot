@@ -41,6 +41,7 @@ const KEYS = {
   panelChannel: 'duty_panel_channel',
   panelMessage: 'duty_panel_message',
   maxHours: 'duty_max_hours',
+  ranks: 'duty_ranks',
 } as const;
 
 const COLORS = { on: 0x57f287, off: 0x5865f2, warn: 0xfee75c, bad: 0xed4245 };
@@ -116,6 +117,80 @@ export const durationBetween = (startUtc: string, endUtc: string): number =>
 /** Discord renders this in each viewer's own timezone, which beats picking one. */
 export const stamp = (iso: string): string =>
   `<t:${Math.floor(Date.parse(iso) / 1000)}:F>`;
+
+// ------------------------------------------------------------------- ranks --
+
+export interface DutyRank {
+  roleId: string;
+  label: string;
+  /** Higher is more senior. Decides which label a multi-role member gets. */
+  level: number;
+  /** May take somebody else off duty and read their history. */
+  canForceOff: boolean;
+}
+
+/**
+ * Every role that counts as staff, most senior first.
+ *
+ * A list rather than one role because staff are not one rank: a trial mod, a
+ * moderator and a head admin all need the panel, and a session log that called
+ * them all "Staff" would be useless for supervision.
+ *
+ * Falls back to the single-role settings when the list is empty, so a server
+ * set up before ranks existed keeps working without being touched.
+ */
+export function dutyRanks(ctx: Ctx): DutyRank[] {
+  const stored = storedRanks(ctx);
+  if (stored.length > 0) return stored;
+
+  const legacy: DutyRank[] = [];
+  const senior = seniorRole(ctx);
+  const staff = staffRole(ctx);
+  if (senior) legacy.push({ roleId: senior, label: 'Head Admin', level: 90, canForceOff: true });
+  if (staff) legacy.push({ roleId: staff, label: 'Staff', level: 10, canForceOff: false });
+  return legacy;
+}
+
+/**
+ * Only what was explicitly configured, with no legacy fallback.
+ *
+ * Editing the list and reading it are different questions. Folding the old
+ * single-role settings into an edit would quietly re-add them every time
+ * somebody defined a rank, so three additions produced five entries.
+ */
+export function storedRanks(ctx: Ctx): DutyRank[] {
+  const raw = ctx.db.getSetting(KEYS.ranks);
+  if (!raw) return [];
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return (parsed as DutyRank[])
+      .filter((r) => typeof r?.roleId === 'string' && r.roleId !== '')
+      .sort((a, b) => b.level - a.level);
+  } catch {
+    // Unreadable settings fall through to the legacy pair rather than locking
+    // every staff member out of their own panel.
+    return [];
+  }
+}
+
+export const setDutyRanks = (ctx: Ctx, ranks: DutyRank[]): void =>
+  ctx.db.setSetting(KEYS.ranks, JSON.stringify(ranks));
+
+/** Adds or replaces one rank, keeping the list sorted by seniority. */
+export function upsertDutyRank(ctx: Ctx, rank: DutyRank): DutyRank[] {
+  const kept = storedRanks(ctx).filter((r) => r.roleId !== rank.roleId);
+  const next = [...kept, rank].sort((a, b) => b.level - a.level);
+  setDutyRanks(ctx, next);
+  return next;
+}
+
+export function removeDutyRank(ctx: Ctx, roleId: string): DutyRank[] {
+  const next = storedRanks(ctx).filter((r) => r.roleId !== roleId);
+  setDutyRanks(ctx, next);
+  return next;
+}
 
 // ------------------------------------------------------------------- ranking --
 
@@ -393,25 +468,21 @@ export async function goOffDuty(
 
 /** The ranks shown in a log, seniors first so the higher one wins. */
 export function ranksFor(ctx: Ctx): Array<{ roleId: string; label: string }> {
-  return [
-    { roleId: seniorRole(ctx) ?? '', label: 'Head Admin' },
-    { roleId: staffRole(ctx) ?? '', label: 'Staff' },
-  ];
+  return dutyRanks(ctx).map((r) => ({ roleId: r.roleId, label: r.label }));
 }
 
-export const isStaff = (ctx: Ctx, roleIds: readonly string[]): boolean => {
-  const staff = staffRole(ctx);
-  const senior = seniorRole(ctx);
-  // A senior role alone is enough: forgetting to also give somebody the base
-  // staff role should not quietly lock them out of their own duty panel.
-  return (staff !== null && roleIds.includes(staff))
-    || (senior !== null && roleIds.includes(senior));
-};
+/**
+ * Any configured rank admits somebody.
+ *
+ * Holding a senior role without the base one is enough: forgetting to also
+ * give somebody the lower role should never lock them out of their own panel.
+ */
+export const isStaff = (ctx: Ctx, roleIds: readonly string[]): boolean =>
+  dutyRanks(ctx).some((r) => roleIds.includes(r.roleId));
 
-export const isSenior = (ctx: Ctx, roleIds: readonly string[]): boolean => {
-  const senior = seniorRole(ctx);
-  return senior !== null && roleIds.includes(senior);
-};
+/** Whether any rank they hold is allowed to act on other people's sessions. */
+export const isSenior = (ctx: Ctx, roleIds: readonly string[]): boolean =>
+  dutyRanks(ctx).some((r) => r.canForceOff && roleIds.includes(r.roleId));
 
 /**
  * Posts the start log and remembers where, so the completion can edit it.

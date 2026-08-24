@@ -14,6 +14,7 @@ const load = (f) => import(pathToFileURL(path.join(root, 'dist', f)).href);
 const {
   goOnDuty, goOffDuty, formatDuration, durationBetween, nextSessionId, rankOf,
   isStaff, isSenior, setDutySetting, maxHours, buildDutyPanel, dutyPanelRows,
+  dutyRanks, upsertDutyRank, removeDutyRank, setDutyRanks,
   buildActiveEmbed, buildHistoryEmbed, buildStartLog, buildEndLog, stamp,
 } = await load('duty.js');
 const { Database } = await load('db.js');
@@ -68,6 +69,68 @@ const quiet = () => {};
 
   check('senior is recognised', isSenior(ctx, ['role-senior']));
   check('ordinary staff are not senior', !isSenior(ctx, ['role-staff']));
+}
+
+// ---- several ranks ----------------------------------------------------------
+//
+// Staff are not one rank. A trial mod, a moderator and a head admin all need
+// the panel, and a log that called them all "Staff" would be useless for
+// supervision.
+
+{
+  // Legacy first: a server set up before ranks existed must keep working
+  // without being touched.
+  const legacy = dutyRanks(ctx);
+  check('the old single-role setup still yields ranks', legacy.length === 2,
+    JSON.stringify(legacy));
+  check('and the senior one is first', legacy[0]?.label === 'Head Admin');
+
+  upsertDutyRank(ctx, { roleId: 'role-trial', label: 'Trial Mod', level: 5, canForceOff: false });
+  upsertDutyRank(ctx, { roleId: 'role-mod', label: 'Moderator', level: 20, canForceOff: false });
+  upsertDutyRank(ctx, { roleId: 'role-head', label: 'Head Admin', level: 90, canForceOff: true });
+
+  const ranks = dutyRanks(ctx);
+  check('every rank is kept', ranks.length === 3, JSON.stringify(ranks.map((r) => r.label)));
+  check('and they are sorted most senior first',
+    ranks.map((r) => r.label).join(',') === 'Head Admin,Moderator,Trial Mod',
+    ranks.map((r) => r.label).join(','));
+
+  check('any configured rank may use the panel',
+    isStaff(ctx, ['role-trial']) && isStaff(ctx, ['role-mod']) && isStaff(ctx, ['role-head']));
+  check('and somebody with none may not', !isStaff(ctx, ['role-member']));
+
+  // Only the rank that says so may act on other people.
+  check('a head admin may end other sessions', isSenior(ctx, ['role-head']));
+  check('a moderator may not', !isSenior(ctx, ['role-mod']));
+  check('nor a trial mod', !isSenior(ctx, ['role-trial']));
+
+  // Somebody holding two is described by the higher one.
+  check('the higher rank labels a multi-role member',
+    rankOf(['role-trial', 'role-head'], ranks.map((r) => ({ roleId: r.roleId, label: r.label })))
+      === 'Head Admin');
+
+  // Re-adding a role updates it rather than duplicating.
+  upsertDutyRank(ctx, { roleId: 'role-mod', label: 'Senior Mod', level: 50, canForceOff: true });
+  const updated = dutyRanks(ctx);
+  check('re-adding a role replaces it', updated.length === 3,
+    JSON.stringify(updated.map((r) => r.label)));
+  check('with the new label and powers',
+    updated.find((r) => r.roleId === 'role-mod')?.label === 'Senior Mod'
+    && isSenior(ctx, ['role-mod']));
+
+  const after = removeDutyRank(ctx, 'role-trial');
+  check('a rank can be removed', after.length === 2);
+  check('and its holders lose access', !isStaff(ctx, ['role-trial']));
+
+  // Unreadable settings must not lock every staff member out.
+  db.setSetting('duty_ranks', 'not json');
+  check('broken rank settings fall back to the legacy pair',
+    dutyRanks(ctx).length === 2, JSON.stringify(dutyRanks(ctx)));
+
+  setDutyRanks(ctx, [
+    { roleId: 'role-staff', label: 'Staff', level: 10, canForceOff: false },
+    { roleId: 'role-senior', label: 'Head Admin', level: 90, canForceOff: true },
+  ]);
 }
 
 // ---- rank labels ------------------------------------------------------------

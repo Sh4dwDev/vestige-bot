@@ -178,6 +178,9 @@ import {
   DUTY_PANEL_MESSAGE_KEY,
   dutyPanelChannel,
   dutyPanelRows,
+  dutyRanks,
+  removeDutyRank,
+  upsertDutyRank,
   formatDuration,
   goOffDuty,
   goOnDuty,
@@ -1122,6 +1125,22 @@ export const commandData = [
             .addChannelOption((o) =>
               o.setName('channel').setDescription('Where the panel lives')
                 .addChannelTypes(ChannelType.GuildText).setRequired(true)))
+        .addSubcommand((c) =>
+          c.setName('rank').setDescription('Add or update a staff rank')
+            .addRoleOption((o) =>
+              o.setName('role').setDescription('The role that grants it').setRequired(true))
+            .addStringOption((o) =>
+              o.setName('label').setDescription('Shown in logs, e.g. Moderator')
+                .setRequired(true))
+            .addIntegerOption((o) =>
+              o.setName('level').setDescription('Higher is more senior. Default 10')
+                .setMinValue(1).setMaxValue(100))
+            .addBooleanOption((o) =>
+              o.setName('forceoff').setDescription('May end other sessions. Default no')))
+        .addSubcommand((c) =>
+          c.setName('unrank').setDescription('Remove a staff rank')
+            .addRoleOption((o) =>
+              o.setName('role').setDescription('The role to drop').setRequired(true)))
         .addSubcommand((c) =>
           c.setName('roles').setDescription('Which roles mean staff and on duty')
             .addRoleOption((o) =>
@@ -3790,11 +3809,52 @@ async function handleDutyCommand(
   });
 }
 
+/** One line per rank, for the setup replies. */
+const rankLines = (ranks: ReturnType<typeof dutyRanks>): string =>
+  ranks
+    .map((r) => `**${r.level}** · <@&${r.roleId}> — ${r.label}`
+      + (r.canForceOff ? ' · may end other sessions' : ''))
+    .join('\n');
+
 async function handleDutySetup(
   ctx: Ctx,
   i: ChatInputCommandInteraction,
   action: string,
 ): Promise<void> {
+  if (action === 'rank') {
+    const role = i.options.getRole('role', true);
+    const ranks = upsertDutyRank(ctx, {
+      roleId: role.id,
+      label: i.options.getString('label', true).trim().slice(0, 40),
+      level: i.options.getInteger('level') ?? 10,
+      canForceOff: i.options.getBoolean('forceoff') ?? false,
+    });
+
+    await i.reply({
+      embeds: [embed(COLORS.good, 'Rank saved',
+        `${rankLines(ranks)}
+
+Most senior first. Somebody holding two ranks is `
+        + 'logged as the higher one, and any of these roles can use the panel.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (action === 'unrank') {
+    const role = i.options.getRole('role', true);
+    const ranks = removeDutyRank(ctx, role.id);
+    await i.reply({
+      embeds: [embed(COLORS.good, 'Rank removed',
+        ranks.length > 0
+          ? rankLines(ranks)
+          : 'No ranks are configured, so nobody can use the duty panel. Add one '
+            + 'with `/setup duty rank`.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
   if (action === 'roles') {
     const staff = i.options.getRole('staff');
     const onduty = i.options.getRole('onduty');
