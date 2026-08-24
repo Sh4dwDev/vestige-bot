@@ -15,6 +15,8 @@ import {
   type AutocompleteInteraction,
   type Client,
   type ChatInputCommandInteraction,
+  type GuildMember,
+  type Role,
   type ButtonInteraction,
   type Message,
   type ModalSubmitInteraction,
@@ -167,6 +169,31 @@ import {
   setAuditChannel,
   writeAudit,
 } from './auditlog.js';
+import {
+  buildActiveEmbed,
+  buildDutyPanel,
+  buildHistoryEmbed,
+  durationBetween,
+  dutyLogChannel,
+  DUTY_PANEL_MESSAGE_KEY,
+  dutyPanelChannel,
+  dutyPanelRows,
+  formatDuration,
+  goOffDuty,
+  goOnDuty,
+  isSenior,
+  isStaff,
+  maxHours,
+  onDutyRole,
+  postEndLog,
+  postStartLog,
+  rankOf,
+  ranksFor,
+  seniorRole,
+  setDutySetting,
+  staffRole,
+  stamp,
+} from './duty.js';
 import {
   MAX_PARENTS,
   nestingSettings,
@@ -378,6 +405,21 @@ export const commandData = [
     .setDescription('Ask a friend if you can travel to them')
     .addUserOption((o) =>
       o.setName('friend').setDescription('Who you want to travel to').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('duty')
+    .setDescription('Staff duty sessions')
+    .addSubcommand((c) => c.setName('on').setDescription('Start a duty session'))
+    .addSubcommand((c) => c.setName('off').setDescription('End your duty session'))
+    .addSubcommand((c) => c.setName('status').setDescription('Your current session'))
+    .addSubcommand((c) => c.setName('active').setDescription('Who is on duty'))
+    .addSubcommand((c) =>
+      c.setName('history').setDescription('Recent sessions for a staff member')
+        .addUserOption((o) => o.setName('staff').setDescription('Whose history')))
+    .addSubcommand((c) =>
+      c.setName('force-off').setDescription('End somebody else session')
+        .addUserOption((o) =>
+          o.setName('staff').setDescription('Who to take off duty').setRequired(true))),
 
   new SlashCommandBuilder()
     .setName('kills')
@@ -1074,6 +1116,33 @@ export const commandData = [
                 .setMinValue(0).setMaxValue(100_000))),
     )
     .addSubcommandGroup((g) =>
+      g.setName('duty').setDescription('Staff duty panel and logging')
+        .addSubcommand((c) =>
+          c.setName('panel').setDescription('Put the duty panel in a channel')
+            .addChannelOption((o) =>
+              o.setName('channel').setDescription('Where the panel lives')
+                .addChannelTypes(ChannelType.GuildText).setRequired(true)))
+        .addSubcommand((c) =>
+          c.setName('roles').setDescription('Which roles mean staff and on duty')
+            .addRoleOption((o) =>
+              o.setName('staff').setDescription('May use the panel'))
+            .addRoleOption((o) =>
+              o.setName('onduty').setDescription('Worn while on duty'))
+            .addRoleOption((o) =>
+              o.setName('senior').setDescription('May force others off duty')))
+        .addSubcommand((c) =>
+          c.setName('log').setDescription('Where duty sessions are recorded')
+            .addChannelOption((o) =>
+              o.setName('channel').setDescription('Session log channel')
+                .addChannelTypes(ChannelType.GuildText).setRequired(true)))
+        .addSubcommand((c) =>
+          c.setName('limit').setDescription('Hours before a session closes itself')
+            .addIntegerOption((o) =>
+              o.setName('hours').setDescription('Default 4')
+                .setMinValue(1).setMaxValue(24).setRequired(true)))
+        .addSubcommand((c) => c.setName('status').setDescription('How duty is set up')),
+    )
+    .addSubcommandGroup((g) =>
       g.setName('nesting').setDescription('Points for hatching a nest')
         .addSubcommand((c) => c.setName('on').setDescription('Pay parents for a hatched nest'))
         .addSubcommand((c) => c.setName('off').setDescription('Stop paying for nests'))
@@ -1181,6 +1250,7 @@ export async function handleCommand(ctx: Ctx, i: ChatInputCommandInteraction): P
     case 'prime': return handlePrime(ctx, i);
     case 'points': return handlePoints(ctx, i);
     case 'kills': return handleKills(ctx, i);
+    case 'duty': return handleDutyCommand(ctx, i);
     case 'teleport': return handleTeleport(ctx, i);
     case 'shop': return handleShop(ctx, i);
     // Same handler and the same permission gate: /setup exists only because
@@ -3580,6 +3650,237 @@ async function handleReferrals(
 }
 
 
+
+// ------------------------------------------------------------------ duty --
+
+/**
+ * The slash-command half of Duty Mode.
+ *
+ * Everything the panel buttons do, for people who would rather type — and the
+ * two things the panel has no room for: history, and taking somebody else off
+ * duty.
+ */
+async function handleDutyCommand(
+  ctx: Ctx,
+  i: ChatInputCommandInteraction,
+): Promise<void> {
+  const action = i.options.getSubcommand(true);
+  const member = i.member as GuildMember | null;
+  const roleIds: string[] = member?.roles?.cache?.map((r: Role) => r.id) ?? [];
+
+  if (!member || !isStaff(ctx, roleIds)) {
+    await i.reply({
+      embeds: [embed(COLORS.bad, 'Staff only',
+        'Duty Mode is for staff. Ask an admin to check your roles if that looks wrong.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (action === 'active') {
+    await i.reply({
+      embeds: [buildActiveEmbed(ctx.db.allActiveDuty())],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (action === 'status') {
+    const open = ctx.db.activeDuty(i.user.id);
+    await i.reply({
+      embeds: [open
+        ? embed(COLORS.good, '🟢  On duty',
+          `Session **${open.sessionId}** · **${open.staffRank}**\n`
+          + `Started ${stamp(open.startedAtUtc)}\n`
+          + `Duration **${formatDuration(
+            durationBetween(open.startedAtUtc, new Date().toISOString()))}**\n`
+          + `Steam **${open.steamId}**`)
+        : embed(COLORS.quiet, '⚪  Off duty', 'You have no session open.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (action === 'history') {
+    const who = i.options.getUser('staff') ?? i.user;
+    // Anybody may read their own; somebody else's is a supervision matter.
+    if (who.id !== i.user.id && !isSenior(ctx, roleIds)) {
+      await i.reply({
+        embeds: [embed(COLORS.bad, 'Not allowed',
+          'Only senior staff can read somebody else history.')],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    await i.reply({
+      embeds: [buildHistoryEmbed(ctx.db.dutyHistory(who.id, 10), who.id)],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (action === 'force-off') {
+    if (!isSenior(ctx, roleIds)) {
+      await i.reply({
+        embeds: [embed(COLORS.bad, 'Not allowed',
+          'Only senior staff can take somebody else off duty.')],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const who = i.options.getUser('staff', true);
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const target = await i.guild?.members.fetch(who.id).catch(() => null) ?? null;
+    const result = await goOffDuty(
+      ctx, target, who.id, 'Forced off duty by senior staff', describeError);
+
+    if (!result.ok) {
+      await i.editReply({ embeds: [embed(COLORS.warn, 'Not ended', result.reason)] });
+      return;
+    }
+
+    await postEndLog(ctx, i.client, result.session, who.username, () => undefined);
+    await i.editReply({
+      embeds: [embed(COLORS.good, 'Taken off duty',
+        `${who} is off duty after `
+        + `**${formatDuration(result.session.durationSeconds ?? 0)}**, `
+        + `recorded as **${result.session.sessionId}**.`)],
+    });
+    return;
+  }
+
+  // on and off, which the panel buttons also reach.
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+
+  if (action === 'on') {
+    const result = await goOnDuty(
+      ctx, member, rankOf(roleIds, ranksFor(ctx)), 'command', () => undefined);
+
+    if (!result.ok) {
+      await i.editReply({ embeds: [embed(COLORS.warn, 'Not started', result.reason)] });
+      return;
+    }
+
+    await postStartLog(ctx, i.client, result.session, i.user.username, () => undefined);
+    await i.editReply({
+      embeds: [embed(COLORS.good, '🟢  On duty',
+        `Session **${result.session.sessionId}** started `
+        + `${stamp(result.session.startedAtUtc)}.\n\nIt closes itself after `
+        + `**${maxHours(ctx)} hours** if you forget.`)],
+    });
+    return;
+  }
+
+  const result = await goOffDuty(ctx, member, i.user.id, 'Staff went off duty',
+    () => undefined);
+
+  if (!result.ok) {
+    await i.editReply({ embeds: [embed(COLORS.warn, 'Not ended', result.reason)] });
+    return;
+  }
+
+  await postEndLog(ctx, i.client, result.session, i.user.username, () => undefined);
+  await i.editReply({
+    embeds: [embed(COLORS.good, '⚪  Off duty',
+      `**${formatDuration(result.session.durationSeconds ?? 0)}** on duty, `
+      + `recorded as **${result.session.sessionId}**.`)],
+  });
+}
+
+async function handleDutySetup(
+  ctx: Ctx,
+  i: ChatInputCommandInteraction,
+  action: string,
+): Promise<void> {
+  if (action === 'roles') {
+    const staff = i.options.getRole('staff');
+    const onduty = i.options.getRole('onduty');
+    const senior = i.options.getRole('senior');
+
+    if (staff) setDutySetting(ctx, 'staffRole', staff.id);
+    if (onduty) setDutySetting(ctx, 'onDutyRole', onduty.id);
+    if (senior) setDutySetting(ctx, 'seniorRole', senior.id);
+
+    await i.reply({
+      embeds: [embed(COLORS.good, 'Duty roles set',
+        `Staff: ${staffRole(ctx) ? `<@&${staffRole(ctx)}>` : 'unset'}\n`
+        + `On duty: ${onDutyRole(ctx) ? `<@&${onDutyRole(ctx)}>` : 'unset'}\n`
+        + `Senior: ${seniorRole(ctx) ? `<@&${seniorRole(ctx)}>` : 'unset'}\n\n`
+        + 'The on-duty role is a marker only — give it no permissions of its '
+        + 'own, or people will hold them between sessions.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (action === 'log') {
+    const channel = i.options.getChannel('channel', true);
+    setDutySetting(ctx, 'logChannel', channel.id);
+    await i.reply({
+      embeds: [embed(COLORS.good, 'Duty log set',
+        `Sessions are recorded in <#${channel.id}>. The start message is edited `
+        + 'into the completed one when the session ends, so each session is one '
+        + 'entry rather than two.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (action === 'limit') {
+    const hours = i.options.getInteger('hours', true);
+    setDutySetting(ctx, 'maxHours', String(hours));
+    await i.reply({
+      embeds: [embed(COLORS.good, 'Limit set',
+        `A session closes itself after **${hours} hours** and is logged as such. `
+        + 'Somebody who forgets the button does not leave a session running for '
+        + 'a week.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (action === 'status') {
+    const open = ctx.db.allActiveDuty();
+    await i.reply({
+      embeds: [embed(COLORS.info, 'Duty setup',
+        `Staff role: ${staffRole(ctx) ? `<@&${staffRole(ctx)}>` : '**unset**'}\n`
+        + `On-duty role: ${onDutyRole(ctx) ? `<@&${onDutyRole(ctx)}>` : '**unset**'}\n`
+        + `Senior role: ${seniorRole(ctx) ? `<@&${seniorRole(ctx)}>` : 'unset'}\n`
+        + `Log channel: ${dutyLogChannel(ctx) ? `<#${dutyLogChannel(ctx)}>` : '**unset**'}\n`
+        + `Panel: ${dutyPanelChannel(ctx) ? `<#${dutyPanelChannel(ctx)}>` : '**unset**'}\n`
+        + `Session limit: **${maxHours(ctx)}h**\n`
+        + `On duty now: **${open.length}**\n\n`
+        + '⚠️ Duty Mode records and displays; it does not change in-game '
+        + 'powers. The Isle reads its admin list only at startup, so that '
+        + 'cannot be switched while the server runs.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const channel = i.options.getChannel('channel', true);
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+  setDutySetting(ctx, 'panelChannel', channel.id);
+
+  try {
+    await postOrEdit(ctx.db, i.client, channel.id, DUTY_PANEL_MESSAGE_KEY,
+      [buildDutyPanel()], dutyPanelRows());
+    await i.editReply({
+      embeds: [embed(COLORS.good, 'Duty panel posted',
+        `It is in <#${channel.id}>, and updates in place rather than posting a `
+        + 'second copy.\n\nSet the roles with `/setup duty roles` and the log '
+        + 'channel with `/setup duty log` if you have not already.')],
+    });
+  } catch (err) {
+    await i.editReply({
+      embeds: [embed(COLORS.bad, 'Could not post it', describeError(err))],
+    });
+  }
+}
+
 // -------------------------------------------------------------- nesting --
 
 async function handleNesting(
@@ -4798,6 +5099,7 @@ async function runAdmin(ctx: Ctx, i: ChatInputCommandInteraction): Promise<void>
   if (group === 'wardrobe') return handleWardrobePanel(ctx, i, action);
   if (group === 'market') return handleMarketPanel(ctx, i, action);
   if (group === 'nesting') return handleNesting(ctx, i, action);
+  if (group === 'duty') return handleDutySetup(ctx, i, action);
   if (group === 'peaks') return handlePeaks(ctx, i, action);
   if (group === 'heatmap') return handleHeatmap(ctx, i, action);
 

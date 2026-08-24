@@ -57,6 +57,7 @@ import { handlePanelInteraction } from './panel.js';
 import { handleMarket } from './market.js';
 import { runNesting } from './nesting.js';
 import { runGameLog } from './gamelog.js';
+import { handleDuty, reconcileDuty } from './duty.js';
 import { handleWardrobe } from './wardrobe.js';
 import { advanceTryout } from './tryout.js';
 import {
@@ -162,6 +163,19 @@ async function main(): Promise<void> {
       // reaches the people actually reading it.
       void refreshGuides(ctx, ready, log);
       startRestartScheduler(ctx, ready, log);
+      // Sessions left open by whatever stopped the bot are closed and logged,
+      // and any on-duty role with no session behind it comes off. A row saying
+      // "active" after a restart means nobody pressed the button, not that
+      // somebody is still working.
+      void reconcileDuty(ctx, ready, log, { onStartup: true })
+        .then((closed) => {
+          if (closed > 0) log(`duty: closed ${closed} session(s) left open by a restart`);
+        });
+
+      // And on a timer, for the ones that run past their limit.
+      setInterval(() => {
+        void reconcileDuty(ctx, ready, log).catch(() => undefined);
+      }, 5 * 60_000).unref();
     startCleanupScheduler(ctx, log);
 
     // Everything the bot knows is in one file on the game host. This is the
@@ -255,6 +269,7 @@ async function dispatch(ctx: Ctx, interaction: Interaction): Promise<void> {
       // without having touched any panel.
       if (interaction.isModalSubmit() && await handleLinkModal(ctx, interaction)) return;
       if (interaction.isButton() && await handleFounderInteraction(ctx, interaction)) return;
+      if (interaction.isButton() && await handleDuty(ctx, interaction, log)) return;
       if ((interaction.isButton() || interaction.isStringSelectMenu())
         && await handleWardrobe(ctx, interaction)) return;
       // The market takes buttons, selects and its price form, so it is offered

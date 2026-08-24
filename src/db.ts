@@ -213,6 +213,37 @@ CREATE TABLE IF NOT EXISTS known_species (
 -- moves that file. What is here is the offer — who, what, how much, and the
 -- description a buyer decides on, snapshotted at listing time so the embed does
 -- not need a round trip to the server to render.
+-- Staff duty sessions.
+--
+-- The record is the authority, not the Discord role: a role can be removed by
+-- hand, lost to an outage, or survive a crash, and none of that should decide
+-- whether somebody holds staff powers.
+CREATE TABLE IF NOT EXISTS duty_sessions (
+  session_id       TEXT PRIMARY KEY,
+  discord_user_id  TEXT NOT NULL,
+  steam_id         TEXT NOT NULL,
+  staff_rank       TEXT NOT NULL,
+  started_at_utc   TEXT NOT NULL,
+  ended_at_utc     TEXT,
+  duration_seconds INTEGER,
+  start_method     TEXT NOT NULL,
+  end_reason       TEXT,
+  -- active | ended. Never deleted: a session that vanishes is indistinguishable
+  -- from one that never happened, which is the opposite of an audit trail.
+  status           TEXT NOT NULL,
+  action_count     INTEGER NOT NULL DEFAULT 0,
+  blocked_count    INTEGER NOT NULL DEFAULT 0,
+  log_channel_id   TEXT,
+  log_message_id   TEXT,
+  created_at       TEXT NOT NULL,
+  updated_at       TEXT NOT NULL
+);
+
+-- One active session per person, enforced by the database rather than by a
+-- read-then-write that two clicks can race through.
+CREATE UNIQUE INDEX IF NOT EXISTS duty_one_active
+  ON duty_sessions (discord_user_id) WHERE status = 'active';
+
 CREATE TABLE IF NOT EXISTS listings (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   seller_steam TEXT NOT NULL,
@@ -250,6 +281,23 @@ CREATE TABLE IF NOT EXISTS skin_baseline (
 export interface Link {
   discordId: string;
   steamId: string;
+}
+
+export interface DutyRow {
+  sessionId: string;
+  discordUserId: string;
+  steamId: string;
+  staffRank: string;
+  startedAtUtc: string;
+  endedAtUtc: string | null;
+  durationSeconds: number | null;
+  startMethod: 'panel' | 'command' | 'override';
+  endReason: string | null;
+  status: 'active' | 'ended';
+  actionCount: number;
+  blockedCount: number;
+  logChannelId: string | null;
+  logMessageId: string | null;
 }
 
 export interface Listing {
@@ -614,6 +662,128 @@ export class Database {
           .prepare('DELETE FROM skin_baseline WHERE steam_id = ? AND species = ?')
           .run(steamId, species).changes,
     );
+  }
+
+  // ------------------------------------------------------------------ duty --
+
+  #asDuty(row: Record<string, unknown>): DutyRow {
+    const num = (key: string): number | null =>
+      typeof row[key] === 'number' ? row[key] : null;
+
+    return {
+      sessionId: String(row['session_id']),
+      discordUserId: String(row['discord_user_id']),
+      steamId: String(row['steam_id']),
+      staffRank: String(row['staff_rank']),
+      startedAtUtc: String(row['started_at_utc']),
+      endedAtUtc: row['ended_at_utc'] ? String(row['ended_at_utc']) : null,
+      durationSeconds: num('duration_seconds'),
+      startMethod: String(row['start_method']) as DutyRow['startMethod'],
+      endReason: row['end_reason'] ? String(row['end_reason']) : null,
+      status: String(row['status']) as DutyRow['status'],
+      actionCount: Number(row['action_count'] ?? 0),
+      blockedCount: Number(row['blocked_count'] ?? 0),
+      logChannelId: row['log_channel_id'] ? String(row['log_channel_id']) : null,
+      logMessageId: row['log_message_id'] ? String(row['log_message_id']) : null,
+    };
+  }
+
+  /**
+   * Opens a session, or returns null when one is already open.
+   *
+   * The unique index does the deciding, not a read beforehand: two clicks in
+   * the same instant would both pass a check-then-insert.
+   */
+  startDuty(row: {
+    sessionId: string;
+    discordUserId: string;
+    steamId: string;
+    staffRank: string;
+    startedAtUtc: string;
+    startMethod: string;
+  }): DutyRow | null {
+    const now = new Date().toISOString();
+    try {
+      this.#db
+        .prepare(
+          `INSERT INTO duty_sessions
+             (session_id, discord_user_id, steam_id, staff_rank, started_at_utc,
+              start_method, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+        )
+        .run(row.sessionId, row.discordUserId, row.steamId, row.staffRank,
+          row.startedAtUtc, row.startMethod, now, now);
+    } catch {
+      // The partial unique index rejected it: they are already on duty.
+      return null;
+    }
+    return this.dutySession(row.sessionId);
+  }
+
+  dutySession(sessionId: string): DutyRow | null {
+    const row = this.#db.prepare('SELECT * FROM duty_sessions WHERE session_id = ?')
+      .get(sessionId) as Record<string, unknown> | undefined;
+    return row ? this.#asDuty(row) : null;
+  }
+
+  activeDuty(discordUserId: string): DutyRow | null {
+    const row = this.#db
+      .prepare("SELECT * FROM duty_sessions WHERE discord_user_id = ? AND status = 'active'")
+      .get(discordUserId) as Record<string, unknown> | undefined;
+    return row ? this.#asDuty(row) : null;
+  }
+
+  allActiveDuty(): DutyRow[] {
+    return (this.#db
+      .prepare("SELECT * FROM duty_sessions WHERE status = 'active' ORDER BY started_at_utc ASC")
+      .all() as Array<Record<string, unknown>>).map((r) => this.#asDuty(r));
+  }
+
+  dutyHistory(discordUserId: string, limit = 10): DutyRow[] {
+    return (this.#db
+      .prepare('SELECT * FROM duty_sessions WHERE discord_user_id = ? '
+        + 'ORDER BY started_at_utc DESC LIMIT ?')
+      .all(discordUserId, limit) as Array<Record<string, unknown>>)
+      .map((r) => this.#asDuty(r));
+  }
+
+  /** Sessions opened on a given `YYYYMMDD`, for numbering the next one. */
+  dutySessionsOnDay(day: string): DutyRow[] {
+    const iso = `${day.slice(0, 4)}-${day.slice(4, 6)}-${day.slice(6, 8)}`;
+    return (this.#db
+      .prepare('SELECT * FROM duty_sessions WHERE started_at_utc LIKE ?')
+      .all(`${iso}%`) as Array<Record<string, unknown>>).map((r) => this.#asDuty(r));
+  }
+
+  /**
+   * Closes a session. Returns false when it was already closed, so a repeated
+   * completion event cannot log twice or overwrite a recorded duration.
+   */
+  endDuty(
+    sessionId: string,
+    endedAtUtc: string,
+    durationSeconds: number,
+    reason: string,
+  ): boolean {
+    return Number(
+      this.#db
+        .prepare(
+          `UPDATE duty_sessions
+              SET status = 'ended', ended_at_utc = ?, duration_seconds = ?,
+                  end_reason = ?, updated_at = ?
+            WHERE session_id = ? AND status = 'active'`,
+        )
+        .run(endedAtUtc, durationSeconds, reason, new Date().toISOString(), sessionId)
+        .changes,
+    ) === 1;
+  }
+
+  /** Where the start log was posted, so the completion can edit it in place. */
+  setDutyLogMessage(sessionId: string, channelId: string, messageId: string): void {
+    this.#db
+      .prepare('UPDATE duty_sessions SET log_channel_id = ?, log_message_id = ?, '
+        + 'updated_at = ? WHERE session_id = ?')
+      .run(channelId, messageId, new Date().toISOString(), sessionId);
   }
 
   // -------------------------------------------------------------- listings --

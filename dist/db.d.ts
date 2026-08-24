@@ -2,6 +2,22 @@ export interface Link {
     discordId: string;
     steamId: string;
 }
+export interface DutyRow {
+    sessionId: string;
+    discordUserId: string;
+    steamId: string;
+    staffRank: string;
+    startedAtUtc: string;
+    endedAtUtc: string | null;
+    durationSeconds: number | null;
+    startMethod: 'panel' | 'command' | 'override';
+    endReason: string | null;
+    status: 'active' | 'ended';
+    actionCount: number;
+    blockedCount: number;
+    logChannelId: string | null;
+    logMessageId: string | null;
+}
 export interface Listing {
     id: number;
     sellerSteam: string;
@@ -116,6 +132,33 @@ export declare class Database {
         variation?: number;
     } | null;
     clearBaseline(steamId: string, species?: string): number;
+    /**
+     * Opens a session, or returns null when one is already open.
+     *
+     * The unique index does the deciding, not a read beforehand: two clicks in
+     * the same instant would both pass a check-then-insert.
+     */
+    startDuty(row: {
+        sessionId: string;
+        discordUserId: string;
+        steamId: string;
+        staffRank: string;
+        startedAtUtc: string;
+        startMethod: string;
+    }): DutyRow | null;
+    dutySession(sessionId: string): DutyRow | null;
+    activeDuty(discordUserId: string): DutyRow | null;
+    allActiveDuty(): DutyRow[];
+    dutyHistory(discordUserId: string, limit?: number): DutyRow[];
+    /** Sessions opened on a given `YYYYMMDD`, for numbering the next one. */
+    dutySessionsOnDay(day: string): DutyRow[];
+    /**
+     * Closes a session. Returns false when it was already closed, so a repeated
+     * completion event cannot log twice or overwrite a recorded duration.
+     */
+    endDuty(sessionId: string, endedAtUtc: string, durationSeconds: number, reason: string): boolean;
+    /** Where the start log was posted, so the completion can edit it in place. */
+    setDutyLogMessage(sessionId: string, channelId: string, messageId: string): void;
     createListing(row: {
         sellerSteam: string;
         slot: string;
