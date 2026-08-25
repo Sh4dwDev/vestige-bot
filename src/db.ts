@@ -1612,6 +1612,30 @@ export class Database {
       .run(steamId, Math.max(0, balance), new Date().toISOString());
   }
 
+  /**
+   * Where somebody stands on the points table, and how many are on it.
+   *
+   * Counted in SQL rather than by walking `topPoints`: the leaderboard is only
+   * ever fetched a page at a time, and a profile that had to pull every row to
+   * say "5th" would get slower as the server got busier.
+   *
+   * Ties share the better rank, which is what anybody reading it expects.
+   */
+  pointsRank(steamId: string): { rank: number; of: number } {
+    const mine = this.pointsFor(steamId).balance;
+    const ahead = this.#db
+      .prepare('SELECT COUNT(*) AS n FROM points WHERE balance > ?')
+      .get(mine) as Record<string, unknown> | undefined;
+    const total = this.#db
+      .prepare('SELECT COUNT(*) AS n FROM points')
+      .get() as Record<string, unknown> | undefined;
+
+    return {
+      rank: Number(ahead?.['n'] ?? 0) + 1,
+      of: Number(total?.['n'] ?? 0),
+    };
+  }
+
   topPoints(limit: number): Array<{ steamId: string; balance: number; minutes: number }> {
     const rows = this.#db
       .prepare('SELECT steam_id, balance, minutes FROM points ORDER BY balance DESC LIMIT ?')

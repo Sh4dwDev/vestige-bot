@@ -55,6 +55,19 @@ export interface Hunt {
    * minute is not a warmer signal, it is spam.
    */
   bands?: Record<string, number>;
+  /**
+   * Who was standing with the quarry when the hunt was called.
+   *
+   * These are the people who cannot claim it. A quarry's own group killing
+   * them is not a hunt, it is the pair of them splitting the reward, and it is
+   * the cheapest way to farm one.
+   *
+   * The game does not tell us who is grouped with whom, and the two attempts
+   * at asking the engine directly took the server down (see NOTES.md). Standing
+   * together at the moment the hunt is announced is the signal available
+   * without that risk: a group is already together, a hunter has to travel.
+   */
+  company?: string[];
 }
 
 /**
@@ -146,6 +159,9 @@ export const caughtAnnounce = (hunt: Hunt, killer: string): string =>
 export const survivedAnnounce = (hunt: Hunt): string =>
   `HUNT: ${hunt.targetName} survived. Nobody wins.`;
 
+export const colludedAnnounce = (hunt: Hunt): string =>
+  `HUNT: ${hunt.targetName} was killed by their own group. Nobody wins.`;
+
 export function buildHuntEmbed(hunt: Hunt, state: 'running' | 'caught' | 'survived',
   killer?: string): EmbedBuilder {
   const colour = state === 'caught' ? 0x57f287 : state === 'survived' ? 0xed4245 : 0xfee75c;
@@ -197,6 +213,38 @@ export interface ProximityStep {
  * Pure, and it only speaks on a change of band — including the change to "no
  * longer close", which is how somebody knows they have lost the trail.
  */
+/**
+ * How close counts as travelling with somebody, in HUD units.
+ *
+ * The "you are close" band. Tighter than that and a group spread over a
+ * clearing is missed; wider and half the server is somebody's company.
+ */
+export const COMPANY_WITHIN = 20;
+
+/**
+ * Who is standing with the quarry right now.
+ *
+ * Pure, and taken once at the start rather than tracked: after the hunt is
+ * announced, somebody approaching the quarry is exactly what a hunter does, so
+ * there is no way to tell a late-joining friend from a hunter closing in. The
+ * snapshot only claims to catch the people who were already there.
+ */
+export function companyOf(targetSteam: string, players: PlayerRow[]): string[] {
+  const target = players.find((p) => p.steam === targetSteam);
+  if (!target || target.x === undefined || target.y === undefined) return [];
+
+  const near: string[] = [];
+  for (const player of players) {
+    if (!player.steam || player.steam === targetSteam) continue;
+    if (player.x === undefined || player.y === undefined) continue;
+
+    if (Math.hypot(player.x - target.x, player.y - target.y) / 1000 <= COMPANY_WITHIN) {
+      near.push(player.steam);
+    }
+  }
+  return near;
+}
+
 export function proximityStep(hunt: Hunt, players: PlayerRow[]): ProximityStep {
   const target = players.find((p) => p.steam === hunt.targetSteam);
   const bands = { ...(hunt.bands ?? {}) };
@@ -286,7 +334,17 @@ export const setHuntChannel = (ctx: Ctx, channelId: string | null): void =>
  * Returns the hunt that was ended, or null when this kill had nothing to do
  * with one.
  */
-export function claimHunt(ctx: Ctx, killerSteam: string, victimSteam: string): Hunt | null {
+export type HuntClaim =
+  /** Somebody earned it. */
+  | { kind: 'paid'; hunt: Hunt }
+  /** Killed by their own company, so it ends and nobody is paid. */
+  | { kind: 'collusion'; hunt: Hunt };
+
+export function claimHunt(
+  ctx: Ctx,
+  killerSteam: string,
+  victimSteam: string,
+): HuntClaim | null {
   const hunt = activeHunt(ctx);
   if (!hunt || victimSteam !== hunt.targetSteam) return null;
 
@@ -297,11 +355,19 @@ export function claimHunt(ctx: Ctx, killerSteam: string, victimSteam: string): H
     return null;
   }
 
+  // The quarry's own group cannot collect on them. Paying here would make the
+  // reliable way to win "be friends with the target", which is not a hunt and
+  // would quietly become the only way anybody plays it.
+  if (hunt.company?.includes(killerSteam)) {
+    saveHunt(ctx, null);
+    return { kind: 'collusion', hunt };
+  }
+
   ctx.db.addPoints(killerSteam, hunt.reward, 0);
   if (hunt.skin) ctx.db.grantSkin(killerSteam, hunt.skin, `Won the hunt for ${hunt.targetName}`);
   saveHunt(ctx, null);
 
-  return hunt;
+  return { kind: 'paid', hunt };
 }
 
 /**

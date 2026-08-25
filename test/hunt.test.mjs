@@ -11,6 +11,7 @@ const load = (f) => import(pathToFileURL(path.join(root, 'dist', f)).href);
 const {
   huntStep, claimHunt, saveHunt, activeHunt, markRevealed,
   buildHuntEmbed, huntAnnounce, revealAnnounce, survivedAnnounce, proximityStep,
+  companyOf, COMPANY_WITHIN,
 } = await load('hunt.js');
 const { Database } = await load('db.js');
 
@@ -256,6 +257,58 @@ const at = (steam, x, y, species = 'Rex') =>
   for (const notice of near.notices) {
     check('a proximity notice is plain ASCII', /^[ -~]*$/.test(notice.text), notice.text);
   }
+}
+
+// ---- the quarry's own group ------------------------------------------------
+
+{
+  const FRIEND = '76561198000000004';
+
+  const together = companyOf(TARGET, [
+    at(TARGET, 0, 0),
+    at(FRIEND, (COMPANY_WITHIN - 2) * 1000, 0),
+    at(HUNTER, (COMPANY_WITHIN + 30) * 1000, 0),
+  ]);
+  check('somebody standing with the quarry is company', together.includes(FRIEND));
+  check('somebody far away is not', !together.includes(HUNTER), JSON.stringify(together));
+  check('and the quarry is never their own company', !together.includes(TARGET));
+
+  // An unlocatable quarry gives nothing to compare against. Guessing here would
+  // either disqualify the whole server or nobody, and both are wrong.
+  check('an unlocatable quarry has no company',
+    companyOf(TARGET, [{ steam: TARGET }, at(FRIEND, 0, 0)]).length === 0);
+
+  check('a player with no position is not counted',
+    companyOf(TARGET, [at(TARGET, 0, 0), { steam: FRIEND }]).length === 0);
+}
+
+{
+  const db = new Database(
+    path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'vesta-')), 'hunt3.sqlite'));
+  const ctx = { db };
+  const FRIEND = '76561198000000004';
+  db.savePreset('Trophy', { colours: { BodyColor: '#AA0000' } }, 'staff');
+
+  // The cheapest way to farm a hunt: have a friend standing next to you kill
+  // you. It ends the hunt, because the quarry really is dead, but it pays
+  // nobody.
+  saveHunt(ctx, base({ skin: 'Trophy', company: [FRIEND] }));
+  const colluded = claimHunt(ctx, FRIEND, TARGET);
+  check('the quarry cannot be cashed in by their own group',
+    colluded?.kind === 'collusion', JSON.stringify(colluded?.kind));
+  check('and nothing is paid for it', db.pointsFor(FRIEND).balance === 0,
+    String(db.pointsFor(FRIEND).balance));
+  check('nor is the skin handed over', !db.ownsSkin(FRIEND, 'Trophy'));
+  check('the hunt still ends, because they are dead', activeHunt(ctx) === null);
+
+  // Somebody who was not standing there is a hunter, whoever else was.
+  saveHunt(ctx, base({ company: [FRIEND] }));
+  const won = claimHunt(ctx, HUNTER, TARGET);
+  check('an actual hunter is still paid', won?.kind === 'paid');
+  check('and gets the points', db.pointsFor(HUNTER).balance === 1500,
+    String(db.pointsFor(HUNTER).balance));
+
+  db.close();
 }
 
 const failed = results.filter((r) => !r).length;

@@ -57,6 +57,7 @@ import { handlePanelInteraction } from './panel.js';
 import { handleMarket } from './market.js';
 import { runNesting } from './nesting.js';
 import { runGameLog } from './gamelog.js';
+import { startWebsite } from './web.js';
 import { handleDuty, reconcileDuty } from './duty.js';
 import { handleWardrobe } from './wardrobe.js';
 import { advanceTryout } from './tryout.js';
@@ -65,6 +66,7 @@ import {
   buildHuntEmbed,
   caughtAnnounce,
   claimHunt,
+  colludedAnnounce,
   huntChannel,
   huntStep,
   proximityStep,
@@ -116,6 +118,11 @@ async function main(): Promise<void> {
   } catch (err) {
     log(`WARNING: could not read Game.ini, /admin game will not work: ${describeError(err)}`);
   }
+
+  // Started before Discord logs in: the site only needs the database and the
+  // bridge, and a slow Discord login should not hold the page hostage.
+  const website = startWebsite(ctx, log);
+  if (!website) log('note: no WEB_BASE_URL, so the website API is off');
 
   if (!config.discordInvite) log('note: DISCORD_INVITE is unset, so !discord is disabled');
 
@@ -232,6 +239,7 @@ async function main(): Promise<void> {
     log('shutting down');
     void client.destroy().finally(() => {
       rcon.close();
+      void website?.close();
       void Promise.all([mod.close(), admins.close()]).finally(() => {
         db.close();
         process.exit(0);
@@ -642,10 +650,19 @@ async function settleHunt(
   kill: KillEvent,
   log: (m: string) => void,
 ): Promise<void> {
-  const hunt = claimHunt(ctx, kill.killer, kill.victim);
-  if (!hunt) return;
+  const claim = claimHunt(ctx, kill.killer, kill.victim);
+  if (!claim) return;
 
+  const { hunt } = claim;
   const killer = steamNamer(ctx)(kill.killer);
+
+  if (claim.kind === 'collusion') {
+    log(`hunt: ${kill.killer} was the quarry's own company, so nobody was paid`);
+    await ctx.rcon.announce(toPlainAscii(colludedAnnounce(hunt))).catch(() => undefined);
+    await sayInHuntChannel(ctx, client, buildHuntEmbed(hunt, 'survived'));
+    return;
+  }
+
   log(`hunt: ${kill.killer} caught ${hunt.targetSteam} for ${hunt.reward}`);
 
   await ctx.rcon.announce(toPlainAscii(caughtAnnounce(hunt, killer))).catch(() => undefined);
@@ -667,7 +684,13 @@ async function runHunt(
   const near = proximityStep(hunt, players);
   if (near.notices.length > 0) {
     saveHunt(ctx, near.hunt);
-    for (const notice of near.notices) void tell(ctx, notice.steam, notice.text);
+    // Persistent, so warmth lands in the on-screen notice the prime checklist
+    // uses rather than the announcement banner. The banner is server-wide
+    // furniture that flashes for a second, which is the wrong shape for
+    // something only this player is meant to act on while it is true.
+    for (const notice of near.notices) {
+      void tell(ctx, notice.steam, notice.text, { persist: true });
+    }
   }
 
   const step = huntStep(near.hunt, players, Date.now());

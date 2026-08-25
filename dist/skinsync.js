@@ -1,4 +1,4 @@
-import { applyLookIndexes, encodeColours } from './skins.js';
+import { applyLookIndexes, encodeColours, WHOLE_LOOK } from './skins.js';
 /**
  * Makes skins stick.
  *
@@ -118,7 +118,7 @@ export async function reapplySkins(ctx, players, log) {
         try {
             // A fresh pawn comes with its own variation, so the repaint has to clear
             // it as well or the skin comes back only partly.
-            await applyLookIndexes(ctx, player.steam, {});
+            await applyLookIndexes(ctx, player.steam, WHOLE_LOOK);
             const result = await ctx.mod.run('skinmany', player.steam, { colors: encodeColours(colours) }, { quiet: true });
             if (result.ok) {
                 painted.add(entry);

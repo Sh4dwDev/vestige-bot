@@ -13,7 +13,7 @@ import { pathToFileURL } from 'node:url';
 const root = path.resolve(import.meta.dirname, '..');
 const load = (f) => import(pathToFileURL(path.join(root, 'dist', f)).href);
 
-const { captureBaseline, restoreBaseline, applyLookIndexes } = await load('skins.js');
+const { captureBaseline, restoreBaseline, applyLookIndexes, WHOLE_LOOK } = await load('skins.js');
 const { Database } = await load('db.js');
 
 const results = [];
@@ -114,13 +114,13 @@ function makeCtx(overrides = {}) {
 
 {
   // Reported in play: "some parts of the dinos the skin changer doesn't
-  // change". Colours cannot reach the variation, so a skin has to clear it.
+  // change". Colours cannot reach the variation, so a whole-look change has to
+  // clear it.
   const ctx = makeCtx();
-  await applyLookIndexes(ctx, S, {});
+  await applyLookIndexes(ctx, S, WHOLE_LOOK);
   const look = ctx.sent.find((c) => c.verb === 'look');
-  check('applying a skin clears the variation and theme',
-    look?.variation !== undefined || (look?.args.variation === 0 && look?.args.theme === 0),
-    JSON.stringify(look?.args));
+  check('a whole-look change clears the variation and theme',
+    look?.args.variation === 0 && look?.args.theme === 0, JSON.stringify(look?.args));
 
   const chosen = makeCtx();
   await applyLookIndexes(chosen, S, { theme: 3, variation: 2 });
@@ -130,10 +130,28 @@ function makeCtx(overrides = {}) {
 }
 
 {
+  // The other half of the same bug. `/admin skin set` changes named parts and
+  // must leave the rest of the look alone: defaulting these to 0 stripped the
+  // theme, and a colour set on a part the theme draws then had nothing to show
+  // on, which read as the command doing nothing at all.
+  const ctx = makeCtx();
+  const sent = await applyLookIndexes(ctx, S, {});
+  check('asking for no indexes sends nothing and is not a failure',
+    sent === true && ctx.sent.every((c) => c.verb !== 'look'),
+    JSON.stringify(ctx.sent.map((c) => c.verb)));
+
+  const partial = makeCtx();
+  await applyLookIndexes(partial, S, { variation: 4 });
+  const one = partial.sent.find((c) => c.verb === 'look');
+  check('naming one index leaves the other alone',
+    one?.args.variation === 4 && one?.args.theme === undefined, JSON.stringify(one?.args));
+}
+
+{
   // A look that fails to send must not take the paint down with it.
   const ctx = makeCtx({ look: { ok: false, msg: 'not on a dinosaur' } });
   check('a refused look is reported without throwing',
-    (await applyLookIndexes(ctx, S, {})) === false);
+    (await applyLookIndexes(ctx, S, WHOLE_LOOK)) === false);
 }
 
 db.close();

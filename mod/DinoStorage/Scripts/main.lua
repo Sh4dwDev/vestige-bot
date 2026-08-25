@@ -21,7 +21,12 @@ local MAX_SLOTS = 3
 local MIN_GROWTH = 0.999      -- a "100%" dino reads back as 0.999996
 local SHRINK_GROWTH = 0.05    -- corpse size before the kill, so it is not free food
 local FAST_TICK_MS = 500
-local POLL_TICK_MS = 3000
+-- How often the inbox is checked. Half a second, not three: the bot waits for
+-- this, so it was the single biggest part of how long a command appeared to
+-- take, and none of it was work. The cost is one read of a small file that is
+-- usually absent, on the same loop the 500ms fast tick already runs.
+local POLL_TICK_MS = 500
+local ROTATE_EVERY_TICKS = math.max(1, math.floor(300000 / POLL_TICK_MS))
 local KILL_DELAY_TICKS = 2    -- ~1s for the shrink to replicate before death
 
 -- Health needed to store, as a fraction. Not 1.0: health regenerates in small
@@ -3004,7 +3009,11 @@ else
             end
 
             pollInbox()
-            if ticks % 100 == 0 then rotateResults() end
+            -- Every five minutes, expressed in ticks rather than as a bare
+            -- count: this was `% 100`, which meant five minutes only while the
+            -- poll ran every three seconds. Deriving it keeps the cadence the
+            -- same if the interval moves again.
+            if ticks % ROTATE_EVERY_TICKS == 0 then rotateResults() end
         end)
     end)
 

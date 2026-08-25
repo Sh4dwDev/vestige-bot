@@ -12,7 +12,7 @@ import {
 import { SERVER, SIGNATURE } from './brand.js';
 import type { Ctx } from './commands.js';
 import {
-  applyLookIndexes, captureBaseline, encodeColours, hexToInt, presetLook,
+  applyLookIndexes, captureBaseline, encodeColours, hexToInt, presetLook, WHOLE_LOOK,
   restoreBaseline,
 } from './skins.js';
 
@@ -259,7 +259,10 @@ async function wear(
 
     // The variation is part of the look: without this the dinosaur keeps the
     // markings it hatched with and only half the skin lands.
-    await applyLookIndexes(ctx, steamId, look);
+    await applyLookIndexes(ctx, steamId, {
+      theme: look.theme ?? WHOLE_LOOK.theme,
+      variation: look.variation ?? WHOLE_LOOK.variation,
+    });
 
     const result = await ctx.mod.run('skinmany', steamId, { colors: encodeColours(look.colours) });
     if (!result.ok) {

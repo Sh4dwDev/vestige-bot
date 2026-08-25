@@ -25,6 +25,51 @@ function panelConfig() {
     }
     return { url, apiKey, serverId };
 }
+/**
+ * All three or none, like the panel.
+ *
+ * A half-configured site is worse than none: it would start, accept a sign-in
+ * and then fail at the token exchange, which looks like a broken login rather
+ * than a missing setting.
+ *
+ * The client ID is required here even though the bot can derive one from its
+ * token, because the redirect URI registered with Discord has to match a client
+ * that is known before the first request arrives.
+ */
+function webConfig() {
+    const baseUrl = process.env['WEB_BASE_URL']?.trim().replace(/\/+$/, '');
+    const clientSecret = process.env['DISCORD_CLIENT_SECRET']?.trim();
+    const clientId = process.env['DISCORD_CLIENT_ID']?.trim();
+    if (!baseUrl && !clientSecret)
+        return null;
+    if (!baseUrl || !clientSecret || !clientId) {
+        throw new Error('WEB_BASE_URL, DISCORD_CLIENT_SECRET and DISCORD_CLIENT_ID must all be set '
+            + 'to run the website, or WEB_BASE_URL and DISCORD_CLIENT_SECRET must both '
+            + 'be blank to leave it off');
+    }
+    if (!/^https?:\/\//.test(baseUrl)) {
+        throw new Error(`WEB_BASE_URL must start with http:// or https://, got "${baseUrl}"`);
+    }
+    // Empty entries are dropped so a trailing comma in the environment does not
+    // become an origin that matches nothing and looks like it should.
+    const allowedOrigins = (process.env['WEB_ALLOWED_ORIGINS'] ?? '')
+        .split(',')
+        .map((o) => o.trim().replace(/\/+$/, ''))
+        .filter((o) => o.length > 0);
+    for (const origin of allowedOrigins) {
+        if (!/^https?:\/\/[^/]+$/.test(origin)) {
+            throw new Error(`WEB_ALLOWED_ORIGINS must be scheme and host only, e.g. http://localhost:5173, got "${origin}"`);
+        }
+    }
+    return {
+        port: int('WEB_PORT', 8787),
+        baseUrl,
+        clientId,
+        clientSecret,
+        appDir: process.env['WEB_APP_DIR']?.trim() || null,
+        allowedOrigins,
+    };
+}
 export function loadConfig() {
     return {
         discord: {
@@ -52,6 +97,7 @@ export function loadConfig() {
             '/TheIsle/Saved/Config/WindowsServer/Game.ini',
         discordInvite: process.env['DISCORD_INVITE']?.trim() ?? '',
         panel: panelConfig(),
+        web: webConfig(),
     };
 }
 //# sourceMappingURL=config.js.map

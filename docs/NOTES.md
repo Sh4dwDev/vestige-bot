@@ -460,3 +460,83 @@ Two things the same exercise did establish:
   regardless of the real signature. Calling a method straight on one returns
   nil; `unwrap()` (`:get()`) first. The first version of the probe logged
   fourteen nils for exactly this reason.
+
+## A skin verb that defaults its arguments will silently undo the caller
+
+`applyLookIndexes` sent `theme: look.theme ?? 0, variation: look.variation ?? 0`.
+The mod's `look` verb leaves an index alone when the value is missing, so the
+defaults were the bot overriding a contract that already did the right thing.
+
+Every caller passing `{}` therefore stripped the theme. For a preset that is
+correct and deliberate: a preset replaces the look, and leaving the dinosaur's
+own variation is what made a repaint land on only half the animal. For
+`/admin skin set` it was the bug. Setting one part's colour also took the
+markings off, and a colour set on a part the theme draws then had nothing left
+to show on. The command reported success, the mod logged `applied 1, skipped 0`,
+and nothing visible changed.
+
+`set` also called `forgetPainted`, so the sync pass repainted the whole stored
+look a few seconds later and cleared the theme a second time. That is the
+signature in the mod log, and it is what to look for if this comes back:
+
+```
+skinmany: <steam> applied 1, skipped 0     <- the set
+look:     <steam> ... theme 1->0            <- the sync clearing it
+skinmany: <steam> applied 7, skipped 0     <- the sync repaint
+```
+
+Fixed by sending only what was asked for, with `WHOLE_LOOK` for the callers that
+genuinely want a clean slate, and by not forgetting the paint after a `set`.
+
+The general shape is worth keeping: **when a remote contract already means "do
+not touch", do not fill the gap with a default.** The default is a decision, and
+here it was made in the one place that could not see which call it was serving.
+
+## Writing into the chat panel: the real mechanism, and why we still cannot use it
+
+Source: <https://github.com/diplomatic-tendencies/evrima-dev-knowledge/blob/main/EVRIMA_Chat_System.md>
+(third party, not verified by us, but it matches our own crashes exactly).
+
+The function is a Client RPC on `TIPlayerController`:
+
+```cpp
+UpdateChat(FText Sender, FText Text, FString SenderSteamId,
+           EChatMode ChatMode, bool bIsDev, bool bIsAdmin)
+```
+
+with `EChatMode = { Spatial = 0, Global, Admin, Logging }`. Spatial is local
+chat. This confirms the RCON finding rather than contradicting it: the document
+says nothing about RCON, because RCON is not how chat lines are written. Our
+measurement stands, `Announce` and `DirectMessage` reach the banner and nothing
+reaches the chat panel.
+
+**It cannot be called from Lua.** Quoting it directly:
+
+> Calling `UpdateChat` from UE4SS Lua takes the server down.
+
+> It is an access violation on the native side, inside the RPC's FText
+> serialization, and `pcall` does not catch it because the fault is below the
+> Lua boundary; the process is simply gone.
+
+That is the same failure mode as the two crashes on 2026-08-23, described in the
+same terms, by somebody who hit it independently. Treat it as settled.
+
+So the split is:
+
+- **Reading** chat (the `!command` parser) is pure Lua and always has been. Ours
+  works and is not affected by any of this.
+- **Writing** a chat line has to be C++. A compiled UE4SS mod, with the FText
+  parameters copied in via `memcpy` and the FString constructed in place in the
+  parameter buffer, or it double-frees.
+
+The document has **nothing** about what `bIsDev` and `bIsAdmin` do, and nothing
+about red text or styling. The obvious guess is that the admin flag is what
+colours the line, but that is a guess and has not been tested. Do not write it
+down as fact until somebody has seen it.
+
+**What this costs, if we ever want it:** a C++ UE4SS mod alongside the Lua one, a
+build toolchain, and getting the parameter buffer exactly right while testing
+against a live server that must not go down. The prize is one line of coloured
+text in local chat instead of the announcement banner. That trade has not been
+worth taking yet.
+

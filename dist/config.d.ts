@@ -31,5 +31,28 @@ export interface Config {
         apiKey: string;
         serverId: string;
     } | null;
+    /**
+     * The player website. Null when unset, and the bot then runs exactly as it
+     * did before, with no listening socket.
+     */
+    web: {
+        port: number;
+        /** Public origin, no trailing slash. The OAuth redirect is built from it. */
+        baseUrl: string;
+        clientId: string;
+        clientSecret: string;
+        /**
+         * A built front end to serve, or null to serve only the API. Serving the
+         * app from here keeps it same-origin, which is the simplest thing that
+         * works and needs no CORS at all.
+         */
+        appDir: string | null;
+        /**
+         * Extra origins allowed to call the API with a session cookie, for a front
+         * end hosted somewhere else or running on a dev server. Empty is both the
+         * default and the safest setting.
+         */
+        allowedOrigins: string[];
+    } | null;
 }
 export declare function loadConfig(): Config;

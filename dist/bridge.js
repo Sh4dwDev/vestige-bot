@@ -25,6 +25,17 @@ const TIMEOUT_MS = {
 const DEFAULT_TIMEOUT_MS = 15_000;
 const timeoutFor = (verb) => TIMEOUT_MS[verb] ?? DEFAULT_TIMEOUT_MS;
 /**
+ * How often the reply file is checked, and for how long at the quick rate.
+ *
+ * The mod polls its inbox every 500ms, so a normal reply lands inside a second.
+ * Checking every 250ms for the first few seconds catches that; after which the
+ * command is one of the slow ones and there is nothing to gain from asking
+ * constantly.
+ */
+const QUICK_POLL_MS = 250;
+const SLOW_POLL_MS = 750;
+const QUICK_POLL_FOR_MS = 5_000;
+/**
  * Notifications must be plain ASCII.
  *
  * Verified live on 2026-08-17: "Travelling in 45s - hold still" arrives, and the
@@ -134,6 +145,45 @@ export class ModBridge {
             }
         });
     }
+    /**
+     * How often the reply file is checked while waiting.
+     *
+     * This used to be one second, and the loop slept *before* its first read, so
+     * every command paid a second it did not need. Together with the mod's own
+     * poll that was most of the three to four seconds a command took, and almost
+     * none of it was work.
+     */
+    #resultsAt = 0;
+    #resultsCache = [];
+    #resultsInFlight = null;
+    /**
+     * A read of the reply file that concurrent waiters share.
+     *
+     * Polling four times a second is fine for one command and rude for six: each
+     * waiter would pull the same file over SFTP independently. This collapses
+     * them into one read, so the load on the game host depends on how often we
+     * poll and not on how many people are waiting.
+     *
+     * Safe because `#readResults` is a pure read with no offsets and no
+     * consumption. A reply that arrives during the cached window is picked up by
+     * the next pass a quarter of a second later.
+     */
+    async #sharedResults(maxAgeMs) {
+        if (Date.now() - this.#resultsAt < maxAgeMs)
+            return this.#resultsCache;
+        if (this.#resultsInFlight)
+            return this.#resultsInFlight;
+        this.#resultsInFlight = this.#readResults()
+            .then((rows) => {
+            this.#resultsCache = rows;
+            this.#resultsAt = Date.now();
+            return rows;
+        })
+            .finally(() => {
+            this.#resultsInFlight = null;
+        });
+        return this.#resultsInFlight;
+    }
     async #readResults() {
         const raw = await this.#withClient((client) => client.get(`${this.modDir}/results.ndjson`).catch(() => null));
         if (raw === null || !Buffer.isBuffer(raw))
@@ -172,9 +222,16 @@ export class ModBridge {
         if (!quiet)
             this.log(`-> ${verb} ${steamId} ${JSON.stringify(args)}`);
         const deadline = Date.now() + timeoutFor(verb);
+        const started = Date.now();
         while (Date.now() < deadline) {
-            await new Promise((r) => setTimeout(r, 1000));
-            const match = (await this.#readResults()).find((entry) => entry.id === id);
+            // Quick while an answer is plausibly imminent, slower afterwards. Store
+            // and restore run for tens of seconds, and polling those four times a
+            // second for the whole run would be pointless traffic.
+            const gap = Date.now() - started < QUICK_POLL_FOR_MS ? QUICK_POLL_MS : SLOW_POLL_MS;
+            await new Promise((r) => setTimeout(r, gap));
+            // Half the gap: fresh enough that a shared read cannot cost a whole extra
+            // pass, old enough that simultaneous waiters still share one.
+            const match = (await this.#sharedResults(gap / 2)).find((entry) => entry.id === id);
             if (match) {
                 if (!quiet)
                     this.log(`<- ${verb} ok=${match.ok} ${match.msg}`);

@@ -4,6 +4,7 @@ import { SERVER, SIGNATURE } from './brand.js';
 import { handleShopPanel } from './shoppanel.js';
 import { beginLink, describeError, runSlay, startTeleport, steamNamer, } from './commands.js';
 import { buildKillsEmbed } from './kills.js';
+import { buildProfileEmbed, gatherProfile } from './profile.js';
 import { showPanel } from './panel.js';
 import { buildBalanceEmbed, buildLeaderboardEmbed, ratePerHour, weekendActive, weekendBonus, weekendWindow, } from './points.js';
 import { buildPopulationEmbed } from './population.js';
@@ -238,7 +239,8 @@ export async function handleHubInteraction(ctx, interaction) {
                     .setDescription(`Everything ${SERVER} keeps track of. All of it is public except your ` +
                     'own balance, which only you can see.')
                     .setFooter({ text: SIGNATURE })],
-            components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('hub:population').setLabel('Population')
+            components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('hub:profile').setLabel('My profile')
+                    .setEmoji('📇').setStyle(ButtonStyle.Primary), new ButtonBuilder().setCustomId('hub:population').setLabel('Population')
                     .setEmoji('🦕').setStyle(ButtonStyle.Secondary), new ButtonBuilder().setCustomId('hub:mypoints').setLabel('My points')
                     .setEmoji('🪙').setStyle(ButtonStyle.Secondary), new ButtonBuilder().setCustomId('hub:toppoints').setLabel('Top points')
                     .setEmoji('🏆').setStyle(ButtonStyle.Secondary), new ButtonBuilder().setCustomId('hub:kills').setLabel('Kills')
@@ -273,6 +275,19 @@ export async function handleHubInteraction(ctx, interaction) {
         await interaction.reply({
             embeds: [buildKillsEmbed(ctx.db.topKillers(10), ctx.db.killTotals(), steamNamer(ctx))],
             flags: MessageFlags.Ephemeral,
+        });
+        return true;
+    }
+    if (id === 'hub:profile') {
+        if (!link) {
+            await interaction.reply({ embeds: [notLinked()], flags: MessageFlags.Ephemeral });
+            return true;
+        }
+        // Deferred: the slot count is a round trip to the game server, and three
+        // seconds is long enough for Discord to call the interaction failed.
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await interaction.editReply({
+            embeds: [buildProfileEmbed(await gatherProfile(ctx, interaction.user.id, link.steamId))],
         });
         return true;
     }

@@ -32,6 +32,19 @@ export interface Hunt {
      * minute is not a warmer signal, it is spam.
      */
     bands?: Record<string, number>;
+    /**
+     * Who was standing with the quarry when the hunt was called.
+     *
+     * These are the people who cannot claim it. A quarry's own group killing
+     * them is not a hunt, it is the pair of them splitting the reward, and it is
+     * the cheapest way to farm one.
+     *
+     * The game does not tell us who is grouped with whom, and the two attempts
+     * at asking the engine directly took the server down (see NOTES.md). Standing
+     * together at the moment the hunt is announced is the signal available
+     * without that risk: a group is already together, a hunter has to travel.
+     */
+    company?: string[];
 }
 /**
  * How close counts as close, in HUD units, nearest first.
@@ -69,6 +82,7 @@ export declare const huntAnnounce: (hunt: Hunt) => string;
 export declare const revealAnnounce: (hunt: Hunt, x: number, y: number, species: string) => string;
 export declare const caughtAnnounce: (hunt: Hunt, killer: string) => string;
 export declare const survivedAnnounce: (hunt: Hunt) => string;
+export declare const colludedAnnounce: (hunt: Hunt) => string;
 export declare function buildHuntEmbed(hunt: Hunt, state: 'running' | 'caught' | 'survived', killer?: string): EmbedBuilder;
 export interface ProximityNotice {
     steam: string;
@@ -88,6 +102,22 @@ export interface ProximityStep {
  * Pure, and it only speaks on a change of band — including the change to "no
  * longer close", which is how somebody knows they have lost the trail.
  */
+/**
+ * How close counts as travelling with somebody, in HUD units.
+ *
+ * The "you are close" band. Tighter than that and a group spread over a
+ * clearing is missed; wider and half the server is somebody's company.
+ */
+export declare const COMPANY_WITHIN = 20;
+/**
+ * Who is standing with the quarry right now.
+ *
+ * Pure, and taken once at the start rather than tracked: after the hunt is
+ * announced, somebody approaching the quarry is exactly what a hunter does, so
+ * there is no way to tell a late-joining friend from a hunter closing in. The
+ * snapshot only claims to catch the people who were already there.
+ */
+export declare function companyOf(targetSteam: string, players: PlayerRow[]): string[];
 export declare function proximityStep(hunt: Hunt, players: PlayerRow[]): ProximityStep;
 export declare const huntChannel: (ctx: Ctx) => string | null;
 export declare const setHuntChannel: (ctx: Ctx, channelId: string | null) => void;
@@ -101,7 +131,18 @@ export declare const setHuntChannel: (ctx: Ctx, channelId: string | null) => voi
  * Returns the hunt that was ended, or null when this kill had nothing to do
  * with one.
  */
-export declare function claimHunt(ctx: Ctx, killerSteam: string, victimSteam: string): Hunt | null;
+export type HuntClaim = 
+/** Somebody earned it. */
+{
+    kind: 'paid';
+    hunt: Hunt;
+}
+/** Killed by their own company, so it ends and nobody is paid. */
+ | {
+    kind: 'collusion';
+    hunt: Hunt;
+};
+export declare function claimHunt(ctx: Ctx, killerSteam: string, victimSteam: string): HuntClaim | null;
 /**
  * Marks a reveal as done, so the timer advances even if announcing fails.
  *

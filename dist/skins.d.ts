@@ -109,15 +109,31 @@ export declare function hexToInt(hex: string): number | null;
  * actually asked for.
  */
 /**
+ * What a whole-look change asks for.
+ *
+ * Applying a preset replaces the look, so the dinosaur's own theme and
+ * variation have to go with it: leaving the variation in place is what made
+ * half of a repainted animal stay unchanged.
+ *
+ * Changing named parts is the opposite case, and must pass nothing at all.
+ */
+export declare const WHOLE_LOOK: {
+    readonly theme: 0;
+    readonly variation: 0;
+};
+/**
  * Sets the pattern/theme/variation part of a look.
  *
  * Separate from the colours on purpose and always sent first: an out-of-range
  * pattern makes the client abandon the whole rebuild, which would take the
  * colours down with it if they shared a write.
  *
- * Theme and variation default to 0 rather than being left alone. A skin is
- * supposed to replace the look, and leaving the dinosaur's own variation in
- * place is exactly what made half of it stay unchanged.
+ * **Only what it is given is sent.** The mod leaves an index alone when the
+ * value is missing, and this used to default both to 0 instead, so every
+ * caller passing `{}` silently stripped the theme. `/admin skin set` did
+ * exactly that: setting one part's colour also took the markings off, and the
+ * colour then had nothing left to show on. A caller that wants them cleared
+ * says so with `WHOLE_LOOK`.
  */
 export declare function applyLookIndexes(ctx: Ctx, steamId: string, look: Pick<Look, 'theme' | 'variation'>): Promise<boolean>;
 export declare function captureBaseline(ctx: Ctx, steamId: string, species: string): Promise<void>;

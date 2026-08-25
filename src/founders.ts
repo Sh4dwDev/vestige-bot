@@ -11,7 +11,7 @@ import { SERVER, SIGNATURE } from './brand.js';
 import { describeError, type Ctx } from './commands.js';
 import { earlyRole, hasEarlyRole } from './earlymember.js';
 import {
-  applyLookIndexes, captureBaseline, completeLook, encodeColours, hexToInt,
+  applyLookIndexes, captureBaseline, completeLook, encodeColours, hexToInt, WHOLE_LOOK,
   restoreBaseline,
   type Look,
 } from './skins.js';
@@ -333,7 +333,10 @@ async function applyFounderSkin(
     }
 
     // Clears the dinosaur's own variation, which no colour field can reach.
-    await applyLookIndexes(ctx, steamId, skin);
+    await applyLookIndexes(ctx, steamId, {
+      theme: skin.theme ?? WHOLE_LOOK.theme,
+      variation: skin.variation ?? WHOLE_LOOK.variation,
+    });
 
     const result = await ctx.mod.run('skinmany', steamId, {
       // Completed the same way a preset is: these define six of the ten

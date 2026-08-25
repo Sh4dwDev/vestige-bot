@@ -12,11 +12,12 @@ import { setJoinRole } from './joinrole.js';
 import { buildCatalogue, buildReceipt, mutationPrice, setPending, setSpeciesPrice, setTierPrice, takePending, elderStacks, sellable, setMaxShopTier, totalPrice, } from './shop.js';
 import { forgetPainted } from './skinsync.js';
 import { buildShopPanel, setShopPanelChannel, shopPanelRows, SHOP_PANEL_MESSAGE_KEY, } from './shoppanel.js';
-import { applyLookIndexes, BUILT_IN, encodeColours, captureBaseline, patternLetter, PATTERN_CHOICES, hexToInt, hexToLinear, linearToHex, PARTS, PRESETS, presetLook, restoreBaseline, } from './skins.js';
+import { applyLookIndexes, WHOLE_LOOK, BUILT_IN, encodeColours, captureBaseline, patternLetter, PATTERN_CHOICES, hexToInt, hexToLinear, linearToHex, PARTS, PRESETS, presetLook, restoreBaseline, } from './skins.js';
 import { MAX_TIER, multiplierFor, setMultiplier, setTier, TIER_LABEL, tierOf, } from './tiers.js';
 import { cleanSlotName, showPanel, stopAutoRefresh } from './panel.js';
 import { addRequest, askEmbed, askRows, cooldownMinutes, delaySeconds, requestFor, } from './teleport.js';
 import { buildHubEmbed, hubRows, HUB_MESSAGE_KEY, setHubChannel } from './hub.js';
+import { buildProfileEmbed, gatherProfile } from './profile.js';
 import { buildKillsEmbed, setKillfeedChannel } from './kills.js';
 import { postOrEdit } from './pinned.js';
 import { buildBalanceEmbed, buildLeaderboardEmbed, describeWindow, display, ratePerHour, setLinkBonus, setRatePerHour, setWeekendBonus, setWeekendWindow, weekendActive, weekendBonus, weekendWindow, } from './points.js';
@@ -37,7 +38,7 @@ import { MAX_PARENTS, nestingSettings, setNestingCondition, setNestingEnabled, s
 import { buildMarketPanel, MARKET_MESSAGE_KEY, marketRows, refreshMarket, setListingsChannel, setMarketChannel, setMarketFee, } from './market.js';
 import { buildPrimeDebugEmbed, buildPrimeEmbed } from './prime.js';
 import { activeTryout, startTryout } from './tryout.js';
-import { activeHunt, buildHuntEmbed, huntAnnounce, huntChannel, saveHunt, setHuntChannel, } from './hunt.js';
+import { activeHunt, buildHuntEmbed, huntAnnounce, huntChannel, saveHunt, companyOf, setHuntChannel, } from './hunt.js';
 import { activeContest, buildContestEmbed, contestAnnounce, contestChannel, hud, inside, saveContest, setContestChannel, } from './contest.js';
 import { buildReferralEmbed, referralMinutes, referralReward, referralWeeklyCap, referralWelcome, setReferralAmounts, repairReferrals, setReferralExistingMinutes, setReferralsEnabled, } from './referrals.js';
 import { enforcementEnabled, enforcementFault, restoreAllPlayables, setEnforcement, syncPlayables, } from './enforce.js';
@@ -138,6 +139,9 @@ export const commandData = [
         .addUserOption((o) => o.setName('staff').setDescription('Whose history')))
         .addSubcommand((c) => c.setName('force-off').setDescription('End somebody else session')
         .addUserOption((o) => o.setName('staff').setDescription('Who to take off duty').setRequired(true))),
+    new SlashCommandBuilder()
+        .setName('profile')
+        .setDescription('Your points, playtime, kills, storage and skins in one place'),
     new SlashCommandBuilder()
         .setName('kills')
         .setDescription('Kill counts')
@@ -635,6 +639,7 @@ export async function handleCommand(ctx, i) {
         case 'prime': return handlePrime(ctx, i);
         case 'points': return handlePoints(ctx, i);
         case 'kills': return handleKills(ctx, i);
+        case 'profile': return handleProfile(ctx, i);
         case 'duty': return handleDutyCommand(ctx, i);
         case 'teleport': return handleTeleport(ctx, i);
         case 'shop': return handleShop(ctx, i);
@@ -993,6 +998,28 @@ export function steamNamer(ctx) {
         const link = ctx.db.linkBySteam(steamId);
         return link ? `<@${link.discordId}>` : `\`${steamId.slice(-6)}\``;
     };
+}
+/**
+ * Your own record, and only ever your own.
+ *
+ * There is deliberately no user option. Balances are private, and one here
+ * would make every balance on the server readable by anybody who typed a name.
+ */
+async function handleProfile(ctx, i) {
+    const link = ctx.db.linkFor(i.user.id);
+    if (!link) {
+        await i.reply({
+            embeds: [embed(COLORS.warn, 'Not linked', 'Run `/link` first so the bot knows which Steam account is yours.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    // The slot count is a round trip to the game server, which is slower than
+    // Discord's three second patience.
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    await i.editReply({
+        embeds: [buildProfileEmbed(await gatherProfile(ctx, i.user.id, link.steamId))],
+    });
 }
 async function handleKills(ctx, i) {
     if (i.options.getSubcommand() === 'top') {
@@ -1728,9 +1755,17 @@ If they are wearing it right ` +
         // back. Never overwritten, so painting twice does not make the first paint
         // look like the dinosaur's own colours.
         await captureBaseline(ctx, link.steamId, species);
-        // Same reason as the pattern above: the variation is part of the look, and
-        // leaving it is what made skins land on only half the animal.
-        await applyLookIndexes(ctx, link.steamId, {});
+        // A preset replaces the whole look, so the dinosaur's own theme and
+        // variation go with it: leaving the variation is what made a preset land on
+        // only half the animal.
+        //
+        // `set` is the opposite and must touch nothing else. Zeroing the theme
+        // there takes the markings off, and a colour set on a part the theme draws
+        // then has nothing left to show on, which reads as the command doing
+        // nothing at all.
+        if (action === 'apply') {
+            await applyLookIndexes(ctx, link.steamId, WHOLE_LOOK);
+        }
         const result = await ctx.mod.run('skinmany', link.steamId, {
             colors: encodeColours(colours),
         });
@@ -1741,7 +1776,13 @@ If they are wearing it right ` +
         // Recorded so it survives relogs, respawns and restarts — the engine drops
         // colours on all three, so the bot repaints from this.
         ctx.db.setSkin(link.steamId, species, colours);
-        forgetPainted(link.steamId);
+        // Only a preset asks for a repaint. The sync pass clears theme and
+        // variation on the way through, because it exists for fresh pawns, so
+        // forgetting a `set` here would immediately undo the part of the look it
+        // was told to leave alone. The colour is already on the live dinosaur, and
+        // it is stored either way for the next respawn.
+        if (action === 'apply')
+            forgetPainted(link.steamId);
         const first = Object.values(colours)[0] ?? '#57F287';
         await i.editReply({
             embeds: [new EmbedBuilder()
@@ -2283,10 +2324,14 @@ async function handleHunt(ctx, i, action) {
     // Named in the opening call as well as the position ones. Best effort: a
     // target on the spawn screen has nothing to report, and the first position
     // call fills it in.
-    const species = (await ctx.mod.players().catch(() => []))
-        .find((p) => p.steam === link.steamId)?.species;
+    const roster = await ctx.mod.players().catch(() => []);
+    const species = roster.find((p) => p.steam === link.steamId)?.species;
+    // Taken now and never updated: after the announcement, approaching the quarry
+    // is what a hunter does, so a late arrival cannot be told apart from a friend.
+    const company = companyOf(link.steamId, roster);
     const hunt = {
         targetSteam: link.steamId,
+        ...(company.length > 0 ? { company } : {}),
         ...(species ? { targetSpecies: species } : {}),
         // The in-game name if the bot has seen one, since a Discord handle means
         // nothing to somebody reading server chat.
@@ -2314,6 +2359,11 @@ async function handleHunt(ctx, i, action) {
                 + `**${hunt.reward}** points` + (skin ? ` and the **${skin}** skin` : '') + '.\n\n'
                 + `Their position is called out every **${revealMinutes} minutes**, starting `
                 + 'one interval from now.\n\n'
+                + (company.length > 0
+                    ? `**${company.length}** player${company.length === 1 ? ' was' : 's were'} `
+                        + 'standing with them just now, so that group cannot collect on this '
+                        + 'one. Anybody who turns up later can.\n\n'
+                    : '')
                 + '⚠️ It has to be a **player kill**. Bleeding out from a fight counts — '
                 + 'whoever last wounded them is paid — but drowning, starving or being '
                 + 'taken by wildlife leaves nobody to credit, and that is a survival.')],

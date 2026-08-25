@@ -34,6 +34,29 @@ export interface Config {
    * warn and save but cannot restart, because RCON has no such command.
    */
   panel: { url: string; apiKey: string; serverId: string } | null;
+  /**
+   * The player website. Null when unset, and the bot then runs exactly as it
+   * did before, with no listening socket.
+   */
+  web: {
+    port: number;
+    /** Public origin, no trailing slash. The OAuth redirect is built from it. */
+    baseUrl: string;
+    clientId: string;
+    clientSecret: string;
+    /**
+     * A built front end to serve, or null to serve only the API. Serving the
+     * app from here keeps it same-origin, which is the simplest thing that
+     * works and needs no CORS at all.
+     */
+    appDir: string | null;
+    /**
+     * Extra origins allowed to call the API with a session cookie, for a front
+     * end hosted somewhere else or running on a dev server. Empty is both the
+     * default and the safest setting.
+     */
+    allowedOrigins: string[];
+  } | null;
 }
 
 /** All three parts are needed or none of it works, so it is all-or-nothing. */
@@ -50,6 +73,60 @@ function panelConfig(): Config['panel'] {
   }
 
   return { url, apiKey, serverId };
+}
+
+/**
+ * All three or none, like the panel.
+ *
+ * A half-configured site is worse than none: it would start, accept a sign-in
+ * and then fail at the token exchange, which looks like a broken login rather
+ * than a missing setting.
+ *
+ * The client ID is required here even though the bot can derive one from its
+ * token, because the redirect URI registered with Discord has to match a client
+ * that is known before the first request arrives.
+ */
+function webConfig(): Config['web'] {
+  const baseUrl = process.env['WEB_BASE_URL']?.trim().replace(/\/+$/, '');
+  const clientSecret = process.env['DISCORD_CLIENT_SECRET']?.trim();
+  const clientId = process.env['DISCORD_CLIENT_ID']?.trim();
+
+  if (!baseUrl && !clientSecret) return null;
+  if (!baseUrl || !clientSecret || !clientId) {
+    throw new Error(
+      'WEB_BASE_URL, DISCORD_CLIENT_SECRET and DISCORD_CLIENT_ID must all be set '
+      + 'to run the website, or WEB_BASE_URL and DISCORD_CLIENT_SECRET must both '
+      + 'be blank to leave it off',
+    );
+  }
+
+  if (!/^https?:\/\//.test(baseUrl)) {
+    throw new Error(`WEB_BASE_URL must start with http:// or https://, got "${baseUrl}"`);
+  }
+
+  // Empty entries are dropped so a trailing comma in the environment does not
+  // become an origin that matches nothing and looks like it should.
+  const allowedOrigins = (process.env['WEB_ALLOWED_ORIGINS'] ?? '')
+    .split(',')
+    .map((o) => o.trim().replace(/\/+$/, ''))
+    .filter((o) => o.length > 0);
+
+  for (const origin of allowedOrigins) {
+    if (!/^https?:\/\/[^/]+$/.test(origin)) {
+      throw new Error(
+        `WEB_ALLOWED_ORIGINS must be scheme and host only, e.g. http://localhost:5173, got "${origin}"`,
+      );
+    }
+  }
+
+  return {
+    port: int('WEB_PORT', 8787),
+    baseUrl,
+    clientId,
+    clientSecret,
+    appDir: process.env['WEB_APP_DIR']?.trim() || null,
+    allowedOrigins,
+  };
 }
 
 export function loadConfig(): Config {
@@ -80,5 +157,6 @@ export function loadConfig(): Config {
       '/TheIsle/Saved/Config/WindowsServer/Game.ini',
     discordInvite: process.env['DISCORD_INVITE']?.trim() ?? '',
     panel: panelConfig(),
+    web: webConfig(),
   };
 }

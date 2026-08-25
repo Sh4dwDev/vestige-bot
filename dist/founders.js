@@ -2,7 +2,7 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlag
 import { SERVER, SIGNATURE } from './brand.js';
 import { describeError } from './commands.js';
 import { earlyRole, hasEarlyRole } from './earlymember.js';
-import { applyLookIndexes, captureBaseline, completeLook, encodeColours, hexToInt, restoreBaseline, } from './skins.js';
+import { applyLookIndexes, captureBaseline, completeLook, encodeColours, hexToInt, WHOLE_LOOK, restoreBaseline, } from './skins.js';
 /**
  * Founder skins: three looks reserved for the people who showed up first.
  *
@@ -260,7 +260,10 @@ async function applyFounderSkin(ctx, interaction, steamId, skin) {
             }
         }
         // Clears the dinosaur's own variation, which no colour field can reach.
-        await applyLookIndexes(ctx, steamId, skin);
+        await applyLookIndexes(ctx, steamId, {
+            theme: skin.theme ?? WHOLE_LOOK.theme,
+            variation: skin.variation ?? WHOLE_LOOK.variation,
+        });
         const result = await ctx.mod.run('skinmany', steamId, {
             // Completed the same way a preset is: these define six of the ten
             // fields too, and the rest would keep whatever was hatched with.

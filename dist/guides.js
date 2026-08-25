@@ -109,7 +109,7 @@ export function buildCommandsEmbed() {
         name: '🦕  The panel',
         value: '**Archive** — store, release, rename, discard\n' +
             '**In-game actions** — archive, travel to a friend, slay\n' +
-            '**Stats** — population, points, kills\n' +
+            '**Stats** — your profile, population, points, kills\n' +
             '**Verify** — link your Steam account',
     }, {
         name: '🏛️  `/storage`',
@@ -167,6 +167,11 @@ export function buildCommandsEmbed() {
             'per kill, for as many payouts as are on offer.\n' +
             'Nothing to sign up for: kill the species while it is posted and you ' +
             'are paid.',
+    }, {
+        name: '📇  `/profile`',
+        value: 'Your points and where they put you, playtime, kills, what is in ' +
+            'storage and which skins you own, in one place.\n' +
+            'Only ever your own, and only you can see it.',
     }, {
         name: '⚔️  `/kills`',
         value: '`/kills top` for the deadliest players, `/kills me` for your own record.\n' +

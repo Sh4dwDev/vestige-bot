@@ -375,6 +375,19 @@ export declare class Database {
     awardOnline(steamIds: string[], amount: number, minutes: number): void;
     /** Never goes below zero — a negative balance would be a bug with a shop attached. */
     setPoints(steamId: string, balance: number): void;
+    /**
+     * Where somebody stands on the points table, and how many are on it.
+     *
+     * Counted in SQL rather than by walking `topPoints`: the leaderboard is only
+     * ever fetched a page at a time, and a profile that had to pull every row to
+     * say "5th" would get slower as the server got busier.
+     *
+     * Ties share the better rank, which is what anybody reading it expects.
+     */
+    pointsRank(steamId: string): {
+        rank: number;
+        of: number;
+    };
     topPoints(limit: number): Array<{
         steamId: string;
         balance: number;
