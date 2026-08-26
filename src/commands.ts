@@ -965,13 +965,13 @@ export const commandData = [
               o.setName('startday').setDescription('0 Sun to 6 Sat. Default 5, Friday')
                 .setMinValue(0).setMaxValue(6))
             .addIntegerOption((o) =>
-              o.setName('starthour').setDescription('Norwegian time. Default 18')
+              o.setName('starthour').setDescription('Oslo time, CET or CEST. Default 18')
                 .setMinValue(0).setMaxValue(23))
             .addIntegerOption((o) =>
               o.setName('endday').setDescription('0 Sun to 6 Sat. Default 1, Monday')
                 .setMinValue(0).setMaxValue(6))
             .addIntegerOption((o) =>
-              o.setName('endhour').setDescription('Norwegian time. Default 6')
+              o.setName('endhour').setDescription('Oslo time, CET or CEST. Default 6')
                 .setMinValue(0).setMaxValue(23)))
         .addSubcommand((s) =>
           s.setName('linkbonus').setDescription('One-off points for linking an account')
@@ -1755,7 +1755,8 @@ async function handleProfile(ctx: Ctx, i: ChatInputCommandInteraction): Promise<
   // Discord's three second patience.
   await i.deferReply({ flags: MessageFlags.Ephemeral });
   await i.editReply({
-    embeds: [buildProfileEmbed(await gatherProfile(ctx, i.user.id, link.steamId))],
+    embeds: [buildProfileEmbed(
+      await gatherProfile(ctx, i.user.id, link.steamId, i.user.displayAvatarURL()))],
   });
 }
 

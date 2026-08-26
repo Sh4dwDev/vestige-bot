@@ -8,7 +8,8 @@ import { pathToFileURL } from 'node:url';
 const root = path.resolve(import.meta.dirname, '..');
 const load = (f) => import(pathToFileURL(path.join(root, 'dist', f)).href);
 
-const { buildProfileEmbed, gatherProfile, playtime, ratio } = await load('profile.js');
+const { buildProfileEmbed, gatherProfile, playtime, ratio, ordinal, medalFor, colourFor, standing }
+  = await load('profile.js');
 const { Database } = await load('db.js');
 
 const results = [];
@@ -57,6 +58,13 @@ const fieldNamed = (embed, part) =>
   check('a tie shares the better rank', db.pointsRank(ME).rank === 1,
     JSON.stringify(db.pointsRank(ME)));
 
+  // The gap is what turns a rank into something worth chasing.
+  db.setPoints(ME, 500);
+  const mid = db.pointsRank(ME);
+  check('the balance above is reported', mid.above === 900, JSON.stringify(mid));
+  check('and nothing is below the bottom', mid.below === null, JSON.stringify(mid));
+  check('the leader has nothing above', db.pointsRank(RIVAL).above === null);
+
   db.close();
 }
 
@@ -69,12 +77,20 @@ const fieldNamed = (embed, part) =>
 
   const ctx = {
     db,
-    mod: { run: async () => ({ ok: true, data: [{ slot: 'allo' }, { slot: 'cera' }] }) },
+    mod: {
+      run: async () => ({
+        ok: true,
+        data: [{ slot: 'allo', species: 'Allosaurus' }, { slot: 'cera', species: 'Ceratosaurus' }],
+      }),
+    },
   };
 
-  const data = await gatherProfile(ctx, '123456789012345678', ME);
+  const data = await gatherProfile(ctx, '123456789012345678', ME, 'https://cdn/avatar.png');
   check('points are whole', data.points === 1200, String(data.points));
-  check('slots come from the game server', data.slots === 2, String(data.slots));
+  check('the species come back, not just a count',
+    data.stored.map((a) => a.species).join(',') === 'Allosaurus,Ceratosaurus',
+    JSON.stringify(data.stored));
+  check('the avatar is carried through', data.avatarUrl === 'https://cdn/avatar.png');
   check('skins are listed', data.skins.includes('riverbed'));
 
   db.close();
@@ -87,8 +103,8 @@ const fieldNamed = (embed, part) =>
   const ctx = { db, mod: { run: async () => { throw new Error('unreachable'); } } };
 
   const data = await gatherProfile(ctx, '123456789012345678', ME);
-  check('an unreachable server leaves slots unknown', data.slots === null,
-    String(data.slots));
+  check('an unreachable server leaves storage unknown', data.stored === null,
+    String(data.stored));
   check('and the rest still loads', data.points === 0 && data.kills === 0);
 
   const embed = buildProfileEmbed(data);
@@ -100,36 +116,92 @@ const fieldNamed = (embed, part) =>
   db.close();
 }
 
+// ---- standing, medals, ordinals ---------------------------------------------
+
+{
+  check('ordinals read the way people say them',
+    ordinal(1) === '1st' && ordinal(2) === '2nd' && ordinal(3) === '3rd' && ordinal(4) === '4th',
+    [1, 2, 3, 4].map(ordinal).join(' '));
+  // The teens are the case every naive implementation gets wrong.
+  check('and the teens are not 11st, 12nd, 13rd',
+    ordinal(11) === '11th' && ordinal(12) === '12th' && ordinal(13) === '13th',
+    [11, 12, 13].map(ordinal).join(' '));
+  check('21st comes back round', ordinal(21) === '21st', ordinal(21));
+
+  check('the top three get medals',
+    medalFor(1) === '\u{1F947}' && medalFor(2) === '\u{1F948}' && medalFor(3) === '\u{1F949}');
+  check('and everybody else gets the plain badge', medalFor(4) === medalFor(30));
+  check('gold is only for first', colourFor(1) !== colourFor(2) && colourFor(4) === colourFor(30));
+}
+
+{
+  const base = {
+    name: 'Shadow', steamId: ME, points: 12261, rank: 4, players: 30,
+    above: 13000, below: 9000, minutes: 1620, kills: 5, deaths: 36,
+    skins: [], stored: [], maxSlots: 3, firstSeen: null, referrals: 0,
+  };
+
+  check('a chaser is told what to catch',
+    standing(base).includes('4th of 30') && standing(base).includes('behind 3rd'),
+    standing(base));
+  // Matching the person above is not passing them.
+  check('and the gap is enough to actually pass',
+    standing({ ...base, points: 12999 }).includes('2 behind'),
+    standing({ ...base, points: 12999 }));
+
+  const leader = { ...base, rank: 1, above: null, below: 9000 };
+  check('a leader is told what they are defending',
+    standing(leader).includes('Top of 30') && standing(leader).includes('leading by 3,261'),
+    standing(leader));
+
+  check('one player alone is not ranked against nobody',
+    standing({ ...base, rank: 1, players: 1, above: null, below: null }).includes('only one'),
+    standing({ ...base, rank: 1, players: 1, above: null, below: null }));
+}
+
 // ---- the embed --------------------------------------------------------------
 
 {
   const embed = buildProfileEmbed({
     name: 'Shadow',
     steamId: ME,
-    points: 12480,
-    rank: 5,
-    players: 40,
-    minutes: 5160,
-    kills: 7,
-    deaths: 3,
-    skins: ['riverbed', 'ash'],
-    slots: 2,
+    avatarUrl: 'https://cdn/avatar.png',
+    points: 12261,
+    rank: 1,
+    players: 30,
+    above: null,
+    below: 9000,
+    minutes: 1620,
+    kills: 5,
+    deaths: 36,
+    skins: ['Albino'],
+    stored: [
+      { slot: 'allo', species: 'Allosaurus' },
+      { slot: 'cera', species: 'Ceratosaurus' },
+      { slot: 'rex', species: 'Tyrannosaurus' },
+    ],
     maxSlots: 3,
-    firstSeen: '2026-08-01T10:00:00.000Z',
+    firstSeen: '2026-08-23T10:00:00.000Z',
     referrals: 2,
   });
 
-  check('it is titled with their name in game', embed.data.title.includes('Shadow'),
+  check('the leader is crowned in the title', embed.data.title.includes('\u{1F947}'),
     embed.data.title);
-  check('points are grouped for reading',
-    fieldNamed(embed, 'Points').value.includes('12,480'),
-    fieldNamed(embed, 'Points').value);
-  check('rank is shown against the field',
-    fieldNamed(embed, 'Points').value.includes('5 of 40'));
-  check('storage is shown', /\*\*2\*\* of 3/.test(fieldNamed(embed, 'Storage').value),
-    fieldNamed(embed, 'Storage').value);
-  check('skins are counted in the heading', fieldNamed(embed, 'Skins') !== undefined);
-  check('referrals are mentioned', /Brought \*\*2\*\* players/.test(embed.data.description),
+  check('and named', embed.data.title.includes('Shadow'));
+  check('the avatar is the thumbnail', embed.data.thumbnail?.url === 'https://cdn/avatar.png');
+  check('gold for first', embed.data.color === 0xd6a03a, String(embed.data.color));
+
+  const points = fieldNamed(embed, 'Points');
+  check('points are grouped for reading', points.value.includes('12,261'), points.value);
+  check('and carry the standing', points.value.includes('Top of 30'), points.value);
+
+  // The whole point of the rewrite: what is in the vault, not how much.
+  const storage = fieldNamed(embed, 'Storage');
+  check('storage names the animals',
+    storage.value.includes('Allosaurus') && storage.value.includes('Tyrannosaurus'),
+    storage.value);
+  check('and shows the slots filled', storage.value.includes('▰▰▰'), storage.value);
+  check('referrals are mentioned', /brought \*\*2\*\* players/.test(embed.data.description),
     embed.data.description);
 }
 
@@ -142,26 +214,32 @@ const fieldNamed = (embed, part) =>
     points: 0,
     rank: 1,
     players: 1,
+    above: null,
+    below: null,
     minutes: 0,
     kills: 0,
     deaths: 0,
     skins: [],
-    slots: 0,
+    stored: [],
     maxSlots: 3,
     firstSeen: null,
     referrals: 0,
   });
 
-  check('a nameless account still has a title', typeof embed.data.title === 'string'
-    && embed.data.title.length > 0, embed.data.title);
+  check('a nameless account still has a title',
+    typeof embed.data.title === 'string' && embed.data.title.length > 0, embed.data.title);
   check('and a description rather than an empty line',
     typeof embed.data.description === 'string' && embed.data.description.length > 0,
     embed.data.description);
+  check('no avatar means no thumbnail', embed.data.thumbnail === undefined);
   check('no skins means no skins field', fieldNamed(embed, 'Skins') === undefined);
-  check('an empty vault says zero, not unknown',
-    /\*\*0\*\* of 3/.test(fieldNamed(embed, 'Storage').value)
-    && !fieldNamed(embed, 'Storage').value.includes('did not answer'),
-    fieldNamed(embed, 'Storage').value);
+
+  const storage = fieldNamed(embed, 'Storage');
+  check('an empty vault says empty, not unknown',
+    storage.value.includes('empty') && !storage.value.includes('did not answer'),
+    storage.value);
+  check('and shows three unfilled slots', storage.value.includes('▱▱▱'),
+    storage.value);
 }
 
 const failed = results.filter((r) => !r).length;

@@ -1291,15 +1291,20 @@ export class Database {
      */
     pointsRank(steamId) {
         const mine = this.pointsFor(steamId).balance;
-        const ahead = this.#db
-            .prepare('SELECT COUNT(*) AS n FROM points WHERE balance > ?')
-            .get(mine);
-        const total = this.#db
-            .prepare('SELECT COUNT(*) AS n FROM points')
-            .get();
+        const one = (sql, arg) => {
+            const row = (arg === undefined
+                ? this.#db.prepare(sql).get()
+                : this.#db.prepare(sql).get(arg));
+            const value = row?.['n'];
+            return value === null || value === undefined ? null : Number(value);
+        };
         return {
-            rank: Number(ahead?.['n'] ?? 0) + 1,
-            of: Number(total?.['n'] ?? 0),
+            rank: (one('SELECT COUNT(*) AS n FROM points WHERE balance > ?', mine) ?? 0) + 1,
+            of: one('SELECT COUNT(*) AS n FROM points') ?? 0,
+            // The nearest balance on either side, which is what turns a rank into
+            // something worth chasing: "420 behind" reads as a target, "4th" does not.
+            above: one('SELECT MIN(balance) AS n FROM points WHERE balance > ?', mine),
+            below: one('SELECT MAX(balance) AS n FROM points WHERE balance < ?', mine),
         };
     }
     topPoints(limit) {

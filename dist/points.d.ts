@@ -69,4 +69,23 @@ export declare function osloTime(at: Date): {
  */
 export declare function isWeekend(at: Date, window: WeekendWindow): boolean;
 export declare const weekendActive: (ctx: Ctx, at?: Date) => boolean;
-export declare const describeWindow: (window: WeekendWindow) => string;
+/**
+ * The window as real instants: the one running now, or the next one.
+ *
+ * Both ends are resolved independently rather than by adding a duration,
+ * because a window that spans a daylight saving change is not the number of
+ * hours it looks like.
+ */
+export declare function windowInstance(window: WeekendWindow, at?: Date): {
+    start: number;
+    end: number;
+};
+/**
+ * The window, written in the reader's own timezone.
+ *
+ * Discord renders `<t:seconds:F>` in whatever timezone the person reading it is
+ * in, which is the only way this is right for everybody. Naming a zone meant
+ * every player outside Norway doing the arithmetic themselves, and getting it
+ * wrong twice a year when the hour moved.
+ */
+export declare const describeWindow: (window: WeekendWindow, at?: Date) => string;

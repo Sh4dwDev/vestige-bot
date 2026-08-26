@@ -387,6 +387,10 @@ export declare class Database {
     pointsRank(steamId: string): {
         rank: number;
         of: number;
+        /** The balance immediately above, or null at the top. */
+        above: number | null;
+        /** The balance immediately below, or null at the bottom. */
+        below: number | null;
     };
     topPoints(limit: number): Array<{
         steamId: string;

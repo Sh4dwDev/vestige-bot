@@ -298,10 +298,70 @@ export function isWeekend(at: Date, window: WeekendWindow): boolean {
 export const weekendActive = (ctx: Ctx, at = new Date()): boolean =>
   weekendBonus(ctx) > 0 && isWeekend(at, weekendWindow(ctx));
 
-export const describeWindow = (window: WeekendWindow): string => {
-  const name = (d: number): string =>
-    ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d] ?? '?';
-  const clock = (h: number): string => `${String(h).padStart(2, '0')}:00`;
-  return `${name(window.startDay)} ${clock(window.startHour)} to `
-    + `${name(window.endDay)} ${clock(window.endHour)}, Norwegian time`;
+const WEEK_MINUTES = 7 * 1440;
+
+/**
+ * The first moment at or after `from` when Oslo's clock reads this day and hour.
+ *
+ * Guess, then correct once. The guess is exact except across a daylight saving
+ * change, where it lands an hour out, and one correction fixes that because the
+ * shift is only ever an hour. Doing it by stepping a minute at a time would
+ * mean ten thousand date formats to look a week ahead.
+ */
+function occurrence(day: number, hour: number, from: Date): number {
+  const target = (day * 1440) + (hour * 60);
+
+  const now = osloTime(from);
+  const nowMinutes = (now.day * 1440) + (now.hour * 60) + now.minute;
+
+  let ahead = target - nowMinutes;
+  if (ahead <= 0) ahead += WEEK_MINUTES;
+
+  const guess = from.getTime() + (ahead * 60_000);
+
+  const landed = osloTime(new Date(guess));
+  const landedMinutes = (landed.day * 1440) + (landed.hour * 60) + landed.minute;
+
+  // Shortest way round the week, so a correction near the week boundary does
+  // not send it six days in the wrong direction.
+  let drift = target - landedMinutes;
+  if (drift > WEEK_MINUTES / 2) drift -= WEEK_MINUTES;
+  if (drift < -WEEK_MINUTES / 2) drift += WEEK_MINUTES;
+
+  return guess + (drift * 60_000);
+}
+
+/**
+ * The window as real instants: the one running now, or the next one.
+ *
+ * Both ends are resolved independently rather than by adding a duration,
+ * because a window that spans a daylight saving change is not the number of
+ * hours it looks like.
+ */
+export function windowInstance(
+  window: WeekendWindow,
+  at = new Date(),
+): { start: number; end: number } {
+  const running = isWeekend(at, window);
+
+  // When it is already running, the start is behind us, so the search begins a
+  // week back and finds this occurrence rather than next week's.
+  const from = running ? new Date(at.getTime() - (WEEK_MINUTES * 60_000)) : at;
+  const start = occurrence(window.startDay, window.startHour, from);
+
+  return { start, end: occurrence(window.endDay, window.endHour, new Date(start + 60_000)) };
+}
+
+/**
+ * The window, written in the reader's own timezone.
+ *
+ * Discord renders `<t:seconds:F>` in whatever timezone the person reading it is
+ * in, which is the only way this is right for everybody. Naming a zone meant
+ * every player outside Norway doing the arithmetic themselves, and getting it
+ * wrong twice a year when the hour moved.
+ */
+export const describeWindow = (window: WeekendWindow, at = new Date()): string => {
+  const { start, end } = windowInstance(window, at);
+  const stamp = (ms: number): string => `<t:${Math.floor(ms / 1000)}:F>`;
+  return `${stamp(start)} to ${stamp(end)}, every week`;
 };

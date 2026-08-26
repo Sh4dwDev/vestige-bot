@@ -287,7 +287,7 @@ export async function handleHubInteraction(ctx, interaction) {
         // seconds is long enough for Discord to call the interaction failed.
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         await interaction.editReply({
-            embeds: [buildProfileEmbed(await gatherProfile(ctx, interaction.user.id, link.steamId))],
+            embeds: [buildProfileEmbed(await gatherProfile(ctx, interaction.user.id, link.steamId, interaction.user.displayAvatarURL()))],
         });
         return true;
     }

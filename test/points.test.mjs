@@ -10,7 +10,7 @@ const load = (f) => import(pathToFileURL(path.join(root, 'dist', f)).href);
 
 const {
   awardFor, display, buildLeaderboardEmbed, buildBalanceEmbed,
-  isWeekend, osloTime, describeWindow, weekendActive, setWeekendBonus, setWeekendWindow,
+  isWeekend, osloTime, describeWindow, windowInstance, weekendActive, setWeekendBonus, setWeekendWindow,
   weekendWindow, weekendBonus,
 } = await load('points.js');
 const { Database } = await load('db.js');
@@ -178,9 +178,40 @@ const oslo = (iso) => new Date(iso);
 }
 
 {
-  check('the window reads as something a player would understand',
-    describeWindow(WINDOW) === 'Friday 18:00 to Monday 06:00, Norwegian time',
-    describeWindow(WINDOW));
+  // The window is defined in Oslo, but nobody reading it is necessarily there.
+  // Discord renders <t:...> in the reader's own timezone, which is the only
+  // form that is right for everybody at once.
+  const tuesday = new Date('2026-08-25T12:00:00Z');
+  const saturday = new Date('2026-08-29T12:00:00Z');
+
+  check('the window is sent as Discord timestamps, not a named zone',
+    /^<t:\d+:F> to <t:\d+:F>, every week$/.test(describeWindow(WINDOW, tuesday)),
+    describeWindow(WINDOW, tuesday));
+  check('and names no timezone of its own',
+    !/CET|CEST|Norwegian|Oslo/.test(describeWindow(WINDOW, tuesday)),
+    describeWindow(WINDOW, tuesday));
+
+  const oslo = (ms) => new Date(ms).toLocaleString('en-GB',
+    { timeZone: 'Europe/Oslo', weekday: 'short', hour: '2-digit', minute: '2-digit' });
+
+  const upcoming = windowInstance(WINDOW, tuesday);
+  check('midweek points at the window still to come',
+    /^Fri,? 18:00$/.test(oslo(upcoming.start)) && /^Mon,? 06:00$/.test(oslo(upcoming.end)),
+    `${oslo(upcoming.start)} -> ${oslo(upcoming.end)}`);
+
+  // Mid-window it must show the one running now, not next week's.
+  const running = windowInstance(WINDOW, saturday);
+  check('and inside it, the one currently running',
+    running.start < saturday.getTime() && running.end > saturday.getTime(),
+    `${new Date(running.start).toISOString()} -> ${new Date(running.end).toISOString()}`);
+
+  // The clocks go back inside this window, so it is 61 hours long, not 60.
+  // Resolving both ends separately is what gets this right; adding a duration
+  // to the start would not.
+  const clockChange = windowInstance(WINDOW, new Date('2026-10-24T12:00:00Z'));
+  check('a window spanning a daylight saving change keeps both ends correct',
+    (clockChange.end - clockChange.start) / 3_600_000 === 61,
+    String((clockChange.end - clockChange.start) / 3_600_000));
 
   const on = buildBalanceEmbed(100, 60, 60,
     { bonus: 30, active: true, window: WINDOW }).toJSON();
@@ -189,8 +220,8 @@ const oslo = (iso) => new Date(iso);
 
   const off = buildBalanceEmbed(100, 60, 60,
     { bonus: 30, active: false, window: WINDOW }).toJSON();
-  check('and when it is not on, it says when it will be',
-    /Friday 18:00/.test(off.description ?? ''));
+  check('and when it is not on, it says when it will be, in the reader own timezone',
+    /<t:\d+:F> to <t:\d+:F>/.test(off.description ?? ''), off.description ?? '');
 
   const none = buildBalanceEmbed(100, 60, 60).toJSON();
   check('a server without one says nothing about it',

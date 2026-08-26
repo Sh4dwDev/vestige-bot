@@ -1621,18 +1621,30 @@ export class Database {
    *
    * Ties share the better rank, which is what anybody reading it expects.
    */
-  pointsRank(steamId: string): { rank: number; of: number } {
+  pointsRank(steamId: string): {
+    rank: number;
+    of: number;
+    /** The balance immediately above, or null at the top. */
+    above: number | null;
+    /** The balance immediately below, or null at the bottom. */
+    below: number | null;
+  } {
     const mine = this.pointsFor(steamId).balance;
-    const ahead = this.#db
-      .prepare('SELECT COUNT(*) AS n FROM points WHERE balance > ?')
-      .get(mine) as Record<string, unknown> | undefined;
-    const total = this.#db
-      .prepare('SELECT COUNT(*) AS n FROM points')
-      .get() as Record<string, unknown> | undefined;
+    const one = (sql: string, arg?: number): number | null => {
+      const row = (arg === undefined
+        ? this.#db.prepare(sql).get()
+        : this.#db.prepare(sql).get(arg)) as Record<string, unknown> | undefined;
+      const value = row?.['n'];
+      return value === null || value === undefined ? null : Number(value);
+    };
 
     return {
-      rank: Number(ahead?.['n'] ?? 0) + 1,
-      of: Number(total?.['n'] ?? 0),
+      rank: (one('SELECT COUNT(*) AS n FROM points WHERE balance > ?', mine) ?? 0) + 1,
+      of: one('SELECT COUNT(*) AS n FROM points') ?? 0,
+      // The nearest balance on either side, which is what turns a rank into
+      // something worth chasing: "420 behind" reads as a target, "4th" does not.
+      above: one('SELECT MIN(balance) AS n FROM points WHERE balance > ?', mine),
+      below: one('SELECT MAX(balance) AS n FROM points WHERE balance < ?', mine),
     };
   }
 
