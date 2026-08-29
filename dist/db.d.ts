@@ -1,3 +1,12 @@
+/**
+ * The week an award belongs to, as `2026-W35`, in Oslo.
+ *
+ * Computed here rather than passed in, because it has to be applied by
+ * `addPoints` itself. Every contest, hunt, drop, bounty and nesting payout goes
+ * through that one method, and anything that asked callers to also record a
+ * weekly total would eventually miss one and under-count somebody quietly.
+ */
+export declare function weekKey(at?: Date): string;
 export interface Link {
     discordId: string;
     steamId: string;
@@ -371,6 +380,28 @@ export declare class Database {
     };
     /** Adds to a balance, creating the row if this is their first minute. */
     addPoints(steamId: string, amount: number, minutes?: number): void;
+    /** The week's earnings, separate from the spendable balance. */
+    addWeekly(steamId: string, amount: number, at?: Date): void;
+    weeklyFor(steamId: string, week?: string): number;
+    weeklyTop(week?: string, limit?: number): Array<{
+        steamId: string;
+        points: number;
+    }>;
+    /** Ties share the better rank, same as the lifetime board. */
+    weeklyRank(steamId: string, week?: string): {
+        rank: number;
+        of: number;
+    };
+    streakFor(steamId: string): {
+        lastDay: string;
+        streak: number;
+        best: number;
+    } | null;
+    saveStreak(steamId: string, state: {
+        lastDay: string;
+        streak: number;
+        best: number;
+    }): void;
     /** Awards every online player in one transaction, so a crash cannot half-pay. */
     awardOnline(steamIds: string[], amount: number, minutes: number): void;
     /** Never goes below zero — a negative balance would be a bug with a shop attached. */

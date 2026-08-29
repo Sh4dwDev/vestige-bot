@@ -127,6 +127,27 @@ CREATE TABLE IF NOT EXISTS points (
   updated_at TEXT NOT NULL
 );
 
+-- One row per player per week, counting only what they *earned* that week.
+-- Separate from the balance on purpose: the balance is spendable currency, and
+-- a weekly board that reset it would wipe everybody's savings every Monday.
+CREATE TABLE IF NOT EXISTS weekly_points (
+  steam_id TEXT NOT NULL,
+  week     TEXT NOT NULL,
+  points   REAL NOT NULL DEFAULT 0,
+  PRIMARY KEY (steam_id, week)
+);
+
+-- Consecutive days played. The last day is a date in Oslo rather than UTC, so the
+-- day rolls over at a time that matches when people stop playing rather than at
+-- one in the morning.
+CREATE TABLE IF NOT EXISTS streaks (
+  steam_id   TEXT PRIMARY KEY,
+  last_day   TEXT NOT NULL,
+  streak     INTEGER NOT NULL DEFAULT 1,
+  best       INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL
+);
+
 -- The last in-game name each account was seen using. Kept because the killfeed
 -- reports people who have often just disconnected, so it cannot ask the server
 -- who they were - and a row of Steam ID fragments is unreadable.
@@ -275,6 +296,31 @@ CREATE TABLE IF NOT EXISTS skin_baseline (
   PRIMARY KEY (steam_id, species)
 );
 `;
+/**
+ * The week an award belongs to, as `2026-W35`, in Oslo.
+ *
+ * Computed here rather than passed in, because it has to be applied by
+ * `addPoints` itself. Every contest, hunt, drop, bounty and nesting payout goes
+ * through that one method, and anything that asked callers to also record a
+ * weekly total would eventually miss one and under-count somebody quietly.
+ */
+export function weekKey(at = new Date()) {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Europe/Oslo',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).formatToParts(at);
+    const get = (type) => Number.parseInt(parts.find((p) => p.type === type)?.value ?? '0', 10);
+    // ISO week: Thursday decides which year a week belongs to, which is why the
+    // last days of December can be week 1 of the next year.
+    const date = new Date(Date.UTC(get('year'), get('month') - 1, get('day')));
+    const day = date.getUTCDay() || 7;
+    date.setUTCDate(date.getUTCDate() + 4 - day);
+    const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+    const week = Math.ceil((((date.getTime() - yearStart.getTime()) / 86_400_000) + 1) / 7);
+    return `${date.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
 const toReferral = (row) => ({
     inviteeDiscord: String(row['invitee_discord']),
     inviterDiscord: String(row['inviter_discord']),
@@ -1256,6 +1302,67 @@ export class Database {
                                               minutes = minutes + excluded.minutes,
                                               updated_at = excluded.updated_at`)
             .run(steamId, amount, minutes, new Date().toISOString());
+        // Earnings only. Spending is an `addPoints` with a negative amount, and
+        // counting that would mean buying a skin lowered your standing for the week.
+        if (amount > 0)
+            this.addWeekly(steamId, amount);
+    }
+    /** The week's earnings, separate from the spendable balance. */
+    addWeekly(steamId, amount, at = new Date()) {
+        this.#db
+            .prepare(`INSERT INTO weekly_points (steam_id, week, points) VALUES (?, ?, ?)
+         ON CONFLICT (steam_id, week) DO UPDATE SET points = points + excluded.points`)
+            .run(steamId, weekKey(at), amount);
+    }
+    weeklyFor(steamId, week = weekKey()) {
+        const row = this.#db
+            .prepare('SELECT points FROM weekly_points WHERE steam_id = ? AND week = ?')
+            .get(steamId, week);
+        return Number(row?.['points'] ?? 0);
+    }
+    weeklyTop(week = weekKey(), limit = 10) {
+        return this.#db
+            .prepare('SELECT steam_id, points FROM weekly_points WHERE week = ? '
+            + 'AND points > 0 ORDER BY points DESC LIMIT ?')
+            .all(week, limit)
+            .map((row) => ({
+            steamId: String(row['steam_id']),
+            points: Number(row['points']),
+        }));
+    }
+    /** Ties share the better rank, same as the lifetime board. */
+    weeklyRank(steamId, week = weekKey()) {
+        const mine = this.weeklyFor(steamId, week);
+        const count = (sql, ...args) => {
+            const row = this.#db.prepare(sql).get(...args);
+            return Number(row?.['n'] ?? 0);
+        };
+        return {
+            rank: count('SELECT COUNT(*) AS n FROM weekly_points WHERE week = ? AND points > ?', week, mine) + 1,
+            of: count('SELECT COUNT(*) AS n FROM weekly_points WHERE week = ? AND points > 0', week),
+        };
+    }
+    streakFor(steamId) {
+        const row = this.#db
+            .prepare('SELECT last_day, streak, best FROM streaks WHERE steam_id = ?')
+            .get(steamId);
+        if (!row)
+            return null;
+        return {
+            lastDay: String(row['last_day']),
+            streak: Number(row['streak']),
+            best: Number(row['best']),
+        };
+    }
+    saveStreak(steamId, state) {
+        this.#db
+            .prepare(`INSERT INTO streaks (steam_id, last_day, streak, best, updated_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (steam_id) DO UPDATE SET last_day = excluded.last_day,
+                                              streak = excluded.streak,
+                                              best = excluded.best,
+                                              updated_at = excluded.updated_at`)
+            .run(steamId, state.lastDay, state.streak, state.best, new Date().toISOString());
     }
     /** Awards every online player in one transaction, so a crash cannot half-pay. */
     awardOnline(steamIds, amount, minutes) {

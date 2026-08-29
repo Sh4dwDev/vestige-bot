@@ -66,6 +66,26 @@ export function standing(data) {
     return `${ordinal(data.rank)} of ${data.players} · ${money(gap)} behind ${ordinal(data.rank - 1)}`;
 }
 /**
+ * Where they are on this week's board.
+ *
+ * Separate from the lifetime standing because it is the one that is actually
+ * winnable: the all-time board is settled, and a week is short enough that a
+ * few good evenings takes it.
+ */
+export function weekStanding(data) {
+    // Guarded rather than trusted. Every caller today comes from gatherProfile,
+    // which always fills these in, but a half-built record should read as "no
+    // data" rather than as "undefinedth of undefined".
+    const points = Number.isFinite(data.weekPoints) ? data.weekPoints : 0;
+    const of = Number.isFinite(data.weekOf) ? data.weekOf : 0;
+    const rank = Number.isFinite(data.weekRank) ? data.weekRank : 0;
+    if (points <= 0)
+        return 'nothing earned yet this week';
+    if (of <= 1 || rank < 1)
+        return 'the only one earning so far';
+    return `${ordinal(rank)} of ${of} this week`;
+}
+/**
  * Reads everything for one player.
  *
  * The database parts are immediate. The stored animals are the only thing that
@@ -77,6 +97,8 @@ export async function gatherProfile(ctx, discordId, steamId, avatarUrl) {
     const { balance, minutes } = ctx.db.pointsFor(steamId);
     const { rank, of, above, below } = ctx.db.pointsRank(steamId);
     const { kills, deaths } = ctx.db.killStats(steamId);
+    const streak = ctx.db.streakFor(steamId);
+    const week = ctx.db.weeklyRank(steamId);
     // The same call that used to be counted and discarded. It already carries the
     // species, which is the interesting half.
     const stored = await ctx.mod
@@ -106,6 +128,11 @@ export async function gatherProfile(ctx, discordId, steamId, avatarUrl) {
         stored,
         maxSlots: MAX_SLOTS,
         firstSeen: ctx.db.firstSeen(steamId),
+        streak: streak?.streak ?? 0,
+        bestStreak: streak?.best ?? 0,
+        weekPoints: Math.floor(ctx.db.weeklyFor(steamId)),
+        weekRank: week.rank,
+        weekOf: week.of,
         // Since the beginning: a profile is a lifetime record, not a season one.
         referrals: ctx.db.paidReferralsSince(discordId, new Date(0)),
     };
@@ -145,6 +172,20 @@ export function buildProfileEmbed(data) {
             + `${data.deaths === 1 ? '' : 's'} · ${ratio(data.kills, data.deaths)} each`,
         inline: true,
     });
+    embed.addFields({
+        name: '📅  This week',
+        value: `**${money(data.weekPoints)}**\n-# ${weekStanding(data)}`,
+        inline: true,
+    }, {
+        name: '🔥  Streak',
+        value: data.streak > 0
+            ? `**${data.streak}** day${data.streak === 1 ? '' : 's'}\n-# best ${data.bestStreak}`
+            : '**0**\n-# play today to start one',
+        inline: true,
+    }, 
+    // Keeps the row of three even when nothing else belongs there, rather than
+    // leaving two wide fields and a gap.
+    { name: '​', value: '​', inline: true });
     embed.addFields({ name: '📦  Storage', value: storageLine(data), inline: false });
     if (data.skins.length > 0) {
         // Capped: somebody with thirty skins would push everything else off screen.

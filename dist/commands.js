@@ -18,6 +18,9 @@ import { cleanSlotName, showPanel, stopAutoRefresh } from './panel.js';
 import { addRequest, askEmbed, askRows, cooldownMinutes, delaySeconds, requestFor, } from './teleport.js';
 import { buildHubEmbed, hubRows, HUB_MESSAGE_KEY, setHubChannel } from './hub.js';
 import { buildProfileEmbed, gatherProfile } from './profile.js';
+import { setStreakRewards, setStreaksEnabled, streakCap, streakStep, streaksEnabled, } from './streaks.js';
+import { buildWeeklyEmbed, PODIUM, setWeeklyChannel, setWeeklyEnabled, setWeeklySkin, weeklySkin, } from './weekly.js';
+import { weekKey } from './db.js';
 import { activeDrop, buildDropEmbed, dropAnnounce, dropChannel, hintText, saveDrop, setDropChannel, startDrop, } from './drop.js';
 import { buildKillsEmbed, setKillfeedChannel } from './kills.js';
 import { postOrEdit } from './pinned.js';
@@ -488,6 +491,24 @@ export const commandData = [
         .addChannelOption((o) => o.setName('channel').setDescription('Where kills go')
         .addChannelTypes(ChannelType.GuildText).setRequired(true)))
         .addSubcommand((s) => s.setName('off').setDescription('Stop posting kills')))
+        .addSubcommandGroup((g) => g.setName('streak').setDescription('Daily play streaks')
+        .addSubcommand((c) => c.setName('on').setDescription('Pay for days in a row'))
+        .addSubcommand((c) => c.setName('off').setDescription('Stop paying'))
+        .addSubcommand((c) => c.setName('reward').setDescription('What a day is worth')
+        .addIntegerOption((o) => o.setName('step').setDescription('Per day. Default 40')
+        .setMinValue(0).setMaxValue(5_000).setRequired(true))
+        .addIntegerOption((o) => o.setName('cap').setDescription('Most per day. Default 400')
+        .setMinValue(0).setMaxValue(50_000).setRequired(true)))
+        .addSubcommand((c) => c.setName('status').setDescription('What is set')))
+        .addSubcommandGroup((g) => g.setName('weekly').setDescription('The weekly board')
+        .addSubcommand((c) => c.setName('on').setDescription('Run it, posting results here')
+        .addChannelOption((o) => o.setName('channel').setDescription('Where results go')
+        .addChannelTypes(ChannelType.GuildText).setRequired(true)))
+        .addSubcommand((c) => c.setName('off').setDescription('Stop running it'))
+        .addSubcommand((c) => c.setName('skin').setDescription('What the top three keep')
+        .addStringOption((o) => o.setName('preset').setDescription('A skin preset')
+        .setAutocomplete(true).setRequired(true)))
+        .addSubcommand((c) => c.setName('board').setDescription('This week so far')))
         .addSubcommandGroup((g) => g.setName('guide').setDescription('The storage guide')
         .addSubcommand((s) => s.setName('channel').setDescription('Post the storage guide in a channel')
         .addChannelOption((o) => o.setName('channel').setDescription('Where it should live')
@@ -2386,6 +2407,96 @@ async function handleHunt(ctx, i, action) {
     });
 }
 // -------------------------------------------------------------- contest --
+// ------------------------------------------------- streaks and the week --
+async function handleStreaks(ctx, i, action) {
+    if (action === 'on' || action === 'off') {
+        setStreaksEnabled(ctx, action === 'on');
+        await i.reply({
+            embeds: [embed(COLORS.good, action === 'on' ? 'Streaks on' : 'Streaks off', action === 'on'
+                    ? `Playing on consecutive days now pays **${streakStep(ctx)}** per day of `
+                        + `streak, up to **${streakCap(ctx)}**. Being in game at all counts, so `
+                        + 'somebody checking in for five minutes still keeps their run.'
+                    : 'Days in a row no longer pay. The counts are kept, so switching it '
+                        + 'back on does not start everybody from zero.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'reward') {
+        const step = i.options.getInteger('step', true);
+        const cap = i.options.getInteger('cap', true);
+        setStreakRewards(ctx, step, cap);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Streak reward set', `Day one pays **${step}**, day five pays **${Math.min(cap, step * 5)}**, and `
+                    + `nothing pays more than **${cap}** however long the run.
+
+`
+                    + 'Worth keeping small. A streak bonus that beats an evening of playing '
+                    + 'makes missing a day feel like a punishment, and the point is to give '
+                    + 'somebody a reason to come back rather than to dread not coming.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    await i.reply({
+        embeds: [embed(COLORS.info, '🔥  Streaks', `Streaks are **${streaksEnabled(ctx) ? 'on' : 'off'}**.
+`
+                + `**${streakStep(ctx)}** per day of streak, capped at **${streakCap(ctx)}**.
+
+`
+                + 'The day rolls over at midnight in Oslo rather than UTC, so nobody loses '
+                + 'a run they were in the middle of extending at one in the morning.')],
+        flags: MessageFlags.Ephemeral,
+    });
+}
+async function handleWeekly(ctx, i, action) {
+    if (action === 'on') {
+        const channel = i.options.getChannel('channel', true);
+        setWeeklyChannel(ctx, channel.id);
+        setWeeklyEnabled(ctx, true);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Weekly board on', `Results are posted in <#${channel.id}> when each week ends.\n\n`
+                    + '**It counts what people earn, not what they hold.** Balances are never '
+                    + 'reset: they are the currency the shop and the market run on, and '
+                    + 'wiping them every Monday would take every saved point with it. '
+                    + 'Spending does not push anybody down the board.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'off') {
+        setWeeklyEnabled(ctx, false);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Weekly board off', 'No more weekly results. What people have earned is still recorded, so '
+                    + 'switching it back on picks up the current week.')],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    if (action === 'skin') {
+        const preset = i.options.getString('preset', true).trim();
+        if (!presetLook(ctx, preset)) {
+            await i.reply({
+                embeds: [embed(COLORS.warn, 'No such skin', `There is no preset called **${preset}**.`)],
+                flags: MessageFlags.Ephemeral,
+            });
+            return;
+        }
+        setWeeklySkin(ctx, preset);
+        await i.reply({
+            embeds: [embed(COLORS.good, 'Weekly prize set', `The top **${PODIUM}** each week keep the **${preset}** skin.`)],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+    // board
+    const week = weekKey();
+    const rows = ctx.db.weeklyTop(week, 10);
+    await i.reply({
+        embeds: [buildWeeklyEmbed(week, rows, steamNamer(ctx), { skin: weeklySkin(ctx) })],
+        flags: MessageFlags.Ephemeral,
+    });
+}
 // ------------------------------------------------------------------- drop --
 async function handleDrop(ctx, i, action) {
     if (action === 'channel') {
@@ -3958,6 +4069,10 @@ async function runAdmin(ctx, i) {
         return handleContest(ctx, i, action);
     if (group === 'drop')
         return handleDrop(ctx, i, action);
+    if (group === 'streak')
+        return handleStreaks(ctx, i, action);
+    if (group === 'weekly')
+        return handleWeekly(ctx, i, action);
     if (group === 'nest')
         return handleNest(ctx, i, action);
     if (group === 'prime')

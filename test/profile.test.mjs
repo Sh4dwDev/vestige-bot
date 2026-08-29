@@ -139,6 +139,7 @@ const fieldNamed = (embed, part) =>
     name: 'Shadow', steamId: ME, points: 12261, rank: 4, players: 30,
     above: 13000, below: 9000, minutes: 1620, kills: 5, deaths: 36,
     skins: [], stored: [], maxSlots: 3, firstSeen: null, referrals: 0,
+    streak: 0, bestStreak: 0, weekPoints: 0, weekRank: 1, weekOf: 0,
   };
 
   check('a chaser is told what to catch',
@@ -183,6 +184,11 @@ const fieldNamed = (embed, part) =>
     maxSlots: 3,
     firstSeen: '2026-08-23T10:00:00.000Z',
     referrals: 2,
+    streak: 4,
+    bestStreak: 9,
+    weekPoints: 2400,
+    weekRank: 2,
+    weekOf: 11,
   });
 
   check('the leader is crowned in the title', embed.data.title.includes('\u{1F947}'),
@@ -203,6 +209,13 @@ const fieldNamed = (embed, part) =>
   check('and shows the slots filled', storage.value.includes('▰▰▰'), storage.value);
   check('referrals are mentioned', /brought \*\*2\*\* players/.test(embed.data.description),
     embed.data.description);
+
+  const week = fieldNamed(embed, 'This week');
+  check('this week is shown with its standing',
+    week.value.includes('2,400') && week.value.includes('2nd of 11'), week.value);
+  const streak = fieldNamed(embed, 'Streak');
+  check('and the streak with its best',
+    /\*\*4\*\* days/.test(streak.value) && streak.value.includes('best 9'), streak.value);
 }
 
 {
@@ -224,6 +237,11 @@ const fieldNamed = (embed, part) =>
     maxSlots: 3,
     firstSeen: null,
     referrals: 0,
+    streak: 0,
+    bestStreak: 0,
+    weekPoints: 0,
+    weekRank: 1,
+    weekOf: 0,
   });
 
   check('a nameless account still has a title',
@@ -235,6 +253,14 @@ const fieldNamed = (embed, part) =>
   check('no skins means no skins field', fieldNamed(embed, 'Skins') === undefined);
 
   const storage = fieldNamed(embed, 'Storage');
+  const newWeek = fieldNamed(embed, 'This week');
+  check('a player who has earned nothing this week is told so, not shown NaN',
+    newWeek.value.includes('**0**') && newWeek.value.includes('nothing earned'),
+    newWeek.value);
+  const noStreak = fieldNamed(embed, 'Streak');
+  check('and is invited to start a streak', noStreak.value.includes('play today'),
+    noStreak.value);
+
   check('an empty vault says empty, not unknown',
     storage.value.includes('empty') && !storage.value.includes('did not answer'),
     storage.value);

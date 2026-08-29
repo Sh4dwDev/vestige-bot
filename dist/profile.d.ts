@@ -44,6 +44,13 @@ export interface ProfileData {
     /** ISO 8601, or null if the bot never caught them arriving. */
     firstSeen: string | null;
     referrals: number;
+    /** Days played in a row, and the best run they have managed. */
+    streak: number;
+    bestStreak: number;
+    /** Points earned this week, and where that puts them. */
+    weekPoints: number;
+    weekRank: number;
+    weekOf: number;
 }
 /** 5312 becomes "88h". Under an hour stays in minutes, so a new player sees movement. */
 export declare function playtime(minutes: number): string;
@@ -72,6 +79,14 @@ export declare function colourFor(rank: number): number;
  * they are defending, everybody else what they are chasing.
  */
 export declare function standing(data: ProfileData): string;
+/**
+ * Where they are on this week's board.
+ *
+ * Separate from the lifetime standing because it is the one that is actually
+ * winnable: the all-time board is settled, and a week is short enough that a
+ * few good evenings takes it.
+ */
+export declare function weekStanding(data: ProfileData): string;
 /**
  * Reads everything for one player.
  *

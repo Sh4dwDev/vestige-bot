@@ -59,6 +59,8 @@ import { handleMarket } from './market.js';
 import { runNesting } from './nesting.js';
 import { runGameLog } from './gamelog.js';
 import { startWebsite } from './web.js';
+import { recordPlay, streakNotice } from './streaks.js';
+import { runWeekly } from './weekly.js';
 import {
   activeDrop,
   buildDropEmbed,
@@ -873,6 +875,15 @@ function startServerPoll(ctx: Ctx, client: Client<true>): void {
         // trip for data already in hand.
         const live = await ctx.mod.players();
         awardOnline(ctx, live, elapsed);
+
+        // Being on at all counts for the day. Told in game rather than only in
+        // Discord, because the person it is meant to reach is the one who just
+        // logged in.
+        for (const award of recordPlay(ctx, live.map((p) => p.steam ?? ''))) {
+          log(`streak: ${award.steamId} day ${award.streak} for ${award.bonus}`);
+          void tell(ctx, award.steamId,
+            streakNotice(award.streak, award.bonus, award.broken));
+        }
         // Contests are not run here: they have their own faster timer, because
         // a minute is far too coarse for a notice that says "you are on it".
         // Closes the hidden-species window the instant the admin is seen on it.
@@ -885,6 +896,9 @@ function startServerPoll(ctx: Ctx, client: Client<true>): void {
         await runGameLog(ctx, client, log);
         // After awardOnline, so the minute just played counts towards the hour.
         await awardEarlyMembers(ctx, client, live, log);
+        // Closes the previous week the first time the clock says a new one has
+        // started. Idempotent, so a restart cannot pay the same podium twice.
+        await runWeekly(ctx, client, log);
       } catch (err) {
         log(`points: award failed: ${describeError(err)}`);
       }
