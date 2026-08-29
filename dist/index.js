@@ -36,7 +36,7 @@ import { runGameLog } from './gamelog.js';
 import { startWebsite } from './web.js';
 import { recordPlay, streakNotice } from './streaks.js';
 import { runWeekly } from './weekly.js';
-import { activeDrop, buildDropEmbed, buildDropOverEmbed, claimDrop, dropChannel, dropStep, expiredAnnounce, foundAnnounce, saveDrop, scentLine, warmNotice, warming, } from './drop.js';
+import { activeDrop, buildDropEmbed, buildDropOverEmbed, claimDrop, dropChannel, dropStep, expiredAnnounce, foundAnnounce, rememberGround, saveDrop, scentLine, warmNotice, warming, } from './drop.js';
 import { handleDuty, reconcileDuty } from './duty.js';
 import { handleWardrobe } from './wardrobe.js';
 import { advanceTryout } from './tryout.js';
@@ -741,6 +741,9 @@ function startServerPoll(ctx, client) {
                 // trip for data already in hand.
                 const live = await ctx.mod.players();
                 awardOnline(ctx, live, elapsed);
+                // Banked as people walk about, so a drop has somewhere real to sit.
+                // The only ground height anything can trust is one a pawn stood on.
+                rememberGround(live);
                 // Being on at all counts for the day. Only milestones are said out
                 // loud: the game draws these as a full-width banner, and one every
                 // evening is wallpaper by the third. The points arrive either way, and

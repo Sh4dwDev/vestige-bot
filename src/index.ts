@@ -70,6 +70,7 @@ import {
   dropStep,
   expiredAnnounce,
   foundAnnounce,
+  rememberGround,
   saveDrop,
   scentLine,
   warmNotice,
@@ -891,6 +892,10 @@ function startServerPoll(ctx: Ctx, client: Client<true>): void {
         // trip for data already in hand.
         const live = await ctx.mod.players();
         awardOnline(ctx, live, elapsed);
+
+        // Banked as people walk about, so a drop has somewhere real to sit.
+        // The only ground height anything can trust is one a pawn stood on.
+        rememberGround(live);
 
         // Being on at all counts for the day. Only milestones are said out
         // loud: the game draws these as a full-width banner, and one every

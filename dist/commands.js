@@ -21,7 +21,7 @@ import { buildProfileEmbed, gatherProfile } from './profile.js';
 import { setStreakRewards, setStreaksEnabled, streakCap, streakStep, streaksEnabled, } from './streaks.js';
 import { buildWeeklyEmbed, PODIUM, setWeeklyChannel, setWeeklyEnabled, setWeeklySkin, weeklySkin, } from './weekly.js';
 import { weekKey } from './db.js';
-import { activeDrop, buildDropEmbed, buildDropStatusEmbed, dropAnnounce, dropChannel, hintText, saveDrop, setDropChannel, startDrop, } from './drop.js';
+import { activeDrop, buildDropEmbed, buildDropStatusEmbed, dropAnnounce, dropChannel, hintText, markDrop, saveDrop, setDropChannel, startDrop, } from './drop.js';
 import { buildKillsEmbed, setKillfeedChannel } from './kills.js';
 import { postOrEdit } from './pinned.js';
 import { buildBalanceEmbed, buildLeaderboardEmbed, describeWindow, display, ratePerHour, setLinkBonus, setRatePerHour, setWeekendBonus, setWeekendWindow, weekendActive, weekendBonus, weekendWindow, } from './points.js';
@@ -2566,6 +2566,13 @@ async function handleDrop(ctx, i, action) {
         await i.editReply({ embeds: [embed(COLORS.bad, 'Not started', started.reason)] });
         return;
     }
+    // The marker goes down before anything is announced, so the copy can say
+    // whether there is actually something to find.
+    const marked = await markDrop(ctx, started.drop);
+    if (marked) {
+        started.drop.marked = true;
+        saveDrop(ctx, started.drop);
+    }
     await ctx.rcon.announce(toPlainAscii(dropAnnounce(started.drop))).catch(() => undefined);
     const channelId = dropChannel(ctx);
     if (channelId) {
@@ -2580,9 +2587,12 @@ async function handleDrop(ctx, i, action) {
         embeds: [embed(COLORS.good, 'Drop is out there', `Hidden at Lat **${hud(started.drop.y)}**, Long **${hud(started.drop.x)}**, `
                 + `worth **${started.drop.reward}** points`
                 + (skin ? ` and the **${skin}** skin` : '') + '.\n\n'
-                + 'It landed between two people who are online, so it is somewhere they '
-                + 'can actually reach. The area narrows every couple of minutes until '
-                + 'somebody finds it.')],
+                + (marked
+                    ? 'A nest mound is sitting on it, so there is something to actually find.\n\n'
+                    : 'Nothing was spawned on it: the bot has not banked a ground height near '
+                        + 'there yet, so it is a point on the map only. It still works.\n\n')
+                + 'Everybody in game is told which way it lies from where they are '
+                + 'standing, and that sharpens every couple of minutes.')],
     });
 }
 async function handleContest(ctx, i, action) {

@@ -1450,7 +1450,13 @@ local function handlePlayers(cmd)
                     '{"steam":"%s","species":"%s","growth":%.4f,"female":%s,"prime":%s%s}',
                     p.steam, jsonEscape(speciesOf(classPath)), growth,
                     female and "true" or "false", prime and "true" or "false",
-                    at ~= nil and string.format(',"x":%.1f,"y":%.1f', at.X, at.Y) or "")
+                    -- Z travels with the position now. It is the only ground
+                    -- height the bot can ever be sure of: there is no way to
+                    -- ask the engine what the terrain is at an arbitrary point,
+                    -- so "somewhere a dinosaur was standing" is the only
+                    -- reliable place to put anything.
+                    at ~= nil and string.format(
+                        ',"x":%.1f,"y":%.1f,"z":%.1f', at.X, at.Y, at.Z) or "")
             end
         end
     end

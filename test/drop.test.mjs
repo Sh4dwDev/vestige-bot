@@ -12,6 +12,7 @@ const {
   placeDrop, blur, hintText, dropStep, warming, startDrop, claimDrop,
   activeDrop, saveDrop, HINT_PRECISION, HINT_EVERY_MS,
   buildDropStatusEmbed, nearestLine, bearingWord, distanceWord, scentLine,
+  rememberGround, knownGround, forgetGround, markDrop, MARKER_CLASS,
 } = await load('drop.js');
 const { Database } = await load('db.js');
 
@@ -25,7 +26,7 @@ const NOW = 1_800_000_000_000;
 const A = '76561198000000001';
 const B = '76561198000000002';
 
-const at = (steam, x, y) => ({ steam, species: 'Rex', growth: 1, female: false, prime: false, x, y });
+const at = (steam, x, y, z) => ({ steam, species: 'Rex', growth: 1, female: false, prime: false, x, y, ...(z === undefined ? {} : { z }) });
 
 const fresh = () => new Database(
   path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'vesta-')), 'drop.sqlite'));
@@ -189,6 +190,80 @@ const base = (over = {}) => ({
 
   saveDrop(ctx, null);
   db.close();
+}
+
+// ---- ground, and marking the spot -------------------------------------------
+
+{
+  forgetGround();
+
+  // Only positions with a height are worth banking: the height is the entire
+  // reason to bank them. There is no way to ask the engine what the terrain is
+  // at an arbitrary point.
+  rememberGround([at(A, 0, 0), at(B, 100_000, 0, 60)]);
+  check('a position without a height is not banked', knownGround().length === 1,
+    JSON.stringify(knownGround()));
+  check('and the one with a height is', knownGround()[0].z === 60);
+
+  // Samples close together are the same place; banking every poll would fill
+  // the buffer with one clearing.
+  rememberGround([at(B, 110_000, 0, 61)]);
+  check('a spot next to one already banked is not banked twice',
+    knownGround().length === 1, String(knownGround().length));
+
+  rememberGround([at(B, 900_000, 0, 70)]);
+  check('somewhere genuinely different is', knownGround().length === 2);
+
+  forgetGround();
+}
+
+{
+  forgetGround();
+
+  // Cold start: nothing banked, so it falls back to the old placement and has
+  // no height. The drop still works, there is just nothing to spawn on it.
+  const cold = placeDrop([at(A, 0, 0, 50), at(B, 400_000, 0, 60)], () => 0.5);
+  check('with nothing banked it still places a drop', cold !== null);
+  check('but without a height, so nothing is spawned', cold.z === undefined,
+    JSON.stringify(cold));
+
+  rememberGround([at(A, 0, 0, 50), at(B, 900_000, 400_000, 120)]);
+
+  // Warm: it prefers real ground, and not underneath whoever is playing.
+  const warm = placeDrop([at(A, 0, 0, 50), at(B, 20_000, 0, 51)], () => 0.5);
+  check('once ground is banked it lands on some', warm.z === 120, JSON.stringify(warm));
+  check('and far from everybody currently online',
+    Math.hypot(warm.x, warm.y) > 150_000, JSON.stringify(warm));
+
+  forgetGround();
+}
+
+{
+  // The marker only goes down where the height is known. A mound at a guessed
+  // height is inside a hillside or hanging in the air, and a marker in the
+  // wrong place is worse than none because people trust it.
+  const calls = [];
+  const ctx = { mod: { run: async (verb, steam, args) => { calls.push({ verb, args }); return { ok: true }; } } };
+
+  check('a drop with no height is not marked',
+    (await markDrop(ctx, base())) === false && calls.length === 0);
+
+  const marked = await markDrop(ctx, base({ x: 5_000, y: 6_000, z: 70 }));
+  check('one with a height is', marked === true);
+  check('and it is spawned exactly there',
+    calls[0].args.x === 5_000 && calls[0].args.y === 6_000 && calls[0].args.z === 70,
+    JSON.stringify(calls[0].args));
+  check('using the class the mod is proven able to spawn',
+    calls[0].args.class === MARKER_CLASS, calls[0].args.class);
+
+  // A refused spawn must not take the event down with it.
+  const refusing = { mod: { run: async () => ({ ok: false, msg: 'no' }) } };
+  check('a refused spawn is reported, not thrown',
+    (await markDrop(refusing, base({ z: 70 }))) === false);
+
+  const throwing = { mod: { run: async () => { throw new Error('unreachable'); } } };
+  check('and an unreachable server is survivable',
+    (await markDrop(throwing, base({ z: 70 }))) === false);
 }
 
 // ---- bearings, which is what players actually get ---------------------------

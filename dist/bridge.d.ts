@@ -54,6 +54,14 @@ export interface PlayerRow {
      */
     x?: number;
     y?: number;
+    /**
+     * Ground height, from mod v3.30.0 on.
+     *
+     * The only terrain height the bot can ever trust. Nothing can ask the engine
+     * what the ground is at an arbitrary point, so a place a dinosaur was
+     * standing is the only spot anything can safely be spawned.
+     */
+    z?: number;
 }
 export interface Result {
     id: string;

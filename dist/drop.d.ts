@@ -18,6 +18,10 @@ export interface Drop {
     lastHintAt: number;
     /** Who has already been told they are close, so it is said once. */
     warmed?: string[];
+    /** Ground height, when the spot came from somewhere a dinosaur stood. */
+    z?: number;
+    /** Whether a marker was actually spawned, so the copy can be honest. */
+    marked?: boolean;
 }
 /**
  * How precise each hint is, in HUD units.
@@ -38,22 +42,36 @@ export declare const activeDrop: (ctx: Ctx) => Drop | null;
 export declare const saveDrop: (ctx: Ctx, drop: Drop | null) => void;
 export declare const dropChannel: (ctx: Ctx) => string | null;
 export declare const setDropChannel: (ctx: Ctx, channelId: string | null) => void;
+export interface Ground {
+    x: number;
+    y: number;
+    z: number;
+    /** When somebody was last seen standing here. */
+    at: number;
+}
+/** Fed from the player poll. Cheap, and pure apart from the array it fills. */
+export declare function rememberGround(players: PlayerRow[], now?: number): void;
+/** Test seam, and used when the bot restarts mid-event. */
+export declare const knownGround: () => Ground[];
+export declare const forgetGround: () => void;
 /**
  * Where the drop lands.
  *
- * Between two players who are actually online, rather than anywhere on the map.
- * A random point risks the sea, a cliff, or the far corner nobody plays in, and
- * an event whose prize cannot be reached is worse than no event. Halfway
- * between two living dinosaurs is terrain somebody just walked across.
+ * Preferring somewhere a dinosaur has stood, and far enough from everybody
+ * playing right now that nobody is already on it. That gives a real ground
+ * height, which is the only way anything can be spawned to mark the spot.
  *
- * With one player online it is offset from them instead, far enough to be a
- * journey and near enough to be their half of the island.
+ * Falls back to the old midpoint when nothing has been banked yet, which
+ * happens for the first few minutes after a restart. The drop still works, it
+ * just has nothing visible on it.
  *
- * Pure, given the random source, so the awkward cases can be tested.
+ * Pure, given the random source and the banked ground, so the awkward cases can
+ * be tested.
  */
-export declare function placeDrop(players: PlayerRow[], random?: () => number): {
+export declare function placeDrop(players: PlayerRow[], random?: () => number, banked?: Ground[]): {
     x: number;
     y: number;
+    z?: number;
 } | null;
 /** Rounds a coordinate to a precision, so a hint names an area and not a spot. */
 export declare const blur: (value: number, precision: number) => number;
@@ -174,5 +192,26 @@ export declare function startDrop(ctx: Ctx, players: PlayerRow[], options: {
     ok: false;
     reason: string;
 };
+/**
+ * What gets left on the ground where the drop is.
+ *
+ * A nest mound, because it is the one thing this mod is proven able to spawn:
+ * the verb guards every step, including the wrapper that survives the call
+ * while holding a null pointer, which is the failure that looks like success.
+ * Nothing else here has earned that trust, and two crashes came from finding
+ * out the hard way.
+ */
+export declare const MARKER_CLASS = "BP_Nest_Mound_Large_H_C";
+/**
+ * Puts the marker down, and says whether it worked.
+ *
+ * Only where the height is known, which means only on a spot a dinosaur has
+ * actually stood. Guessing a height gives a mound inside a hillside or floating
+ * over a valley, and a marker in the wrong place is worse than none: people
+ * would trust it.
+ *
+ * Never throws. A drop with nothing on it is still a drop.
+ */
+export declare function markDrop(ctx: Ctx, drop: Drop): Promise<boolean>;
 /** Pays the finder and clears it. */
 export declare function claimDrop(ctx: Ctx, drop: Drop, steamId: string): void;
