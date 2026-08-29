@@ -54,8 +54,12 @@ export interface Drop {
  * of the island, and the point of it is to get people moving in roughly the
  * right direction while they still have to search. The last one is tight
  * enough that anybody standing in it can find the drop by looking around.
+ *
+ * All even, so that half of one is still a whole number. The HUD shows whole
+ * coordinates, and a hint reading "Lat 387.5 to 412.5" is a hint written for a
+ * spreadsheet rather than for somebody looking at their screen.
  */
-export const HINT_PRECISION = [200, 100, 50, 25] as const;
+export const HINT_PRECISION = [200, 100, 50, 20] as const;
 
 /** Gap between hints. Long enough to travel, short enough to keep interest. */
 export const HINT_EVERY_MS = 150_000;
@@ -129,18 +133,27 @@ export const blur = (value: number, precision: number): number =>
   Math.round(hud(value) / precision) * precision;
 
 /**
- * A hint, written as the area it is in.
+ * A hint, written as the box to search.
  *
- * The number is the middle of a square this wide, which is stated outright.
- * Leaving people to work out how much slack a rounded coordinate carries is how
- * a search turns into an argument.
+ * Given as a range rather than a centre and a tolerance. "Within 200 of Lat 400"
+ * was both unclear and wrong: rounding to the nearest 200 puts the real spot
+ * within a hundred either side, not two hundred, so it overstated the area by
+ * double and still left the reader doing arithmetic against their HUD.
+ *
+ * A range needs no working out. The numbers are the same ones the game's own
+ * position readout shows, so it is read straight off the screen.
  */
 export function hintText(drop: Drop, index: number): string {
   const precision = HINT_PRECISION[Math.min(index, HINT_PRECISION.length - 1)]
     ?? HINT_PRECISION[HINT_PRECISION.length - 1] as number;
 
-  return `Somewhere within ${precision} of Lat ${blur(drop.y, precision)}, `
-    + `Long ${blur(drop.x, precision)}`;
+  // Rounded as well as halved: the ladder is even so this is exact, but a
+  // fractional bound would be nonsense against a HUD that shows whole numbers.
+  const half = Math.round(precision / 2);
+  const lat = blur(drop.y, precision);
+  const long = blur(drop.x, precision);
+
+  return `Lat ${lat - half} to ${lat + half}, Long ${long - half} to ${long + half}`;
 }
 
 export type DropStep =
@@ -204,9 +217,9 @@ export function warming(drop: Drop, players: PlayerRow[]): { drop: Drop; steam: 
 
 export const dropAnnounce = (drop: Drop): string =>
   `THE DROP: something died out there. First one to it takes ${drop.reward} points. `
-  + hintText(drop, 0);
+  + `Search ${hintText(drop, 0)}`;
 
-export const hintAnnounce = (text: string): string => `THE DROP: ${text}`;
+export const hintAnnounce = (text: string): string => `THE DROP: narrowing. ${text}`;
 
 export const foundAnnounce = (who: string, drop: Drop): string =>
   `THE DROP: ${who} got there first and takes ${drop.reward} points.`;

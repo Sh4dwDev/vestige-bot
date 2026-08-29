@@ -26,8 +26,12 @@ export interface Drop {
  * of the island, and the point of it is to get people moving in roughly the
  * right direction while they still have to search. The last one is tight
  * enough that anybody standing in it can find the drop by looking around.
+ *
+ * All even, so that half of one is still a whole number. The HUD shows whole
+ * coordinates, and a hint reading "Lat 387.5 to 412.5" is a hint written for a
+ * spreadsheet rather than for somebody looking at their screen.
  */
-export declare const HINT_PRECISION: readonly [200, 100, 50, 25];
+export declare const HINT_PRECISION: readonly [200, 100, 50, 20];
 /** Gap between hints. Long enough to travel, short enough to keep interest. */
 export declare const HINT_EVERY_MS = 150000;
 export declare const activeDrop: (ctx: Ctx) => Drop | null;
@@ -54,11 +58,15 @@ export declare function placeDrop(players: PlayerRow[], random?: () => number): 
 /** Rounds a coordinate to a precision, so a hint names an area and not a spot. */
 export declare const blur: (value: number, precision: number) => number;
 /**
- * A hint, written as the area it is in.
+ * A hint, written as the box to search.
  *
- * The number is the middle of a square this wide, which is stated outright.
- * Leaving people to work out how much slack a rounded coordinate carries is how
- * a search turns into an argument.
+ * Given as a range rather than a centre and a tolerance. "Within 200 of Lat 400"
+ * was both unclear and wrong: rounding to the nearest 200 puts the real spot
+ * within a hundred either side, not two hundred, so it overstated the area by
+ * double and still left the reader doing arithmetic against their HUD.
+ *
+ * A range needs no working out. The numbers are the same ones the game's own
+ * position readout shows, so it is read straight off the screen.
  */
 export declare function hintText(drop: Drop, index: number): string;
 export type DropStep = {

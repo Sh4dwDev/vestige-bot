@@ -67,12 +67,43 @@ const base = (over = {}) => ({
     `${blur(123_400, 50)} / ${blur(176_000, 50)}`);
 
   const drop = base({ x: 123_400, y: 61_000 });
-  const first = hintText(drop, 0);
-  const last = hintText(drop, HINT_PRECISION.length - 1);
 
-  check('the first hint is deliberately vague', first.includes(String(HINT_PRECISION[0])), first);
-  check('the last is tight enough to search on foot',
-    last.includes(String(HINT_PRECISION[HINT_PRECISION.length - 1])), last);
+  // Given as a range, not a centre and a tolerance. "Within 200 of Lat 400" was
+  // wrong as well as unclear: rounding to the nearest 200 puts the real spot a
+  // hundred either side, so it overstated the box by double.
+  const bounds = (text) => text.match(/-?\d+(\.\d+)?/g).map(Number);
+
+  const first = bounds(hintText(drop, 0));
+  const last = bounds(hintText(drop, HINT_PRECISION.length - 1));
+  check('the first hint is a wide box', first[1] - first[0] === HINT_PRECISION[0],
+    hintText(drop, 0));
+  check('and the last is a tight one',
+    last[1] - last[0] === HINT_PRECISION[HINT_PRECISION.length - 1],
+    hintText(drop, HINT_PRECISION.length - 1));
+  check('every bound is a whole number, like the HUD shows',
+    [...first, ...last].every((n) => Number.isInteger(n)),
+    `${hintText(drop, 0)} / ${hintText(drop, HINT_PRECISION.length - 1)}`);
+
+  // The property that matters: a hint that does not contain the drop sends the
+  // whole server to the wrong place. Checked across the map rather than on one
+  // example, because this is rounding code.
+  let misses = 0;
+  for (let n = 0; n < 2000; n += 1) {
+    const spot = base({
+      x: Math.round((Math.random() - 0.5) * 1_200_000),
+      y: Math.round((Math.random() - 0.5) * 1_200_000),
+    });
+    const lat = Math.round(spot.y / 1000);
+    const long = Math.round(spot.x / 1000);
+
+    for (let i = 0; i < HINT_PRECISION.length; i += 1) {
+      const [latLow, latHigh, longLow, longHigh] = bounds(hintText(spot, i));
+      if (lat < latLow || lat > latHigh || long < longLow || long > longHigh) misses += 1;
+    }
+  }
+  check('every hint contains the drop, everywhere on the map', misses === 0,
+    `${misses} miss(es) in 8000`);
+
   check('and asking past the end does not crash',
     typeof hintText(drop, 99) === 'string', hintText(drop, 99));
 }
