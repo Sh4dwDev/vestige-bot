@@ -28,6 +28,16 @@ const CLOSED_KEY = 'weekly_closed';
 /** How many are paid when a week ends. */
 export const PODIUM = 3;
 
+/**
+ * Marks the skin as a loan rather than a possession.
+ *
+ * Every weekly grant is recorded with this prefix, and only grants carrying it
+ * are ever reclaimed. Somebody who bought the same skin, was given it by staff,
+ * or won it at an event keeps it: ownership is ownership, and only the loan
+ * comes back.
+ */
+export const HELD_BY_WEEKLY = 'weekly:';
+
 export const weeklyEnabled = (ctx: Ctx): boolean => ctx.db.getSetting(ENABLED_KEY) === '1';
 
 export const setWeeklyEnabled = (ctx: Ctx, on: boolean): void =>
@@ -76,7 +86,16 @@ export function buildWeeklyEmbed(
   if (options.final && options.skin) {
     embed.addFields({
       name: 'Prize',
-      value: `The top ${PODIUM} keep the **${options.skin}** skin.`,
+      value: `The top ${PODIUM} wear the **${options.skin}** skin until next week's `
+        + 'results. Stay up here and you keep it.',
+    });
+  }
+
+  if (!options.final && options.skin) {
+    embed.addFields({
+      name: 'Playing for',
+      value: `The **${options.skin}** skin, held by the top ${PODIUM} for as long `
+        + 'as they stay there.',
     });
   }
 
@@ -95,6 +114,8 @@ export interface WeekClosed {
   week: string;
   winners: WeeklyRow[];
   skin: string | null;
+  /** Previous holders who dropped off the podium and gave it back. */
+  lost: string[];
 }
 
 /**
@@ -117,17 +138,30 @@ export async function closeWeek(
   const winners = ctx.db.weeklyTop(week, PODIUM);
   if (winners.length === 0) {
     log(`weekly: ${week} ended with nobody on the board`);
-    return { week, winners, skin: null };
+    return { week, winners, skin: null, lost: [] };
   }
 
   const skin = weeklySkin(ctx);
+  const lost: string[] = [];
+
   if (skin) {
+    const keeping = new Set(winners.map((row) => row.steamId));
+
+    // Granted before anything is taken back, so somebody staying on the podium
+    // is never momentarily without it.
     for (const row of winners) {
-      ctx.db.grantSkin(row.steamId, skin, `Top ${PODIUM} in ${week}`);
+      ctx.db.grantSkin(row.steamId, skin, `${HELD_BY_WEEKLY}${week}`);
+    }
+
+    // The skin is held while you are up there, not kept forever. Only previous
+    // holders are touched, and only the ones who have dropped off.
+    for (const steamId of ctx.db.skinOwnersFrom(skin, HELD_BY_WEEKLY)) {
+      if (keeping.has(steamId)) continue;
+      if (ctx.db.revokeSkin(steamId, skin)) lost.push(steamId);
     }
   }
 
-  log(`weekly: ${week} ended, ${winners.length} paid`);
+  log(`weekly: ${week} ended, ${winners.length} paid, ${lost.length} lost the skin`);
 
   const channelId = weeklyChannel(ctx);
   if (channelId) {
@@ -142,7 +176,7 @@ export async function closeWeek(
     }
   }
 
-  return { week, winners, skin };
+  return { week, winners, skin, lost };
 }
 
 /** Falls back to the Steam ID, which is at least unambiguous. */

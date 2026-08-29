@@ -211,6 +211,15 @@ export declare class Database {
         source: string;
     }>;
     /** Everyone holding one, for staff to see who has what. */
+    /**
+     * Who holds a skin *because of* a particular source.
+     *
+     * Used to take a rotating prize back without touching somebody who bought the
+     * same skin, was granted it by staff, or won it at an event. Ownership is
+     * ownership; only the loan is reclaimable, and the source column is what says
+     * which is which.
+     */
+    skinOwnersFrom(preset: string, sourcePrefix: string): string[];
     skinOwners(preset: string): string[];
     /** Only ever adds. A species missing from the live menu is hidden, not gone. */
     rememberSpecies(names: string[], origin?: 'seen' | 'named'): number;

@@ -14,7 +14,7 @@ const {
   setStreaksEnabled, setStreakRewards, DEFAULT_STEP, DEFAULT_CAP, isMilestone, MILESTONES,
 } = await load('streaks.js');
 const { Database, weekKey } = await load('db.js');
-const { buildWeeklyEmbed, PODIUM, closeWeek, setWeeklySkin, setWeeklyEnabled }
+const { buildWeeklyEmbed, PODIUM, closeWeek, setWeeklySkin, setWeeklyEnabled, HELD_BY_WEEKLY }
   = await load('weekly.js');
 
 const results = [];
@@ -222,16 +222,23 @@ const fresh = () => new Database(
   setWeeklyEnabled(ctx, true);
   setWeeklySkin(ctx, 'Albino');
 
-  const week = weekKey();
-  db.addWeekly(A, 900);
-  db.addWeekly(B, 700);
-  db.addWeekly(C, 500);
-  db.addWeekly('76561198000000004', 100);
+  // Two real weeks, so the second close has a board of its own to read.
+  const monday = new Date('2026-08-24T12:00:00Z');
+  const nextMonday = new Date('2026-08-31T12:00:00Z');
+  const week1 = weekKey(monday);
+  const week2 = weekKey(nextMonday);
+  const D = '76561198000000005';
+  const BUYER = '76561198000000009';
+
+  db.addWeekly(A, 900, monday);
+  db.addWeekly(B, 700, monday);
+  db.addWeekly(C, 500, monday);
+  db.addWeekly('76561198000000004', 100, monday);
 
   // No channel configured, so nothing is posted; the client is never used.
   const client = { channels: { fetch: async () => null } };
   const said = [];
-  const closed = await closeWeek(ctx, client, week, (m) => said.push(m));
+  const closed = await closeWeek(ctx, client, week1, (m) => said.push(m));
 
   check('the podium is paid', closed.winners.length === PODIUM,
     JSON.stringify(closed.winners.map((w) => w.steamId)));
@@ -239,11 +246,35 @@ const fresh = () => new Database(
   check('the skin is granted to all of them',
     db.ownsSkin(A, 'Albino') && db.ownsSkin(B, 'Albino') && db.ownsSkin(C, 'Albino'));
   check('and not to fourth place', !db.ownsSkin('76561198000000004', 'Albino'));
+  check('nobody loses anything on the first week', closed.lost.length === 0);
 
   // The guard that matters. A restart mid-close must not hand the same podium a
   // second prize, so the week is marked closed before anything is granted.
-  const again = await closeWeek(ctx, client, week, (m) => said.push(m));
+  const again = await closeWeek(ctx, client, week1, (m) => said.push(m));
   check('closing the same week twice does nothing', again === null, JSON.stringify(again));
+
+  // Week two: C drops off, D takes their place. The skin is a loan held while
+  // you are up there, not a possession.
+  db.addWeekly(A, 900, nextMonday);
+  db.addWeekly(B, 700, nextMonday);
+  db.addWeekly(D, 5000, nextMonday);
+
+  // Somebody who owns the same skin for their own reasons must not lose it when
+  // the podium changes. This is the case that would make people furious.
+  db.grantSkin(BUYER, 'Albino', 'shop');
+
+  const next = await closeWeek(ctx, client, week2, (m) => said.push(m));
+  check('a new winner gets it', db.ownsSkin(D, 'Albino'),
+    JSON.stringify(next.winners.map((w) => w.steamId)));
+  check('somebody still on the podium keeps it', db.ownsSkin(A, 'Albino'));
+  check('somebody who dropped off gives it back', !db.ownsSkin(C, 'Albino'),
+    JSON.stringify(next.lost));
+  check('and that is reported', next.lost.includes(C), JSON.stringify(next.lost));
+
+  check('but a bought copy is untouched', db.ownsSkin(BUYER, 'Albino'));
+  check('because only weekly grants are ever reclaimed',
+    !db.skinOwnersFrom('Albino', HELD_BY_WEEKLY).includes(BUYER),
+    JSON.stringify(db.skinOwnersFrom('Albino', HELD_BY_WEEKLY)));
 
   // A week nobody played is not an error.
   const quiet = await closeWeek(ctx, client, '1999-W01', (m) => said.push(m));

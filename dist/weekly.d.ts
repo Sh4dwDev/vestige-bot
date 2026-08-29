@@ -2,6 +2,15 @@ import { EmbedBuilder, type Client } from 'discord.js';
 import type { Ctx } from './commands.js';
 /** How many are paid when a week ends. */
 export declare const PODIUM = 3;
+/**
+ * Marks the skin as a loan rather than a possession.
+ *
+ * Every weekly grant is recorded with this prefix, and only grants carrying it
+ * are ever reclaimed. Somebody who bought the same skin, was given it by staff,
+ * or won it at an event keeps it: ownership is ownership, and only the loan
+ * comes back.
+ */
+export declare const HELD_BY_WEEKLY = "weekly:";
 export declare const weeklyEnabled: (ctx: Ctx) => boolean;
 export declare const setWeeklyEnabled: (ctx: Ctx, on: boolean) => void;
 export declare const weeklyChannel: (ctx: Ctx) => string | null;
@@ -20,6 +29,8 @@ export interface WeekClosed {
     week: string;
     winners: WeeklyRow[];
     skin: string | null;
+    /** Previous holders who dropped off the podium and gave it back. */
+    lost: string[];
 }
 /**
  * Ends a week: pays the podium, announces, and remembers it is done.
