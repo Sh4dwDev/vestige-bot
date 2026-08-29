@@ -83,14 +83,24 @@ export function nextStreak(previous, today) {
     };
 }
 export const streakBonus = (streak, step, cap) => Math.min(cap, Math.max(0, Math.round(streak * step)));
-/** What the player is told, in game, once per day. */
-export function streakNotice(streak, bonus, broken) {
-    if (streak === 1) {
-        return broken
-            ? `Welcome back. Day 1 again, ${bonus} points.`
-            : `Day 1 on the island. ${bonus} points.`;
-    }
-    return `Day ${streak} in a row. ${bonus} points.`;
+/**
+ * The days worth interrupting somebody for.
+ *
+ * Not every day. The reward arrives whatever happens, but a full-width banner
+ * every single evening becomes wallpaper by the third one, and day one is the
+ * least interesting of the lot. These are spaced so that seeing one means you
+ * have got somewhere, and the gaps between them grow as the run does.
+ */
+export const MILESTONES = [3, 7, 14, 30, 60, 100];
+export const isMilestone = (streak) => MILESTONES.includes(streak);
+/**
+ * What the player is told, on the days they are told anything.
+ *
+ * Short, because it renders in the game's announcement banner, which is one
+ * line of a fixed width and appends its own punctuation.
+ */
+export function streakNotice(streak, bonus) {
+    return `${streak} days in a row. ${bonus} points`;
 }
 /**
  * Counts today for everybody online, and pays whoever had not been counted yet.
@@ -125,6 +135,7 @@ export function recordPlay(ctx, steamIds, at = new Date()) {
             streak: outcome.state.streak,
             bonus,
             broken: outcome.broken,
+            milestone: isMilestone(outcome.state.streak),
         });
     }
     return awards;

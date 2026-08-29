@@ -11,7 +11,7 @@ const load = (f) => import(pathToFileURL(path.join(root, 'dist', f)).href);
 
 const {
   osloDay, dayBefore, nextStreak, streakBonus, streakNotice, recordPlay,
-  setStreaksEnabled, setStreakRewards, DEFAULT_STEP, DEFAULT_CAP,
+  setStreaksEnabled, setStreakRewards, DEFAULT_STEP, DEFAULT_CAP, isMilestone, MILESTONES,
 } = await load('streaks.js');
 const { Database, weekKey } = await load('db.js');
 const { buildWeeklyEmbed, PODIUM, closeWeek, setWeeklySkin, setWeeklyEnabled }
@@ -87,12 +87,21 @@ const fresh = () => new Database(
   check('and stops at the cap', streakBonus(90, 40, 400) === 400);
   check('a zero step pays nothing', streakBonus(5, 0, 400) === 0);
 
-  check('day one reads as a welcome', streakNotice(1, 40, false).includes('Day 1'),
-    streakNotice(1, 40, false));
-  check('and coming back after a break says so',
-    streakNotice(1, 40, true).includes('Welcome back'), streakNotice(1, 40, true));
-  check('a run reads as a run', streakNotice(6, 240, false).includes('Day 6'),
-    streakNotice(6, 240, false));
+  // Only milestones are announced. The game draws these as a full-width banner
+  // and one every evening is wallpaper by the third; day one is the least
+  // interesting of the lot.
+  check('day one is not worth interrupting anybody for', !isMilestone(1));
+  check('nor day two', !isMilestone(2));
+  check('but the milestones are', MILESTONES.every((d) => isMilestone(d)),
+    MILESTONES.join(', '));
+  check('and the gaps grow as the run does',
+    MILESTONES.every((d, i) => i === 0 || d > MILESTONES[i - 1]));
+
+  check('the notice is short, because the banner is one line',
+    streakNotice(7, 280).length < 40, streakNotice(7, 280));
+  check('and says both the run and the reward',
+    streakNotice(7, 280).includes('7') && streakNotice(7, 280).includes('280'),
+    streakNotice(7, 280));
 }
 
 // ---- recording --------------------------------------------------------------
@@ -114,6 +123,8 @@ const fresh = () => new Database(
   const tomorrow = recordPlay(ctx, [A], new Date('2026-08-26T18:00:00Z'));
   check('the next day pays more', tomorrow[0].streak === 2,
     JSON.stringify(tomorrow));
+  check('and day two is paid but not announced',
+    tomorrow[0].bonus > 0 && tomorrow[0].milestone === false, JSON.stringify(tomorrow));
   check('and it adds up', db.pointsFor(A).balance === DEFAULT_STEP * 3,
     String(db.pointsFor(A).balance));
 

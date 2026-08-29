@@ -115,14 +115,27 @@ export function nextStreak(previous: StreakState | null, today: string): StreakS
 export const streakBonus = (streak: number, step: number, cap: number): number =>
   Math.min(cap, Math.max(0, Math.round(streak * step)));
 
-/** What the player is told, in game, once per day. */
-export function streakNotice(streak: number, bonus: number, broken: boolean): string {
-  if (streak === 1) {
-    return broken
-      ? `Welcome back. Day 1 again, ${bonus} points.`
-      : `Day 1 on the island. ${bonus} points.`;
-  }
-  return `Day ${streak} in a row. ${bonus} points.`;
+/**
+ * The days worth interrupting somebody for.
+ *
+ * Not every day. The reward arrives whatever happens, but a full-width banner
+ * every single evening becomes wallpaper by the third one, and day one is the
+ * least interesting of the lot. These are spaced so that seeing one means you
+ * have got somewhere, and the gaps between them grow as the run does.
+ */
+export const MILESTONES = [3, 7, 14, 30, 60, 100] as const;
+
+export const isMilestone = (streak: number): boolean =>
+  (MILESTONES as readonly number[]).includes(streak);
+
+/**
+ * What the player is told, on the days they are told anything.
+ *
+ * Short, because it renders in the game's announcement banner, which is one
+ * line of a fixed width and appends its own punctuation.
+ */
+export function streakNotice(streak: number, bonus: number): string {
+  return `${streak} days in a row. ${bonus} points`;
 }
 
 export interface StreakAward {
@@ -130,6 +143,8 @@ export interface StreakAward {
   streak: number;
   bonus: number;
   broken: boolean;
+  /** Whether this is one of the days worth telling them about in game. */
+  milestone: boolean;
 }
 
 /**
@@ -171,6 +186,7 @@ export function recordPlay(
       streak: outcome.state.streak,
       bonus,
       broken: outcome.broken,
+      milestone: isMilestone(outcome.state.streak),
     });
   }
 

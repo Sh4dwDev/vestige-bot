@@ -49,13 +49,30 @@ export type StreakStep =
  */
 export declare function nextStreak(previous: StreakState | null, today: string): StreakStep;
 export declare const streakBonus: (streak: number, step: number, cap: number) => number;
-/** What the player is told, in game, once per day. */
-export declare function streakNotice(streak: number, bonus: number, broken: boolean): string;
+/**
+ * The days worth interrupting somebody for.
+ *
+ * Not every day. The reward arrives whatever happens, but a full-width banner
+ * every single evening becomes wallpaper by the third one, and day one is the
+ * least interesting of the lot. These are spaced so that seeing one means you
+ * have got somewhere, and the gaps between them grow as the run does.
+ */
+export declare const MILESTONES: readonly [3, 7, 14, 30, 60, 100];
+export declare const isMilestone: (streak: number) => boolean;
+/**
+ * What the player is told, on the days they are told anything.
+ *
+ * Short, because it renders in the game's announcement banner, which is one
+ * line of a fixed width and appends its own punctuation.
+ */
+export declare function streakNotice(streak: number, bonus: number): string;
 export interface StreakAward {
     steamId: string;
     streak: number;
     bonus: number;
     broken: boolean;
+    /** Whether this is one of the days worth telling them about in game. */
+    milestone: boolean;
 }
 /**
  * Counts today for everybody online, and pays whoever had not been counted yet.

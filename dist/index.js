@@ -725,12 +725,15 @@ function startServerPoll(ctx, client) {
                 // trip for data already in hand.
                 const live = await ctx.mod.players();
                 awardOnline(ctx, live, elapsed);
-                // Being on at all counts for the day. Told in game rather than only in
-                // Discord, because the person it is meant to reach is the one who just
-                // logged in.
+                // Being on at all counts for the day. Only milestones are said out
+                // loud: the game draws these as a full-width banner, and one every
+                // evening is wallpaper by the third. The points arrive either way, and
+                // the streak is always on the profile.
                 for (const award of recordPlay(ctx, live.map((p) => p.steam ?? ''))) {
                     log(`streak: ${award.steamId} day ${award.streak} for ${award.bonus}`);
-                    void tell(ctx, award.steamId, streakNotice(award.streak, award.bonus, award.broken));
+                    if (award.milestone) {
+                        void tell(ctx, award.steamId, streakNotice(award.streak, award.bonus));
+                    }
                 }
                 // Contests are not run here: they have their own faster timer, because
                 // a minute is far too coarse for a notice that says "you are on it".
