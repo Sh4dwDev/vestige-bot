@@ -1,6 +1,7 @@
 import {
   ActivityType,
   Client,
+  EmbedBuilder,
   Events,
   GatewayIntentBits,
   MessageFlags,
@@ -58,6 +59,21 @@ import { handleMarket } from './market.js';
 import { runNesting } from './nesting.js';
 import { runGameLog } from './gamelog.js';
 import { startWebsite } from './web.js';
+import {
+  activeDrop,
+  buildDropEmbed,
+  buildDropOverEmbed,
+  claimDrop,
+  dropChannel,
+  dropStep,
+  expiredAnnounce,
+  foundAnnounce,
+  hintAnnounce,
+  saveDrop,
+  warmNotice,
+  warming,
+  type Drop,
+} from './drop.js';
 import { handleDuty, reconcileDuty } from './duty.js';
 import { handleWardrobe } from './wardrobe.js';
 import { advanceTryout } from './tryout.js';
@@ -669,6 +685,70 @@ async function settleHunt(
   await sayInHuntChannel(ctx, client, buildHuntEmbed(hunt, 'caught', killer));
 }
 
+/**
+ * One pass of the drop: found, a hint due, or out of time.
+ *
+ * Warming notices go out first. Somebody about to find it should be told they
+ * are close before the hint that would have told everybody else where to look.
+ */
+async function runDrop(
+  ctx: Ctx,
+  client: Client,
+  drop: Drop,
+  players: Awaited<ReturnType<Ctx['mod']['players']>>,
+  log: (m: string) => void,
+): Promise<void> {
+  const warm = warming(drop, players);
+  if (warm.steam.length > 0) {
+    saveDrop(ctx, warm.drop);
+    for (const steam of warm.steam) {
+      void tell(ctx, steam, warmNotice(), { persist: true });
+    }
+  }
+
+  const step = dropStep(warm.drop, players, Date.now());
+
+  if (step.kind === 'found') {
+    claimDrop(ctx, step.drop, step.steam);
+    const who = steamNamer(ctx)(step.steam);
+    log(`drop: ${step.steam} found it for ${step.drop.reward}`);
+
+    await ctx.rcon.announce(toPlainAscii(foundAnnounce(who, step.drop))).catch(() => undefined);
+    await sayInDropChannel(ctx, client, buildDropOverEmbed(step.drop, who));
+    return;
+  }
+
+  if (step.kind === 'expired') {
+    saveDrop(ctx, null);
+    log('drop: nobody found it');
+    await ctx.rcon.announce(toPlainAscii(expiredAnnounce())).catch(() => undefined);
+    await sayInDropChannel(ctx, client, buildDropOverEmbed(step.drop, null));
+    return;
+  }
+
+  if (step.kind === 'hint') {
+    // Saved before announcing, so a failed announcement does not mean the same
+    // hint again five seconds later.
+    saveDrop(ctx, step.drop);
+    await ctx.rcon.announce(toPlainAscii(hintAnnounce(step.text))).catch(() => undefined);
+    await sayInDropChannel(ctx, client, buildDropEmbed(step.drop, step.text));
+  }
+}
+
+async function sayInDropChannel(
+  ctx: Ctx,
+  client: Client,
+  embed: EmbedBuilder,
+): Promise<void> {
+  const channelId = dropChannel(ctx);
+  if (!channelId) return;
+
+  const channel = await client.channels.fetch(channelId).catch(() => null);
+  if (!channel?.isTextBased() || !('send' in channel)) return;
+
+  await channel.send({ embeds: [embed] }).catch(() => undefined);
+}
+
 /** Calls out the quarry's position, and ends the hunt when its time is up. */
 async function runHunt(
   ctx: Ctx,
@@ -873,7 +953,8 @@ function startServerPoll(ctx: Ctx, client: Client<true>): void {
 
     const contest = activeContest(ctx);
     const hunt = activeHunt(ctx);
-    if (!contest && !hunt) {
+    const drop = activeDrop(ctx);
+    if (!contest && !hunt && !drop) {
       // Still moved on, or the first tick after one starts would credit every
       // second since the bot booted.
       lastContest = Date.now();
@@ -891,6 +972,7 @@ function startServerPoll(ctx: Ctx, client: Client<true>): void {
       const live = await ctx.mod.players();
       if (contest) await runContest(ctx, client, live, elapsed, log);
       if (hunt) await runHunt(ctx, client, live, log);
+      if (drop) await runDrop(ctx, client, drop, live, log);
     } catch (err) {
       log(`events: tick failed: ${describeError(err)}`);
     } finally {

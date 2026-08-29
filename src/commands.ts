@@ -90,6 +90,16 @@ import {
 } from './teleport.js';
 import { buildHubEmbed, hubRows, HUB_MESSAGE_KEY, setHubChannel } from './hub.js';
 import { buildProfileEmbed, gatherProfile } from './profile.js';
+import {
+  activeDrop,
+  buildDropEmbed,
+  dropAnnounce,
+  dropChannel,
+  hintText,
+  saveDrop,
+  setDropChannel,
+  startDrop,
+} from './drop.js';
 import { buildKillsEmbed, setKillfeedChannel } from './kills.js';
 import { postOrEdit } from './pinned.js';
 import {
@@ -233,6 +243,7 @@ import {
   buildContestEmbed,
   contestAnnounce,
   contestChannel,
+  distance,
   hud,
   inside,
   saveContest,
@@ -688,18 +699,6 @@ export const commandData = [
         .addSubcommand((s) => s.setName('status').setDescription('What cleanup is configured')),
     )
     .addSubcommandGroup((g) =>
-      g.setName('bounties').setDescription('Bounties on overpopulated species')
-        .addSubcommand((c) => c.setName('on').setDescription('Post bounties automatically'))
-        .addSubcommand((c) => c.setName('off').setDescription('Stop posting bounties'))
-        .addSubcommand((c) =>
-          c.setName('reward').setDescription('Points per claim, before tier')
-            .addIntegerOption((o) =>
-              o.setName('points').setDescription('Default 150')
-                .setMinValue(1).setMaxValue(10_000).setRequired(true)))
-        .addSubcommand((c) => c.setName('status').setDescription('What is on offer now'))
-        .addSubcommand((c) => c.setName('clear').setDescription('Take every bounty down')),
-    )
-    .addSubcommandGroup((g) =>
       g.setName('events').setDescription('Population events')
         .addSubcommand((c) =>
           c.setName('on').setDescription('Run cull and endangered events'))
@@ -931,13 +930,28 @@ export const commandData = [
                 .addChannelTypes(ChannelType.GuildText).setRequired(true))),
     )
     .addSubcommandGroup((g) =>
-      g.setName('killfeed').setDescription('Where kills are posted')
-        .addSubcommand((s) =>
-          s.setName('channel').setDescription('Post each kill in a channel')
+      g.setName('drop').setDescription('A race to find it')
+        .addSubcommand((c) =>
+          c.setName('start').setDescription('Hide one near the players')
+            .addIntegerOption((o) =>
+              o.setName('reward').setDescription('Points. Default 1000')
+                .setMinValue(0).setMaxValue(100_000))
+            .addIntegerOption((o) =>
+              o.setName('minutes').setDescription('Minutes. Default 20')
+                .setMinValue(2).setMaxValue(120))
+            .addIntegerOption((o) =>
+              o.setName('radius').setDescription('Close enough. Default 12')
+                .setMinValue(5).setMaxValue(100))
+            .addStringOption((o) =>
+              o.setName('skin').setDescription('A skin the finder keeps')
+                .setAutocomplete(true)))
+        .addSubcommand((c) => c.setName('status').setDescription('Where it is'))
+        .addSubcommand((c) => c.setName('stop').setDescription('Call it off'))
+        .addSubcommand((c) =>
+          c.setName('channel').setDescription('Where it is posted')
             .addChannelOption((o) =>
-              o.setName('channel').setDescription('Where kills go')
-                .addChannelTypes(ChannelType.GuildText).setRequired(true)))
-        .addSubcommand((s) => s.setName('off').setDescription('Stop posting kills')),
+              o.setName('channel').setDescription('The channel')
+                .addChannelTypes(ChannelType.GuildText).setRequired(true))),
     )
     .addSubcommandGroup((g) =>
       g.setName('points').setDescription('Adjust player points')
@@ -987,6 +1001,27 @@ export const commandData = [
   new SlashCommandBuilder()
     .setName('setup')
     .setDescription('One-time configuration: panels, channels and integrations')
+    .addSubcommandGroup((g) =>
+      g.setName('bounties').setDescription('Bounties on overpopulated species')
+        .addSubcommand((c) => c.setName('on').setDescription('Post bounties automatically'))
+        .addSubcommand((c) => c.setName('off').setDescription('Stop posting bounties'))
+        .addSubcommand((c) =>
+          c.setName('reward').setDescription('Points per claim, before tier')
+            .addIntegerOption((o) =>
+              o.setName('points').setDescription('Default 150')
+                .setMinValue(1).setMaxValue(10_000).setRequired(true)))
+        .addSubcommand((c) => c.setName('status').setDescription('What is on offer now'))
+        .addSubcommand((c) => c.setName('clear').setDescription('Take every bounty down')),
+    )
+    .addSubcommandGroup((g) =>
+      g.setName('killfeed').setDescription('Where kills are posted')
+        .addSubcommand((s) =>
+          s.setName('channel').setDescription('Post each kill in a channel')
+            .addChannelOption((o) =>
+              o.setName('channel').setDescription('Where kills go')
+                .addChannelTypes(ChannelType.GuildText).setRequired(true)))
+        .addSubcommand((s) => s.setName('off').setDescription('Stop posting kills')),
+    )
     .addSubcommandGroup((g) =>
       g.setName('guide').setDescription('The storage guide')
         .addSubcommand((s) =>
@@ -3422,6 +3457,130 @@ async function handleHunt(
 
 // -------------------------------------------------------------- contest --
 
+// ------------------------------------------------------------------- drop --
+
+async function handleDrop(
+  ctx: Ctx,
+  i: ChatInputCommandInteraction,
+  action: string,
+): Promise<void> {
+  if (action === 'channel') {
+    const channel = i.options.getChannel('channel', true);
+    setDropChannel(ctx, channel.id);
+    await i.reply({
+      embeds: [embed(COLORS.good, 'Drop channel set',
+        `The drop and its hints are posted in <#${channel.id}>, and announced in `
+        + 'game as well, which is where the people hunting it are.')],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (action === 'stop') {
+    const running = activeDrop(ctx);
+    if (!running) {
+      await i.reply({
+        embeds: [embed(COLORS.warn, 'Nothing out there', 'There is no drop running.')],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    saveDrop(ctx, null);
+    await i.reply({
+      embeds: [embed(COLORS.good, 'Drop called off',
+        `It was at Lat **${hud(running.y)}**, Long **${hud(running.x)}**. Nobody was paid.`)],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (action === 'status') {
+    const running = activeDrop(ctx);
+    if (!running) {
+      await i.reply({
+        embeds: [embed(COLORS.quiet, 'Nothing out there',
+          'Start one with `/admin drop start` while people are in game.')],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    const players = await ctx.mod.players().catch(() => [] as PlayerRow[]);
+
+    // Staff can see the answer; that is the point of a staff command. The
+    // closest distance is what says whether it is about to be found.
+    const nearest = players
+      .filter((p) => p.x !== undefined && p.y !== undefined)
+      .map((p) => hud(distance(p.x as number, p.y as number, running.x, running.y)))
+      .sort((a, b) => a - b)[0];
+
+    await i.editReply({
+      embeds: [embed(COLORS.info, '🩸  The Drop',
+        `At Lat **${hud(running.y)}**, Long **${hud(running.x)}**, worth `
+        + `**${running.reward}** points.
+`
+        + `Ends <t:${Math.floor(running.endsAt / 1000)}:R>.
+`
+        + `**${running.hintsGiven}** hint(s) given.
+
+`
+        + (nearest === undefined
+          ? 'Nobody locatable is in game right now.'
+          : `Closest player is **${nearest}** away, and it is found within `
+            + `**${hud(running.radius)}**.`))],
+    });
+    return;
+  }
+
+  // start
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const skin = i.options.getString('skin')?.trim();
+  if (skin && !presetLook(ctx, skin)) {
+    await i.editReply({
+      embeds: [embed(COLORS.warn, 'No such skin', `There is no preset called **${skin}**.`)],
+    });
+    return;
+  }
+
+  const players = await ctx.mod.players().catch(() => [] as PlayerRow[]);
+  const started = startDrop(ctx, players, {
+    reward: i.options.getInteger('reward') ?? 1000,
+    minutes: i.options.getInteger('minutes') ?? 20,
+    radius: i.options.getInteger('radius') ?? 12,
+    ...(skin ? { skin } : {}),
+  });
+
+  if (!started.ok) {
+    await i.editReply({ embeds: [embed(COLORS.bad, 'Not started', started.reason)] });
+    return;
+  }
+
+  await ctx.rcon.announce(toPlainAscii(dropAnnounce(started.drop))).catch(() => undefined);
+
+  const channelId = dropChannel(ctx);
+  if (channelId) {
+    const channel = await i.client.channels.fetch(channelId).catch(() => null);
+    if (channel?.isTextBased() && 'send' in channel) {
+      await channel
+        .send({ embeds: [buildDropEmbed(started.drop, hintText(started.drop, 0))] })
+        .catch(() => undefined);
+    }
+  }
+
+  await i.editReply({
+    embeds: [embed(COLORS.good, 'Drop is out there',
+      `Hidden at Lat **${hud(started.drop.y)}**, Long **${hud(started.drop.x)}**, `
+      + `worth **${started.drop.reward}** points`
+      + (skin ? ` and the **${skin}** skin` : '') + '.\n\n'
+      + 'It landed between two people who are online, so it is somewhere they '
+      + 'can actually reach. The area narrows every couple of minutes until '
+      + 'somebody finds it.')],
+  });
+}
+
 async function handleContest(
   ctx: Ctx,
   i: ChatInputCommandInteraction,
@@ -5213,6 +5372,7 @@ async function runAdmin(ctx: Ctx, i: ChatInputCommandInteraction): Promise<void>
   if (group === 'backup') return handleBackup(ctx, i, action);
   if (group === 'hunt') return handleHunt(ctx, i, action);
   if (group === 'contest') return handleContest(ctx, i, action);
+  if (group === 'drop') return handleDrop(ctx, i, action);
   if (group === 'nest') return handleNest(ctx, i, action);
   if (group === 'prime') return handlePrimeDebug(ctx, i);
   if (group === 'referrals') return handleReferrals(ctx, i, action);
