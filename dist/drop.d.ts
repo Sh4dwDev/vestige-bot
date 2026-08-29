@@ -69,6 +69,30 @@ export declare const blur: (value: number, precision: number) => number;
  * position readout shows, so it is read straight off the screen.
  */
 export declare function hintText(drop: Drop, index: number): string;
+/**
+ * Which way the drop lies from a point, in words.
+ *
+ * `dx` is east-positive and `dy` is south-positive, matching the game's own
+ * Lat and Long, so north is `-dy`.
+ */
+export declare function bearingWord(dx: number, dy: number): string;
+/**
+ * How far, in words, sharpening as the hints go on.
+ *
+ * Early hints give a bearing and almost nothing else, so people commit to a
+ * direction and still have to search. The last one says plainly that it is
+ * within sight, because by then the point is to be found rather than hunted.
+ */
+export declare function distanceWord(units: number, stage: number): string;
+/**
+ * What one player is told, from where they are standing.
+ *
+ * Personal rather than server-wide, which is the whole point: a bearing means
+ * something to the person it was worked out for, and nothing to anybody else.
+ * It also needs no map reading, no coordinates and no arithmetic, which is what
+ * the numbers version asked of everybody.
+ */
+export declare function scentLine(drop: Drop, player: PlayerRow, stage: number): string | null;
 export type DropStep = {
     kind: 'waiting';
 } | {
@@ -102,6 +126,11 @@ export declare function warming(drop: Drop, players: PlayerRow[]): {
     steam: string[];
 };
 export declare const dropAnnounce: (drop: Drop) => string;
+/**
+ * Kept for the staff channel, where an exact box is useful and nobody is
+ * playing. Players never see coordinates: they get a bearing from where they
+ * are standing, which needs no map and no arithmetic.
+ */
 export declare const hintAnnounce: (text: string) => string;
 export declare const foundAnnounce: (who: string, drop: Drop) => string;
 export declare const expiredAnnounce: () => string;

@@ -111,6 +111,76 @@ export function hintText(drop, index) {
     return `Lat ${lat - half} to ${lat + half}, Long ${long - half} to ${long + half}`;
 }
 /**
+ * The eight points, in the order `atan2` produces them.
+ *
+ * **North is a smaller Lat.** The world's Y grows southward, which is measured
+ * and documented in `heatimage.ts`, and getting it backwards is a bug that
+ * survived every other fix there because it is invisible while nobody moves.
+ * Here it would be worse than invisible: it would send the whole server the
+ * wrong way with confidence.
+ */
+const COMPASS = [
+    'north', 'north-east', 'east', 'south-east',
+    'south', 'south-west', 'west', 'north-west',
+];
+/**
+ * Which way the drop lies from a point, in words.
+ *
+ * `dx` is east-positive and `dy` is south-positive, matching the game's own
+ * Lat and Long, so north is `-dy`.
+ */
+export function bearingWord(dx, dy) {
+    if (dx === 0 && dy === 0)
+        return 'right here';
+    const angle = Math.atan2(dx, -dy);
+    const step = Math.round((angle / (Math.PI * 2)) * 8);
+    return COMPASS[((step % 8) + 8) % 8] ?? 'north';
+}
+/**
+ * How far, in words, sharpening as the hints go on.
+ *
+ * Early hints give a bearing and almost nothing else, so people commit to a
+ * direction and still have to search. The last one says plainly that it is
+ * within sight, because by then the point is to be found rather than hunted.
+ */
+export function distanceWord(units, stage) {
+    if (stage <= 0)
+        return '';
+    if (units > 400)
+        return 'a very long way off';
+    if (units > 200)
+        return 'a long way off';
+    if (units > 100)
+        return stage >= 2 ? 'some way off' : 'a long way off';
+    if (units > 40)
+        return 'not far';
+    if (units > 15)
+        return 'close';
+    return 'nearly on top of it';
+}
+/**
+ * What one player is told, from where they are standing.
+ *
+ * Personal rather than server-wide, which is the whole point: a bearing means
+ * something to the person it was worked out for, and nothing to anybody else.
+ * It also needs no map reading, no coordinates and no arithmetic, which is what
+ * the numbers version asked of everybody.
+ */
+export function scentLine(drop, player, stage) {
+    if (player.x === undefined || player.y === undefined)
+        return null;
+    const dx = drop.x - player.x;
+    const dy = drop.y - player.y;
+    const away = hud(Math.hypot(dx, dy));
+    if (away <= hud(drop.radius))
+        return 'THE DROP: it is right here. Look around';
+    const where = bearingWord(dx, dy);
+    const far = distanceWord(away, stage);
+    return far
+        ? `THE DROP: the scent comes from the ${where}, ${far}`
+        : `THE DROP: the scent comes from the ${where}`;
+}
+/**
  * One pass: has anybody reached it, is a hint due, is it over.
  *
  * Pure. The caller saves and announces, which keeps the rules testable without
@@ -159,7 +229,12 @@ export function warming(drop, players) {
 }
 // ------------------------------------------------------------ what is said --
 export const dropAnnounce = (drop) => `THE DROP: something died out there. First one to it takes ${drop.reward} points. `
-    + `Search ${hintText(drop, 0)}`;
+    + 'Follow the scent';
+/**
+ * Kept for the staff channel, where an exact box is useful and nobody is
+ * playing. Players never see coordinates: they get a bearing from where they
+ * are standing, which needs no map and no arithmetic.
+ */
 export const hintAnnounce = (text) => `THE DROP: narrowing. ${text}`;
 export const foundAnnounce = (who, drop) => `THE DROP: ${who} got there first and takes ${drop.reward} points.`;
 export const expiredAnnounce = () => 'THE DROP: nobody found it. The carrion goes to the flies.';

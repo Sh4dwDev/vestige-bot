@@ -11,7 +11,7 @@ const load = (f) => import(pathToFileURL(path.join(root, 'dist', f)).href);
 const {
   placeDrop, blur, hintText, dropStep, warming, startDrop, claimDrop,
   activeDrop, saveDrop, HINT_PRECISION, HINT_EVERY_MS,
-  buildDropStatusEmbed, nearestLine,
+  buildDropStatusEmbed, nearestLine, bearingWord, distanceWord, scentLine,
 } = await load('drop.js');
 const { Database } = await load('db.js');
 
@@ -189,6 +189,61 @@ const base = (over = {}) => ({
 
   saveDrop(ctx, null);
   db.close();
+}
+
+// ---- bearings, which is what players actually get ---------------------------
+
+{
+  // North is a SMALLER Lat: the world's Y grows southward. That sign was wrong
+  // for a long time in the map code and survived every other fix because it is
+  // invisible while nobody moves. Here it would send the whole server the wrong
+  // way, confidently.
+  check('north is a smaller Lat', bearingWord(0, -100) === 'north', bearingWord(0, -100));
+  check('south is a larger Lat', bearingWord(0, 100) === 'south', bearingWord(0, 100));
+  check('east is a larger Long', bearingWord(100, 0) === 'east', bearingWord(100, 0));
+  check('west is a smaller Long', bearingWord(-100, 0) === 'west', bearingWord(-100, 0));
+  check('and the diagonals agree',
+    bearingWord(100, -100) === 'north-east' && bearingWord(-100, 100) === 'south-west',
+    `${bearingWord(100, -100)} / ${bearingWord(-100, 100)}`);
+  check('standing exactly on it is not a direction',
+    bearingWord(0, 0) === 'right here', bearingWord(0, 0));
+
+  // Every angle must produce one of the eight words, never undefined.
+  const words = new Set();
+  for (let deg = 0; deg < 360; deg += 1) {
+    const rad = (deg * Math.PI) / 180;
+    words.add(bearingWord(Math.sin(rad) * 100, -Math.cos(rad) * 100));
+  }
+  check('every angle names a point of the compass', words.size === 8 && !words.has(undefined),
+    [...words].join(', '));
+}
+
+{
+  // The first hint is a bearing and nothing else, so people commit to a
+  // direction and still have to search.
+  check('the first hint gives no distance', distanceWord(500, 0) === '');
+  check('later ones do', distanceWord(500, 1).length > 0, distanceWord(500, 1));
+  check('and it sharpens as it closes',
+    distanceWord(500, 3) !== distanceWord(50, 3), `${distanceWord(500, 3)} / ${distanceWord(50, 3)}`);
+
+  const drop = base({ x: 200_000, y: -100_000 });
+  const player = { steam: A, species: 'Rex', growth: 1, female: false, prime: false,
+    x: -300_000, y: 400_000 };
+
+  check('a player is told which way to go, not a coordinate',
+    scentLine(drop, player, 1).includes('north-east')
+    && !/Lat|Long|\d{2,}/.test(scentLine(drop, player, 1)),
+    scentLine(drop, player, 1));
+
+  check('somebody on top of it is told to look around',
+    scentLine(drop, { ...player, x: 202_000, y: -101_000 }, 1).includes('right here'),
+    scentLine(drop, { ...player, x: 202_000, y: -101_000 }, 1));
+
+  check('and a player the server cannot locate gets nothing rather than a guess',
+    scentLine(drop, { steam: A }, 1) === null);
+
+  check('the line is plain ASCII, since the banner drops anything else',
+    /^[ -~]*$/.test(scentLine(drop, player, 2)), scentLine(drop, player, 2));
 }
 
 // ---- the staff view ---------------------------------------------------------

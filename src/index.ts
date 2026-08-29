@@ -70,8 +70,8 @@ import {
   dropStep,
   expiredAnnounce,
   foundAnnounce,
-  hintAnnounce,
   saveDrop,
+  scentLine,
   warmNotice,
   warming,
   type Drop,
@@ -732,7 +732,18 @@ async function runDrop(
     // Saved before announcing, so a failed announcement does not mean the same
     // hint again five seconds later.
     saveDrop(ctx, step.drop);
-    await ctx.rcon.announce(toPlainAscii(hintAnnounce(step.text))).catch(() => undefined);
+
+    // Per player, from where each of them is standing. A server-wide box of
+    // coordinates asks everybody to read a map and do arithmetic; a bearing
+    // means something immediately to the one person it was worked out for.
+    for (const player of players) {
+      if (!player.steam) continue;
+      const line = scentLine(step.drop, player, step.drop.hintsGiven - 1);
+      if (line) void tell(ctx, player.steam, line);
+    }
+
+    // The staff channel keeps the exact box: nobody reading it is playing, and
+    // it is the only place the answer is useful.
     await sayInDropChannel(ctx, client, buildDropEmbed(step.drop, step.text));
   }
 }
