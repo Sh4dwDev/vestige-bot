@@ -100,6 +100,23 @@ export declare const expiredAnnounce: () => string;
 /** The on-screen notice for somebody who has come close. */
 export declare const warmNotice: () => string;
 export declare function buildDropEmbed(drop: Drop, hint: string): EmbedBuilder;
+/**
+ * The staff view, which exists to answer one question: does this need a nudge?
+ *
+ * So it says how close the nearest person actually is in the same units the
+ * game's own HUD uses, what "close" would be, and when the next hint lands. The
+ * first version reported "1 hint(s) given" and "295 away" without ever saying
+ * away in what, which is three facts and no answer.
+ */
+export declare function buildDropStatusEmbed(drop: Drop, nearest: number | null): EmbedBuilder;
+/**
+ * How close the nearest hunter is, and what that means.
+ *
+ * A bare distance is only meaningful against the radius, so both are given, and
+ * the verdict says the thing a number cannot: whether anybody is actually on to
+ * it or whether the whole server is looking in the wrong place.
+ */
+export declare function nearestLine(drop: Drop, nearest: number | null): string;
 export declare function buildDropOverEmbed(drop: Drop, winner: string | null): EmbedBuilder;
 /**
  * Starts one, or says why not.

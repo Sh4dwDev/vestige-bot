@@ -11,6 +11,7 @@ const load = (f) => import(pathToFileURL(path.join(root, 'dist', f)).href);
 const {
   placeDrop, blur, hintText, dropStep, warming, startDrop, claimDrop,
   activeDrop, saveDrop, HINT_PRECISION, HINT_EVERY_MS,
+  buildDropStatusEmbed, nearestLine,
 } = await load('drop.js');
 const { Database } = await load('db.js');
 
@@ -157,6 +158,44 @@ const base = (over = {}) => ({
 
   saveDrop(ctx, null);
   db.close();
+}
+
+// ---- the staff view ---------------------------------------------------------
+
+{
+  // It exists to answer one question: does this need a nudge. A bare distance
+  // does not answer it, and "1 hint(s) given" answers nothing at all.
+  const drop = base({ x: 499_000, y: 193_000, hintsGiven: 1 });
+
+  check('a distance is given against the radius that matters',
+    nearestLine(drop, 295).includes('295') && nearestLine(drop, 295).includes('12'),
+    nearestLine(drop, 295));
+  check('and standing on it says so',
+    nearestLine(drop, 4).includes('about to be found'), nearestLine(drop, 4));
+  check('a long way off says that plainly',
+    nearestLine(drop, 295).includes('nowhere near'), nearestLine(drop, 295));
+  check('and an empty server is not reported as distance zero',
+    nearestLine(drop, null).includes('Nobody'), nearestLine(drop, null));
+
+  const embed = buildDropStatusEmbed(drop, 295).data;
+  const field = (part) => embed.fields.find((f) => f.name.includes(part));
+
+  check('hints are counted, not pluralised badly',
+    field('Hints').value.includes('**1** of 4')
+    && !field('Hints').value.includes('(s)'), field('Hints').value);
+  check('and the next one is a timestamp the reader can act on',
+    /<t:\d+:R>/.test(field('Hints').value), field('Hints').value);
+  check('the end is a timestamp too', /<t:\d+:R>/.test(field('Ends').value),
+    field('Ends').value);
+  check('the location is in the description, where it is read first',
+    embed.description.includes('Lat 193') && embed.description.includes('Long 499'),
+    embed.description);
+
+  // Once the hints run out there is no next one to promise.
+  const spent = buildDropStatusEmbed(base({ hintsGiven: HINT_PRECISION.length }), 50).data;
+  const hints = spent.fields.find((f) => f.name.includes('Hints')).value;
+  check('a spent hint list does not promise another',
+    hints.includes('as sharp as they get') && !/<t:\d+:R>/.test(hints), hints);
 }
 
 const failed = results.filter((r) => !r).length;

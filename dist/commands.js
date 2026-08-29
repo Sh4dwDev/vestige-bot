@@ -21,7 +21,7 @@ import { buildProfileEmbed, gatherProfile } from './profile.js';
 import { setStreakRewards, setStreaksEnabled, streakCap, streakStep, streaksEnabled, } from './streaks.js';
 import { buildWeeklyEmbed, PODIUM, setWeeklyChannel, setWeeklyEnabled, setWeeklySkin, weeklySkin, } from './weekly.js';
 import { weekKey } from './db.js';
-import { activeDrop, buildDropEmbed, dropAnnounce, dropChannel, hintText, saveDrop, setDropChannel, startDrop, } from './drop.js';
+import { activeDrop, buildDropEmbed, buildDropStatusEmbed, dropAnnounce, dropChannel, hintText, saveDrop, setDropChannel, startDrop, } from './drop.js';
 import { buildKillsEmbed, setKillfeedChannel } from './kills.js';
 import { postOrEdit } from './pinned.js';
 import { buildBalanceEmbed, buildLeaderboardEmbed, describeWindow, display, ratePerHour, setLinkBonus, setRatePerHour, setWeekendBonus, setWeekendWindow, weekendActive, weekendBonus, weekendWindow, } from './points.js';
@@ -2536,26 +2536,14 @@ async function handleDrop(ctx, i, action) {
         }
         await i.deferReply({ flags: MessageFlags.Ephemeral });
         const players = await ctx.mod.players().catch(() => []);
-        // Staff can see the answer; that is the point of a staff command. The
-        // closest distance is what says whether it is about to be found.
+        // Staff can see the answer; that is the point of a staff command. How close
+        // the nearest person is says whether this needs a nudge, which is the only
+        // reason to open this screen.
         const nearest = players
             .filter((p) => p.x !== undefined && p.y !== undefined)
             .map((p) => hud(distance(p.x, p.y, running.x, running.y)))
-            .sort((a, b) => a - b)[0];
-        await i.editReply({
-            embeds: [embed(COLORS.info, '🩸  The Drop', `At Lat **${hud(running.y)}**, Long **${hud(running.x)}**, worth `
-                    + `**${running.reward}** points.
-`
-                    + `Ends <t:${Math.floor(running.endsAt / 1000)}:R>.
-`
-                    + `**${running.hintsGiven}** hint(s) given.
-
-`
-                    + (nearest === undefined
-                        ? 'Nobody locatable is in game right now.'
-                        : `Closest player is **${nearest}** away, and it is found within `
-                            + `**${hud(running.radius)}**.`))],
-        });
+            .sort((a, b) => a - b)[0] ?? null;
+        await i.editReply({ embeds: [buildDropStatusEmbed(running, nearest)] });
         return;
     }
     // start

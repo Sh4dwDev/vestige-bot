@@ -109,6 +109,7 @@ import { weekKey } from './db.js';
 import {
   activeDrop,
   buildDropEmbed,
+  buildDropStatusEmbed,
   dropAnnounce,
   dropChannel,
   hintText,
@@ -3670,28 +3671,15 @@ async function handleDrop(
     await i.deferReply({ flags: MessageFlags.Ephemeral });
     const players = await ctx.mod.players().catch(() => [] as PlayerRow[]);
 
-    // Staff can see the answer; that is the point of a staff command. The
-    // closest distance is what says whether it is about to be found.
+    // Staff can see the answer; that is the point of a staff command. How close
+    // the nearest person is says whether this needs a nudge, which is the only
+    // reason to open this screen.
     const nearest = players
       .filter((p) => p.x !== undefined && p.y !== undefined)
       .map((p) => hud(distance(p.x as number, p.y as number, running.x, running.y)))
-      .sort((a, b) => a - b)[0];
+      .sort((a, b) => a - b)[0] ?? null;
 
-    await i.editReply({
-      embeds: [embed(COLORS.info, '🩸  The Drop',
-        `At Lat **${hud(running.y)}**, Long **${hud(running.x)}**, worth `
-        + `**${running.reward}** points.
-`
-        + `Ends <t:${Math.floor(running.endsAt / 1000)}:R>.
-`
-        + `**${running.hintsGiven}** hint(s) given.
-
-`
-        + (nearest === undefined
-          ? 'Nobody locatable is in game right now.'
-          : `Closest player is **${nearest}** away, and it is found within `
-            + `**${hud(running.radius)}**.`))],
-    });
+    await i.editReply({ embeds: [buildDropStatusEmbed(running, nearest)] });
     return;
   }
 
