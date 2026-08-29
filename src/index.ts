@@ -736,10 +736,15 @@ async function runDrop(
     // Per player, from where each of them is standing. A server-wide box of
     // coordinates asks everybody to read a map and do arithmetic; a bearing
     // means something immediately to the one person it was worked out for.
+    //
+    // Persistent, so it stays on screen while they travel. A bearing that
+    // flashes for a second in the announcement banner is one you have to
+    // remember, and the whole point of it is to be glanceable on the way. It
+    // matches the warm notice, which was already persistent.
     for (const player of players) {
       if (!player.steam) continue;
       const line = scentLine(step.drop, player, step.drop.hintsGiven - 1);
-      if (line) void tell(ctx, player.steam, line);
+      if (line) void tell(ctx, player.steam, line, { persist: true });
     }
 
     // The staff channel keeps the exact box: nobody reading it is playing, and
