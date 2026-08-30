@@ -695,6 +695,7 @@ end
 local fastTick = 0
 local pendingKills = {}
 local pendingRestores = {}
+local pendingGrows = {}
 local writeResult -- forward declaration; defined with the command interface
 
 -- why: some values have no Set* UFunction at all (SetFoodValue does not exist
@@ -2429,20 +2430,6 @@ local function handleGrow(cmd)
         return
     end
 
-    -- After the growth, never before: the maxima have just been recomputed.
-    if cmd.args and cmd.args.heal then
-        local function fill(setter, maxGetter)
-            local max
-            pcall(function() max = pawn[maxGetter](pawn) end)
-            if type(max) == "number" then pcall(function() pawn[setter](pawn, max) end) end
-        end
-
-        fill("SetHealth", "GetMaxHealth")
-        fill("SetStamina", "GetMaxStamina")
-        fill("SetHunger", "GetMaxHunger")
-        fill("SetThirst", "GetMaxThirst")
-    end
-
     pcall(function() pawn:ForceNetUpdate() end)
 
     local after = callNumber(pawn, "GetGrowth")
@@ -2451,12 +2438,44 @@ local function handleGrow(cmd)
     log(string.format("grow: %s %s -> %s%s", cmd.steam,
         tostring(before), tostring(after), landed and "" or " !DID NOT LAND"))
 
+    -- why: the fill CANNOT happen in this tick. SetGrowth recomputes every max
+    -- vital, and filling here sets the current values against the maxima the
+    -- dinosaur had at its old size. On a growth from juvenile to adult that is
+    -- a fraction of the new maximum, so the player is grown and immediately
+    -- starving -- reported in play as red hunger within a minute.
+    --
+    -- So it is queued, and run twice: once when the recompute has landed and
+    -- again a couple of seconds later, because growth continues to settle and
+    -- the second top-up costs nothing.
+    if landed and cmd.args and cmd.args.heal then
+        pendingGrows[#pendingGrows + 1] = {
+            steam = cmd.steam, due = fastTick + 2, again = true, want = want,
+            resultId = cmd.id,
+        }
+        return
+    end
+
     writeResult(cmd.id, "grow", cmd.steam, landed,
         landed
             and string.format("grown to %d%%", math.floor(want * 100 + 0.5))
             or string.format("growth still reads %s, wanted %s",
                 tostring(after), tostring(want)),
         string.format('{"before":%.4f,"after":%.4f}', before or 0, after or 0))
+end
+
+-- Fills a pawn's vitals against whatever its maxima are right now.
+local function fillVitals(pawn)
+    local function fill(setter, maxGetter)
+        local max
+        pcall(function() max = pawn[maxGetter](pawn) end)
+        if type(max) == "number" then pcall(function() pawn[setter](pawn, max) end) end
+    end
+
+    fill("SetHealth", "GetMaxHealth")
+    fill("SetStamina", "GetMaxStamina")
+    fill("SetHunger", "GetMaxHunger")
+    fill("SetThirst", "GetMaxThirst")
+    pcall(function() pawn:ForceNetUpdate() end)
 end
 
 local function handleHeal(cmd)
@@ -3053,6 +3072,34 @@ else
                     end
                 end
                 pendingKills = keep
+            end
+
+            if #pendingGrows > 0 then
+                local keep = {}
+                for _, job in ipairs(pendingGrows) do
+                    if job.due <= fastTick then
+                        -- Re-derived every time: a pawn pointer held across
+                        -- ticks is the crash this mod already paid for once.
+                        local pawn = resolvePlayer(job.steam)
+                        if pawn ~= nil then fillVitals(pawn) end
+
+                        if job.again then
+                            -- Once more as growth settles. Costs nothing and
+                            -- catches a maximum that moved after the first pass.
+                            keep[#keep + 1] = {
+                                steam = job.steam, due = fastTick + 4,
+                                again = false, want = job.want, resultId = job.resultId,
+                            }
+                        elseif job.resultId then
+                            writeResult(job.resultId, "grow", job.steam, true,
+                                string.format("grown to %d%% and filled up",
+                                    math.floor(job.want * 100 + 0.5)))
+                        end
+                    else
+                        keep[#keep + 1] = job
+                    end
+                end
+                pendingGrows = keep
             end
 
             if #pendingRestores > 0 then
