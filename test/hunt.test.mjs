@@ -13,6 +13,7 @@ const {
   buildHuntEmbed, huntAnnounce, revealAnnounce, survivedAnnounce, proximityStep,
   companyOf, COMPANY_WITHIN, presenceStep, GONE_AFTER_MS, buildHuntStatusEmbed,
   goneAnnounce, backAnnounce, participants, participationAward, payParticipants, revealScent,
+  trailAnnounce,
   PARTICIPATION_MIN,
 } = await load('hunt.js');
 const { Database } = await load('db.js');
@@ -356,6 +357,14 @@ const at = (steam, x, y, species = 'Rex') =>
 
   check('and it stays plain ASCII, since the mod drops the rest',
     /^[ -~]*$/.test(south), south);
+
+  // The server-wide line exists so the call is visible at all: the quarry gets
+  // no bearing, and with nobody else online the moment was silent in game and
+  // looked like a fault.
+  const trail = trailAnnounce(h);
+  check('the public line names the quarry', trail.includes('Shadow'), trail);
+  check('but gives away no position', !/Lat|Long|\d{2,}/.test(trail), trail);
+  check('and is plain ASCII too', /^[ -~]*$/.test(trail), trail);
 }
 
 // ---- paying the people who turned up ----------------------------------------

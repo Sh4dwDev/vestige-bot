@@ -149,6 +149,18 @@ export function revealScent(hunt, x, y, player) {
     return `HUNT: ${hunt.targetName} is ${bearingWord(x - player.x, y - player.y)}`
         + ` of you, ${distanceWord(away, 3, 'them')}`;
 }
+/**
+ * Said to the whole server when a position call goes out.
+ *
+ * Carries no position. The bearings that actually guide people are per hunter,
+ * but without this nothing happens on screen at all: the quarry sees nothing by
+ * design, and with nobody else online the call was completely silent, which
+ * reads as the hunt having broken.
+ *
+ * It also gives the quarry a heartbeat to be nervous about without telling them
+ * anything they can act on.
+ */
+export const trailAnnounce = (hunt) => `HUNT: the hunters have picked up ${hunt.targetName}'s trail again.`;
 export const caughtAnnounce = (hunt, killer) => `HUNT: ${killer} killed ${hunt.targetName} and takes ${hunt.reward} points.`;
 export const survivedAnnounce = (hunt) => `HUNT: ${hunt.targetName} survived. Nobody wins.`;
 export const colludedAnnounce = (hunt) => `HUNT: ${hunt.targetName} was killed by their own group. Nobody wins.`;

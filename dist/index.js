@@ -41,7 +41,7 @@ import { activeDrop, buildDropEmbed, buildDropOverEmbed, claimDrop, dropChannel,
 import { handleDuty, reconcileDuty } from './duty.js';
 import { handleWardrobe } from './wardrobe.js';
 import { advanceTryout } from './tryout.js';
-import { activeHunt, buildHuntEmbed, caughtAnnounce, backAnnounce, chasedAnnounce, claimHunt, colludedAnnounce, goneAnnounce, payParticipants, presenceStep, revealScent, huntChannel, huntStep, proximityStep, markRevealed, revealAnnounce, saveHunt, survivedAnnounce, } from './hunt.js';
+import { activeHunt, buildHuntEmbed, caughtAnnounce, backAnnounce, chasedAnnounce, claimHunt, colludedAnnounce, goneAnnounce, payParticipants, presenceStep, revealScent, trailAnnounce, huntChannel, huntStep, proximityStep, markRevealed, revealAnnounce, saveHunt, survivedAnnounce, } from './hunt.js';
 import { activeContest, advanceContest, buildContestWonEmbed, contestChannel, enterNotice, leaveNotice, winnersAnnounce, } from './contest.js';
 import { EvrimaRcon } from './rcon.js';
 import { tell } from './tell.js';
@@ -705,6 +705,10 @@ async function runHunt(ctx, client, players, log) {
     // everybody except the few who have learned the map, and everybody else
     // ignored the call entirely.
     log(`hunt: ${revealAnnounce(hunt, step.x, step.y, step.species)}`);
+    // One server-wide line with no position in it, so the call is visible even to
+    // the quarry and even when no hunters are online. Without it the whole moment
+    // was silent in game and looked like a fault.
+    await ctx.rcon.announce(toPlainAscii(trailAnnounce(hunt))).catch(() => undefined);
     for (const player of players) {
         const line = revealScent(presence.hunt, step.x, step.y, player);
         if (line)

@@ -151,6 +151,18 @@ export declare const revealAnnounce: (hunt: Hunt, x: number, y: number, species:
  * whom have nothing useful to be told.
  */
 export declare function revealScent(hunt: Hunt, x: number, y: number, player: PlayerRow): string | null;
+/**
+ * Said to the whole server when a position call goes out.
+ *
+ * Carries no position. The bearings that actually guide people are per hunter,
+ * but without this nothing happens on screen at all: the quarry sees nothing by
+ * design, and with nobody else online the call was completely silent, which
+ * reads as the hunt having broken.
+ *
+ * It also gives the quarry a heartbeat to be nervous about without telling them
+ * anything they can act on.
+ */
+export declare const trailAnnounce: (hunt: Hunt) => string;
 export declare const caughtAnnounce: (hunt: Hunt, killer: string) => string;
 export declare const survivedAnnounce: (hunt: Hunt) => string;
 export declare const colludedAnnounce: (hunt: Hunt) => string;
