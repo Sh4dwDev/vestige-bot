@@ -249,6 +249,7 @@ import { activeTryout, startTryout } from './tryout.js';
 import {
   activeHunt,
   buildHuntEmbed,
+  buildHuntStatusEmbed,
   huntAnnounce,
   huntChannel,
   saveHunt,
@@ -3403,12 +3404,36 @@ async function handleHunt(
 
   if (action === 'status') {
     const running = activeHunt(ctx);
-    await i.reply({
-      embeds: [running
-        ? buildHuntEmbed(running, 'running')
-        : embed(COLORS.quiet, 'Nothing running',
+    if (!running) {
+      await i.reply({
+        embeds: [embed(COLORS.quiet, 'Nothing running',
           'Use `/admin hunt start` and pick somebody willing.')],
-      flags: MessageFlags.Ephemeral,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    const live = await ctx.mod.players().catch(() => [] as PlayerRow[]);
+    const quarry = live.find((p) => p.steam === running.targetSteam);
+
+    const nearest = quarry?.x !== undefined && quarry.y !== undefined
+      ? live
+        .filter((p) => p.steam && p.steam !== running.targetSteam
+          && p.x !== undefined && p.y !== undefined)
+        .map((p) => hud(distance(p.x as number, p.y as number, quarry.x as number, quarry.y as number)))
+        .sort((a, b) => a - b)[0] ?? null
+      : null;
+
+    await i.editReply({
+      embeds: [buildHuntStatusEmbed(running, {
+        online: quarry !== undefined,
+        ...(quarry?.x !== undefined ? { x: quarry.x } : {}),
+        ...(quarry?.y !== undefined ? { y: quarry.y } : {}),
+        ...(quarry?.species ? { species: quarry.species } : {}),
+        nearest,
+        companyCount: running.company?.length ?? 0,
+      })],
     });
     return;
   }
@@ -3451,7 +3476,22 @@ async function handleHunt(
   // target on the spawn screen has nothing to report, and the first position
   // call fills it in.
   const roster = await ctx.mod.players().catch(() => [] as PlayerRow[]);
-  const species = roster.find((p) => p.steam === link.steamId)?.species;
+  const quarry = roster.find((p) => p.steam === link.steamId);
+
+  // A hunt on somebody who is not playing is broken from the first second: no
+  // position ever goes out, nobody can find them, and it ends as "survived"
+  // with hunters wondering what happened. Better to refuse and be told.
+  if (!quarry) {
+    await i.editReply({
+      embeds: [embed(COLORS.warn, 'They are not in game',
+        `${target} is not on a dinosaur right now, so there would be nothing to `
+        + 'call out and nobody could find them. Get them spawned in and try '
+        + 'again.')],
+    });
+    return;
+  }
+
+  const species = quarry.species;
 
   // Taken now and never updated: after the announcement, approaching the quarry
   // is what a hunter does, so a late arrival cannot be told apart from a friend.

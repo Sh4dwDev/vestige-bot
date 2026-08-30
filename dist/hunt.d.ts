@@ -33,6 +33,17 @@ export interface Hunt {
      */
     bands?: Record<string, number>;
     /**
+     * When the quarry stopped being locatable, or absent while they are on.
+     *
+     * A hunt whose target has logged off looks identical to one where nobody has
+     * found them yet: no position calls, no kill, and then "survived". Hunters
+     * search an empty island and blame the bot. Tracked so it can be said out
+     * loud instead.
+     */
+    goneSince?: number;
+    /** Whether the disappearance was announced, so it is said once, not per tick. */
+    goneTold?: boolean;
+    /**
      * Who was standing with the quarry when the hunt was called.
      *
      * These are the people who cannot claim it. A quarry's own group killing
@@ -77,6 +88,37 @@ export type HuntStep = {
  * being visible in a snapshot of positions.
  */
 export declare function huntStep(hunt: Hunt, players: PlayerRow[], now: number): HuntStep;
+/**
+ * How long the quarry can be unlocatable before it is worth saying so.
+ *
+ * Longer than a respawn or a loading screen, short enough that hunters are not
+ * left combing an empty island. Somebody dying and coming back should not
+ * trigger it.
+ */
+export declare const GONE_AFTER_MS = 90000;
+export interface PresenceStep {
+    /** The hunt with its presence bookkeeping updated. */
+    hunt: Hunt;
+    /** Whether anything changed, and so whether it is worth saving. */
+    changed: boolean;
+    /** Said once per transition, never per tick. */
+    announce: 'gone' | 'back' | null;
+}
+/**
+ * Whether the quarry is on the island, and whether that has just changed.
+ *
+ * Pure, and separate from the position call because it answers a different
+ * question: not "where are they" but "are they here at all".
+ *
+ * Two flags rather than one. `goneSince` starts the clock the moment they stop
+ * being locatable, which is not yet worth announcing because a respawn or a
+ * loading screen looks the same. `goneTold` records that it was announced, so
+ * the message goes out once per disappearance rather than every five seconds
+ * for the rest of the hunt.
+ */
+export declare function presenceStep(hunt: Hunt, players: PlayerRow[], now: number): PresenceStep;
+export declare const goneAnnounce: (hunt: Hunt) => string;
+export declare const backAnnounce: (hunt: Hunt) => string;
 /** ASCII only: these go out over RCON, which drops anything else silently. */
 export declare const huntAnnounce: (hunt: Hunt) => string;
 export declare const revealAnnounce: (hunt: Hunt, x: number, y: number, species: string) => string;
@@ -84,6 +126,25 @@ export declare const caughtAnnounce: (hunt: Hunt, killer: string) => string;
 export declare const survivedAnnounce: (hunt: Hunt) => string;
 export declare const colludedAnnounce: (hunt: Hunt) => string;
 export declare function buildHuntEmbed(hunt: Hunt, state: 'running' | 'caught' | 'survived', killer?: string): EmbedBuilder;
+export interface HuntStatus {
+    /** Null when the server would not say, which is not the same as absent. */
+    online: boolean;
+    x?: number;
+    y?: number;
+    species?: string;
+    /** How far the nearest hunter is, in HUD units, excluding the quarry. */
+    nearest: number | null;
+    /** How many are barred from claiming because they were stood with the quarry. */
+    companyCount: number;
+}
+/**
+ * The live staff view, which answers the question the card is opened for:
+ * is this working, and does it need a nudge.
+ *
+ * The static card says what the hunt IS. During a hunt what matters is whether
+ * the quarry is even on the island, and whether anybody is anywhere near them.
+ */
+export declare function buildHuntStatusEmbed(hunt: Hunt, status: HuntStatus): EmbedBuilder;
 export interface ProximityNotice {
     steam: string;
     text: string;

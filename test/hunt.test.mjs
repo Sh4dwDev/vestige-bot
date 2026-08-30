@@ -11,7 +11,8 @@ const load = (f) => import(pathToFileURL(path.join(root, 'dist', f)).href);
 const {
   huntStep, claimHunt, saveHunt, activeHunt, markRevealed,
   buildHuntEmbed, huntAnnounce, revealAnnounce, survivedAnnounce, proximityStep,
-  companyOf, COMPANY_WITHIN,
+  companyOf, COMPANY_WITHIN, presenceStep, GONE_AFTER_MS, buildHuntStatusEmbed,
+  goneAnnounce, backAnnounce,
 } = await load('hunt.js');
 const { Database } = await load('db.js');
 
@@ -309,6 +310,84 @@ const at = (steam, x, y, species = 'Rex') =>
     String(db.pointsFor(HUNTER).balance));
 
   db.close();
+}
+
+// ---- is the quarry even here ------------------------------------------------
+
+{
+  // A hunt whose target logged off looks exactly like one where nobody has
+  // found them yet: no position calls, no kill, then "survived". Hunters comb
+  // an empty island and blame the bot.
+  const h = base();
+  const online = [at(TARGET, 0, 0)];
+
+  check('present and nothing to say', presenceStep(h, online, NOW).announce === null);
+  check('and nothing to save either', presenceStep(h, online, NOW).changed === false);
+
+  // Vanishing starts a clock but says nothing: a respawn or a loading screen
+  // looks identical for a few seconds.
+  const first = presenceStep(h, [], NOW);
+  check('vanishing starts a clock quietly',
+    first.announce === null && first.changed === true
+    && typeof first.hunt.goneSince === 'number', JSON.stringify(first));
+
+  const tooSoon = presenceStep(first.hunt, [], NOW + 5_000);
+  check('and a brief absence is not announced', tooSoon.announce === null);
+
+  const gone = presenceStep(first.hunt, [], NOW + GONE_AFTER_MS);
+  check('a long absence is', gone.announce === 'gone', JSON.stringify(gone));
+
+  // Once said, it must not be said every five seconds for the rest of the hunt.
+  const again = presenceStep(gone.hunt, [], NOW + GONE_AFTER_MS + 60_000);
+  check('but only once', again.announce === null && again.changed === false,
+    JSON.stringify(again));
+
+  const back = presenceStep(gone.hunt, online, NOW + GONE_AFTER_MS + 90_000);
+  check('coming back is announced', back.announce === 'back');
+  check('and the bookkeeping is cleared',
+    back.hunt.goneSince === undefined && back.hunt.goneTold === undefined,
+    JSON.stringify(back.hunt));
+
+  // Somebody who blinked out and back before anyone was told gets no fanfare.
+  const quiet = presenceStep(first.hunt, online, NOW + 5_000);
+  check('a blink is not worth announcing either way', quiet.announce === null,
+    JSON.stringify(quiet));
+
+  // A target who is on the server but whose position the server will not give
+  // counts as gone: there is nothing to call out either way.
+  const noPosition = presenceStep(h, [{ steam: TARGET, species: 'Rex' }], NOW);
+  check('unlocatable counts as away', noPosition.changed === true,
+    JSON.stringify(noPosition));
+
+  check('both announcements are plain ASCII, since RCON drops the rest',
+    /^[ -~]*$/.test(goneAnnounce(h)) && /^[ -~]*$/.test(backAnnounce(h)),
+    `${goneAnnounce(h)} / ${backAnnounce(h)}`);
+}
+
+{
+  // The live card. The static one says what the hunt IS; during a hunt what
+  // matters is whether the quarry is on the island at all.
+  const h = base({ company: ['a', 'b'] });
+
+  const away = buildHuntStatusEmbed(h, { online: false, nearest: null, companyCount: 2 }).data;
+  check('an absent quarry is the headline, not a footnote',
+    away.description.includes('Not on the island'), away.description);
+  check('and the card turns red', away.color === 0xed4245, String(away.color));
+  check('barred hunters are counted',
+    JSON.stringify(away.fields).includes('2'), JSON.stringify(away.fields));
+
+  const here = buildHuntStatusEmbed(h, {
+    online: true, x: 120_000, y: -40_000, species: 'Allosaurus', nearest: 6, companyCount: 0,
+  }).data;
+  const field = (part) => here.fields.find((f) => f.name.includes(part));
+  check('a present quarry shows what they are on',
+    here.description.includes('Allosaurus'), here.description);
+  check('and where', field('Where').value.includes('-40') && field('Where').value.includes('120'),
+    field('Where').value);
+  check('and warns when somebody is on top of them',
+    field('Nearest').value.includes('right on top'), field('Nearest').value);
+  check('with nobody barred said plainly',
+    field('Barred').value === 'nobody', field('Barred').value);
 }
 
 const failed = results.filter((r) => !r).length;

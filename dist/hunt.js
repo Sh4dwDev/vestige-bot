@@ -76,6 +76,50 @@ export function huntStep(hunt, players, now) {
     }
     return { kind: 'reveal', x: target.x, y: target.y, species: target.species };
 }
+/**
+ * How long the quarry can be unlocatable before it is worth saying so.
+ *
+ * Longer than a respawn or a loading screen, short enough that hunters are not
+ * left combing an empty island. Somebody dying and coming back should not
+ * trigger it.
+ */
+export const GONE_AFTER_MS = 90_000;
+/**
+ * Whether the quarry is on the island, and whether that has just changed.
+ *
+ * Pure, and separate from the position call because it answers a different
+ * question: not "where are they" but "are they here at all".
+ *
+ * Two flags rather than one. `goneSince` starts the clock the moment they stop
+ * being locatable, which is not yet worth announcing because a respawn or a
+ * loading screen looks the same. `goneTold` records that it was announced, so
+ * the message goes out once per disappearance rather than every five seconds
+ * for the rest of the hunt.
+ */
+export function presenceStep(hunt, players, now) {
+    const target = players.find((p) => p.steam === hunt.targetSteam);
+    const here = target !== undefined && target.x !== undefined && target.y !== undefined;
+    if (here) {
+        if (hunt.goneSince === undefined)
+            return { hunt, changed: false, announce: null };
+        // Coming back is only news to people who were told they had gone.
+        const told = hunt.goneTold === true;
+        const back = { ...hunt };
+        delete back.goneSince;
+        delete back.goneTold;
+        return { hunt: back, changed: true, announce: told ? 'back' : null };
+    }
+    if (hunt.goneSince === undefined) {
+        // Start the clock, say nothing yet.
+        return { hunt: { ...hunt, goneSince: now }, changed: true, announce: null };
+    }
+    if (hunt.goneTold !== true && now - hunt.goneSince >= GONE_AFTER_MS) {
+        return { hunt: { ...hunt, goneTold: true }, changed: true, announce: 'gone' };
+    }
+    return { hunt, changed: false, announce: null };
+}
+export const goneAnnounce = (hunt) => `HUNT: ${hunt.targetName} is not on the island. No position calls until they are back.`;
+export const backAnnounce = (hunt) => `HUNT: ${hunt.targetName} is back on the island.`;
 /** ASCII only: these go out over RCON, which drops anything else silently. */
 export const huntAnnounce = (hunt) => `HUNT: ${hunt.targetName} is the target`
     + (hunt.targetSpecies ? ` (${hunt.targetSpecies})` : '')
@@ -111,6 +155,56 @@ export function buildHuntEmbed(hunt, state, killer) {
                 `⏳ Ends <t:${Math.floor(hunt.endsAt / 1000)}:R>.`)
         .setFooter({ text: `${SERVER} · ${SIGNATURE}` })
         .setTimestamp();
+}
+/**
+ * The live staff view, which answers the question the card is opened for:
+ * is this working, and does it need a nudge.
+ *
+ * The static card says what the hunt IS. During a hunt what matters is whether
+ * the quarry is even on the island, and whether anybody is anywhere near them.
+ */
+export function buildHuntStatusEmbed(hunt, status) {
+    const embed = new EmbedBuilder()
+        .setColor(status.online ? 0xfee75c : 0xed4245)
+        .setTitle(`🎯  Hunt: ${hunt.targetName}`)
+        .setDescription(status.online
+        ? `Playing **${status.species ?? hunt.targetSpecies ?? 'something'}**, `
+            + `worth **${hunt.reward}** points`
+            + (hunt.skin ? ` and the **${hunt.skin}** skin` : '') + '.'
+        : '**Not on the island right now.** No position calls go out while they '
+            + 'are away, and the clock keeps running.')
+        .setFooter({ text: `${SERVER} · ${SIGNATURE}` })
+        .setTimestamp();
+    embed.addFields({ name: 'Ends', value: `<t:${Math.floor(hunt.endsAt / 1000)}:R>`, inline: true }, {
+        name: 'Next call',
+        value: `<t:${Math.floor((hunt.lastRevealAt + hunt.revealEveryMs) / 1000)}:R>`,
+        inline: true,
+    }, {
+        name: 'Barred',
+        value: status.companyCount === 0
+            ? 'nobody'
+            : `**${status.companyCount}**
+-# stood with them at the start`,
+        inline: true,
+    });
+    if (status.online) {
+        embed.addFields({
+            name: 'Where',
+            value: status.x !== undefined && status.y !== undefined
+                ? `Lat **${hud(status.y)}**, Long **${hud(status.x)}**`
+                : 'The server would not say.',
+            inline: true,
+        });
+        embed.addFields({
+            name: 'Nearest hunter',
+            value: status.nearest === null
+                ? 'Nobody else is locatable.'
+                : `**${Math.round(status.nearest)}** away`
+                    + (status.nearest <= 8 ? '\n-# right on top of them' : ''),
+            inline: true,
+        });
+    }
+    return embed;
 }
 /**
  * Who is close enough to be told so, and what they are told.

@@ -84,8 +84,11 @@ import {
   activeHunt,
   buildHuntEmbed,
   caughtAnnounce,
+  backAnnounce,
   claimHunt,
   colludedAnnounce,
+  goneAnnounce,
+  presenceStep,
   huntChannel,
   huntStep,
   proximityStep,
@@ -792,7 +795,20 @@ async function runHunt(
     }
   }
 
-  const step = huntStep(near.hunt, players, Date.now());
+  // Are they even on the island. A hunt whose quarry logged off looks exactly
+  // like one where nobody has found them yet, and hunters comb an empty map
+  // and blame the bot.
+  const presence = presenceStep(near.hunt, players, Date.now());
+  if (presence.changed) saveHunt(ctx, presence.hunt);
+  if (presence.announce === 'gone') {
+    log(`hunt: ${hunt.targetSteam} is not on the island`);
+    await ctx.rcon.announce(toPlainAscii(goneAnnounce(hunt))).catch(() => undefined);
+  }
+  if (presence.announce === 'back') {
+    await ctx.rcon.announce(toPlainAscii(backAnnounce(hunt))).catch(() => undefined);
+  }
+
+  const step = huntStep(presence.hunt, players, Date.now());
   if (step.kind === 'waiting') return;
 
   if (step.kind === 'survived') {
@@ -805,7 +821,7 @@ async function runHunt(
 
   // Marked before announcing: a failed announcement must not mean trying again
   // every minute for the rest of the hunt.
-  markRevealed(ctx, near.hunt, Date.now(), step.species);
+  markRevealed(ctx, presence.hunt, Date.now(), step.species);
   await ctx.rcon.announce(toPlainAscii(revealAnnounce(hunt, step.x, step.y, step.species)))
     .catch(() => undefined);
 }
