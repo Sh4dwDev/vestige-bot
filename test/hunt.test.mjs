@@ -12,7 +12,8 @@ const {
   huntStep, claimHunt, saveHunt, activeHunt, markRevealed,
   buildHuntEmbed, huntAnnounce, revealAnnounce, survivedAnnounce, proximityStep,
   companyOf, COMPANY_WITHIN, presenceStep, GONE_AFTER_MS, buildHuntStatusEmbed,
-  goneAnnounce, backAnnounce,
+  goneAnnounce, backAnnounce, participants, participationAward, payParticipants,
+  PARTICIPATION_MIN,
 } = await load('hunt.js');
 const { Database } = await load('db.js');
 
@@ -178,9 +179,14 @@ const at = (steam, x, y, species = 'Rex') =>
 
 // ---- how close am I --------------------------------------------------------
 //
-// Asked for as "a pop up message like the prime conditions message when you are
-// close to the target". Both sides are told: a quarry who never knows they are
-// being closed on cannot run, which is the half of a hunt that makes it one.
+// Hunters get a bearing from where they are standing. Two things are
+// deliberately silent, both asked for after watching it played:
+//
+//   * **the quarry is told nothing.** A proximity alarm they can act on means
+//     they simply leave every time it fires, and no hunt ever resolves.
+//   * **the innermost band says nothing to anybody.** Being told "you are right
+//     on top of them" replaces looking, and a quarry hiding in cover is then
+//     found by the HUD rather than by anyone's eyes.
 
 {
   const h = base();
@@ -189,27 +195,28 @@ const at = (steam, x, y, species = 'Rex') =>
 
   // 30 HUD units out, which is the middle band.
   const warm = proximityStep(h, [at(TARGET, 0, 0), at(HUNTER, 30_000, 0)]);
-  check('the hunter is told they are getting warm',
-    warm.notices.some((n) => n.steam === HUNTER && /warm/i.test(n.text)),
-    JSON.stringify(warm.notices));
-  check('and the target is warned too',
-    warm.notices.some((n) => n.steam === TARGET), JSON.stringify(warm.notices));
-  check('the hunter is told roughly how far',
-    /30/.test(warm.notices.find((n) => n.steam === HUNTER)?.text ?? ''));
+  const toHunter = warm.notices.find((n) => n.steam === HUNTER)?.text ?? '';
+
+  check('the hunter is given a direction', /scent is (north|south|east|west)/.test(toHunter),
+    toHunter);
+  check('and a sense of distance', /close|far|way off|on top/.test(toHunter), toHunter);
+  check('the quarry is told nothing at all',
+    warm.notices.every((n) => n.steam !== TARGET), JSON.stringify(warm.notices));
 
   // Standing still must not repeat it twelve times a minute.
   const again = proximityStep(warm.hunt, [at(TARGET, 0, 0), at(HUNTER, 30_000, 0)]);
   check('standing still says nothing more', again.notices.length === 0,
     JSON.stringify(again.notices));
 
-  // Closing in is worth saying.
-  const closer = proximityStep(again.hunt, [at(TARGET, 0, 0), at(HUNTER, 5_000, 0)]);
-  check('getting closer is worth a second notice',
-    closer.notices.some((n) => n.steam === HUNTER && /on top/i.test(n.text)),
-    JSON.stringify(closer.notices));
+  // The last stretch is meant to be visual, so closing right in goes quiet.
+  const onTop = proximityStep(again.hunt, [at(TARGET, 0, 0), at(HUNTER, 5_000, 0)]);
+  check('and being right on top of them says nothing',
+    onTop.notices.length === 0, JSON.stringify(onTop.notices));
+  check('though it is still recorded as a chase',
+    onTop.hunt.chased.includes(HUNTER), JSON.stringify(onTop.hunt.chased));
 
-  // Drifting back out to a colder band is not - the silence says it.
-  const drifting = proximityStep(closer.hunt, [at(TARGET, 0, 0), at(HUNTER, 30_000, 0)]);
+  // Drifting back out to a colder band is not worth saying either.
+  const drifting = proximityStep(onTop.hunt, [at(TARGET, 0, 0), at(HUNTER, 30_000, 0)]);
   check('drifting back out does not announce itself',
     drifting.notices.length === 0, JSON.stringify(drifting.notices));
 
@@ -217,8 +224,8 @@ const at = (steam, x, y, species = 'Rex') =>
   check('losing them entirely is worth saying',
     lost.notices.some((n) => n.steam === HUNTER && /lost/i.test(n.text)),
     JSON.stringify(lost.notices));
-  check('and the target is told they are clear',
-    lost.notices.some((n) => n.steam === TARGET && /lost/i.test(n.text)));
+  check('and even then the quarry hears nothing',
+    lost.notices.every((n) => n.steam !== TARGET), JSON.stringify(lost.notices));
 }
 
 {
@@ -239,16 +246,24 @@ const at = (steam, x, y, species = 'Rex') =>
 }
 
 {
-  // Two hunters closing in warns the quarry once, not once each.
+  // Two hunters, each told for themselves, and the quarry told nothing however
+  // many are closing in.
   const h = base();
   const pair = proximityStep(h, [
-    at(TARGET, 0, 0), at(HUNTER, 5_000, 0), at('76561198000000003', 6_000, 0),
+    // One due east of the quarry, one due south of them, so the two bearings
+    // must differ. Picking two spots that happen to share one proves nothing.
+    at(TARGET, 0, 0), at(HUNTER, 30_000, 0), at('76561198000000003', 0, 30_000),
   ]);
-  check('the quarry is warned once however many are chasing',
-    pair.notices.filter((n) => n.steam === TARGET).length === 1,
+  check('each hunter is told separately',
+    pair.notices.filter((n) => n.steam !== TARGET).length === 2,
     JSON.stringify(pair.notices));
-  check('and each hunter is told separately',
-    pair.notices.filter((n) => n.steam !== TARGET).length === 2);
+  check('and their bearings are worked out from their own positions',
+    new Set(pair.notices.map((n) => n.text)).size === 2,
+    JSON.stringify(pair.notices.map((n) => n.text)));
+  check('the quarry hears nothing however many are chasing',
+    pair.notices.every((n) => n.steam !== TARGET), JSON.stringify(pair.notices));
+  check('but both are recorded as having chased',
+    pair.hunt.chased.length === 2, JSON.stringify(pair.hunt.chased));
 }
 
 {
@@ -308,6 +323,76 @@ const at = (steam, x, y, species = 'Rex') =>
   check('an actual hunter is still paid', won?.kind === 'paid');
   check('and gets the points', db.pointsFor(HUNTER).balance === 1500,
     String(db.pointsFor(HUNTER).balance));
+
+  db.close();
+}
+
+// ---- paying the people who turned up ----------------------------------------
+
+{
+  // Chasing is recorded as it happens, because bands are current state and are
+  // cleared the moment somebody drifts back out. The evening is over by the
+  // time anybody counts.
+  const h = base();
+  const step = proximityStep(h, [at(TARGET, 0, 0), at(HUNTER, 30_000, 0)]);
+  check('a hunter who closes in is remembered',
+    step.hunt.chased.includes(HUNTER), JSON.stringify(step.hunt.chased));
+
+  const wandered = proximityStep(step.hunt, [at(TARGET, 0, 0), at(HUNTER, 900_000, 0)]);
+  check('and stays remembered after they drift away',
+    wandered.hunt.chased.includes(HUNTER), JSON.stringify(wandered.hunt.chased));
+  check('while the live band is cleared', wandered.hunt.bands[HUNTER] === undefined);
+
+  check('somebody who never got close is not counted',
+    !step.hunt.chased.includes('76561198000000009'));
+}
+
+{
+  const OTHER = '76561198000000003';
+  const FRIEND = '76561198000000004';
+
+  const h = base({ reward: 1500, chased: [HUNTER, OTHER, FRIEND, TARGET], company: [FRIEND] });
+  const owed = participants(h, HUNTER);
+  const ids = owed.map((r) => r.steam);
+
+  check('the winner is not paid twice', !ids.includes(HUNTER), JSON.stringify(ids));
+  check('the quarry is not paid for being chased', !ids.includes(TARGET));
+  check('the quarry\'s company is not paid either', !ids.includes(FRIEND));
+  check('and everybody else who chased is', ids.includes(OTHER), JSON.stringify(ids));
+
+  check('a tenth of the prize', participationAward(1500) === 150,
+    String(participationAward(1500)));
+  check('but never trivial', participationAward(100) === PARTICIPATION_MIN,
+    String(participationAward(100)));
+  check('and never more than winning',
+    participationAward(1500) < 1500 && participationAward(300) < 300);
+}
+
+{
+  const db = new Database(
+    path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'vesta-')), 'hunt4.sqlite'));
+  const ctx = { db };
+  const OTHER = '76561198000000003';
+
+  // Surviving still pays the chasers: they spent the evening on it either way,
+  // and an event that pays nothing unless somebody dies is one people stop
+  // turning up to.
+  const h = base({ reward: 1000, chased: [HUNTER, OTHER] });
+  const paid = payParticipants(ctx, h);
+
+  check('everybody who chased is paid when the quarry survives', paid.paid === 2,
+    JSON.stringify(paid));
+  check('and it lands in their balance', db.pointsFor(HUNTER).balance === 100,
+    String(db.pointsFor(HUNTER).balance));
+
+  // With a winner, one fewer.
+  const withWinner = payParticipants(ctx, h, HUNTER);
+  check('and with a winner they are one short', withWinner.paid === 1);
+  check('the winner getting nothing extra', db.pointsFor(HUNTER).balance === 100,
+    String(db.pointsFor(HUNTER).balance));
+
+  const nobody = payParticipants(ctx, base({ reward: 1000 }));
+  check('a hunt nobody chased pays nobody', nobody.paid === 0, JSON.stringify(nobody));
 
   db.close();
 }

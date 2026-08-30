@@ -2390,6 +2390,75 @@ local function handleNotify(cmd)
         sent and "shown" or "the notification was refused")
 end
 
+-- ---------------------------------------------------------------------------
+-- Grow
+--
+-- why: SetGrowth is the same call the restore path uses, and it recomputes and
+-- refills every max vital as it lands. Vitals are therefore filled AFTER it in
+-- the same pass, exactly as restore stage 1 does, or the fill is against the
+-- old maxima and a grown dinosaur arrives hungry.
+--
+-- Growth is read back before reporting success. SetGrowth returning without
+-- error is not evidence it took: a value out of range, or a pawn mid-transition,
+-- leaves the old growth in place and says nothing.
+-- ---------------------------------------------------------------------------
+local function handleGrow(cmd)
+    local want = tonumber(cmd.args and cmd.args.growth)
+    if want == nil or want < 0.05 or want > 1.0 then
+        writeResult(cmd.id, "grow", cmd.steam, false,
+            "growth must be between 0.05 and 1.0")
+        return
+    end
+
+    local pawn, err = resolvePlayer(cmd.steam)
+    if pawn == nil then
+        writeResult(cmd.id, "grow", cmd.steam, false, err)
+        return
+    end
+
+    local isDino, reason = dinosaurCheck(pawn)
+    if not isDino then
+        writeResult(cmd.id, "grow", cmd.steam, false, reason)
+        return
+    end
+
+    local before = callNumber(pawn, "GetGrowth")
+
+    if not pcall(function() pawn:SetGrowth(want) end) then
+        writeResult(cmd.id, "grow", cmd.steam, false, "the server refused the growth")
+        return
+    end
+
+    -- After the growth, never before: the maxima have just been recomputed.
+    if cmd.args and cmd.args.heal then
+        local function fill(setter, maxGetter)
+            local max
+            pcall(function() max = pawn[maxGetter](pawn) end)
+            if type(max) == "number" then pcall(function() pawn[setter](pawn, max) end) end
+        end
+
+        fill("SetHealth", "GetMaxHealth")
+        fill("SetStamina", "GetMaxStamina")
+        fill("SetHunger", "GetMaxHunger")
+        fill("SetThirst", "GetMaxThirst")
+    end
+
+    pcall(function() pawn:ForceNetUpdate() end)
+
+    local after = callNumber(pawn, "GetGrowth")
+    local landed = after ~= nil and math.abs(after - want) < 0.01
+
+    log(string.format("grow: %s %s -> %s%s", cmd.steam,
+        tostring(before), tostring(after), landed and "" or " !DID NOT LAND"))
+
+    writeResult(cmd.id, "grow", cmd.steam, landed,
+        landed
+            and string.format("grown to %d%%", math.floor(want * 100 + 0.5))
+            or string.format("growth still reads %s, wanted %s",
+                tostring(after), tostring(want)),
+        string.format('{"before":%.4f,"after":%.4f}', before or 0, after or 0))
+end
+
 local function handleHeal(cmd)
     local pawn, err = resolvePlayer(cmd.steam)
     if pawn == nil then
@@ -2529,6 +2598,7 @@ local function dispatch(cmd)
     elseif verb == "notify" then handleNotify(cmd)
     elseif verb == "chat" then handleChat(cmd)
     elseif verb == "heal" then handleHeal(cmd)
+    elseif verb == "grow" then handleGrow(cmd)
     else writeResult(cmd.id, verb, cmd.steam, false, "unknown command: " .. verb) end
 end
 

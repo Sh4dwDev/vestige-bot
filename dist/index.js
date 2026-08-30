@@ -34,13 +34,14 @@ import { handleMarket } from './market.js';
 import { runNesting } from './nesting.js';
 import { runGameLog } from './gamelog.js';
 import { startWebsite } from './web.js';
+import { runGrowthFloor } from './growth.js';
 import { recordPlay, streakNotice } from './streaks.js';
 import { runWeekly } from './weekly.js';
 import { activeDrop, buildDropEmbed, buildDropOverEmbed, claimDrop, dropChannel, dropStep, expiredAnnounce, foundAnnounce, rememberGround, saveDrop, scentLine, warmNotice, warming, } from './drop.js';
 import { handleDuty, reconcileDuty } from './duty.js';
 import { handleWardrobe } from './wardrobe.js';
 import { advanceTryout } from './tryout.js';
-import { activeHunt, buildHuntEmbed, caughtAnnounce, backAnnounce, claimHunt, colludedAnnounce, goneAnnounce, presenceStep, huntChannel, huntStep, proximityStep, markRevealed, revealAnnounce, saveHunt, survivedAnnounce, } from './hunt.js';
+import { activeHunt, buildHuntEmbed, caughtAnnounce, backAnnounce, chasedAnnounce, claimHunt, colludedAnnounce, goneAnnounce, payParticipants, presenceStep, huntChannel, huntStep, proximityStep, markRevealed, revealAnnounce, saveHunt, survivedAnnounce, } from './hunt.js';
 import { activeContest, advanceContest, buildContestWonEmbed, contestChannel, enterNotice, leaveNotice, winnersAnnounce, } from './contest.js';
 import { EvrimaRcon } from './rcon.js';
 import { tell } from './tell.js';
@@ -561,12 +562,28 @@ async function settleHunt(ctx, client, kill, log) {
     const killer = steamNamer(ctx)(kill.killer);
     if (claim.kind === 'collusion') {
         log(`hunt: ${kill.killer} was the quarry's own company, so nobody was paid`);
+        // The prize is refused, but the hunters who chased in good faith still
+        // spent their evening on it. Their share does not depend on how it ended.
+        const anyway = payParticipants(ctx, hunt, kill.killer);
         await ctx.rcon.announce(toPlainAscii(colludedAnnounce(hunt))).catch(() => undefined);
+        if (anyway.paid > 0) {
+            await ctx.rcon.announce(toPlainAscii(chasedAnnounce(anyway.paid, anyway.each)))
+                .catch(() => undefined);
+        }
         await sayInHuntChannel(ctx, client, buildHuntEmbed(hunt, 'survived'));
         return;
     }
     log(`hunt: ${kill.killer} caught ${hunt.targetSteam} for ${hunt.reward}`);
+    // Everybody who actually chased gets something. The winner is excluded: they
+    // have the whole prize, and paying them twice reads as a bug.
+    const shared = payParticipants(ctx, hunt, kill.killer);
+    if (shared.paid > 0)
+        log(`hunt: ${shared.paid} also paid ${shared.each} for taking part`);
     await ctx.rcon.announce(toPlainAscii(caughtAnnounce(hunt, killer))).catch(() => undefined);
+    if (shared.paid > 0) {
+        await ctx.rcon.announce(toPlainAscii(chasedAnnounce(shared.paid, shared.each)))
+            .catch(() => undefined);
+    }
     await sayInHuntChannel(ctx, client, buildHuntEmbed(hunt, 'caught', killer));
 }
 /**
@@ -667,9 +684,16 @@ async function runHunt(ctx, client, players, log) {
     if (step.kind === 'waiting')
         return;
     if (step.kind === 'survived') {
+        // Paid from the hunt as it stands now, before it is cleared, or the record
+        // of who chased goes with it.
+        const chasers = payParticipants(ctx, presence.hunt);
         saveHunt(ctx, null);
-        log(`hunt: ${hunt.targetSteam} survived`);
+        log(`hunt: ${hunt.targetSteam} survived, ${chasers.paid} paid for taking part`);
         await ctx.rcon.announce(toPlainAscii(survivedAnnounce(hunt))).catch(() => undefined);
+        if (chasers.paid > 0) {
+            await ctx.rcon.announce(toPlainAscii(chasedAnnounce(chasers.paid, chasers.each)))
+                .catch(() => undefined);
+        }
         await sayInHuntChannel(ctx, client, buildHuntEmbed(hunt, 'survived'));
         return;
     }
@@ -754,6 +778,9 @@ function startServerPoll(ctx, client) {
                 // trip for data already in hand.
                 const live = await ctx.mod.players();
                 awardOnline(ctx, live, elapsed);
+                // Anybody who respawned small is brought back up, while the floor is
+                // on. Reads the growth already in the roster, so deciding is free.
+                await runGrowthFloor(ctx, live, log);
                 // Banked as people walk about, so a drop has somewhere real to sit.
                 // The only ground height anything can trust is one a pawn stood on.
                 rememberGround(live);

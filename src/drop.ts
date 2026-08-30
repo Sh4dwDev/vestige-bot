@@ -257,14 +257,16 @@ export function bearingWord(dx: number, dy: number): string {
  * direction and still have to search. The last one says plainly that it is
  * within sight, because by then the point is to be found rather than hunted.
  */
-export function distanceWord(units: number, stage: number): string {
+export function distanceWord(units: number, stage: number, subject = 'it'): string {
   if (stage <= 0) return '';
   if (units > 400) return 'a very long way off';
   if (units > 200) return 'a long way off';
   if (units > 100) return stage >= 2 ? 'some way off' : 'a long way off';
   if (units > 40) return 'not far';
   if (units > 15) return 'close';
-  return 'nearly on top of it';
+  // The subject is a parameter because the hunt shares this and is chasing a
+  // person: "nearly on top of it" reads as a thing, and the quarry is not one.
+  return `nearly on top of ${subject}`;
 }
 
 /**

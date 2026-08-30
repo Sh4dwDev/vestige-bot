@@ -44,6 +44,14 @@ export interface Hunt {
     /** Whether the disappearance was announced, so it is said once, not per tick. */
     goneTold?: boolean;
     /**
+     * Everybody who ever got close enough to be told they were warm.
+     *
+     * Accumulated rather than derived from `bands`, which is current state and is
+     * cleared the moment somebody drifts back out. Turning up and chasing is the
+     * thing being paid for, and it is over by the time anybody is counting.
+     */
+    chased?: string[];
+    /**
      * Who was standing with the quarry when the hunt was called.
      *
      * These are the people who cannot claim it. A quarry's own group killing
@@ -64,10 +72,19 @@ export interface Hunt {
  * given `Lat -317, Long 120` and can read their own coordinates off the same
  * display, so a distance in the same scale is one they can act on.
  */
+/**
+ * How close counts as warm, in HUD units, tightest first.
+ *
+ * Only the distance is used now. The wording that used to live here was
+ * replaced by a bearing worked out per hunter, and the quarry is told nothing
+ * at all: a proximity alarm they can act on turns every hunt into the quarry
+ * leaving the moment it fires.
+ *
+ * Band 0, the innermost, is deliberately silent. Everything inside it is meant
+ * to be done by eye.
+ */
 export declare const BANDS: Array<{
     within: number;
-    hunter: string;
-    target: string;
 }>;
 export declare function activeHunt(ctx: Ctx): Hunt | null;
 export declare const saveHunt: (ctx: Ctx, hunt: Hunt | null) => void;
@@ -180,6 +197,38 @@ export declare const COMPANY_WITHIN = 20;
  */
 export declare function companyOf(targetSteam: string, players: PlayerRow[]): string[];
 export declare function proximityStep(hunt: Hunt, players: PlayerRow[]): ProximityStep;
+/**
+ * A tenth of the prize, for turning up and actually chasing.
+ *
+ * Small on purpose. It should be worth logging in for and never worth more than
+ * winning, and a share that scales with the reward means a bigger hunt pays its
+ * also-rans more without anybody having to set a second number.
+ */
+export declare const PARTICIPATION_SHARE = 0.1;
+/** Never less than this, so a small hunt still pays something meaningful. */
+export declare const PARTICIPATION_MIN = 50;
+export declare const participationAward: (reward: number) => number;
+/**
+ * Who gets the consolation, and how much.
+ *
+ * Pure, so the exclusions can be read at a glance and tested. Three people are
+ * left out, each for a different reason:
+ *
+ *   * **the winner**, who has the whole prize already;
+ *   * **the quarry**, who was not chasing anybody;
+ *   * **the quarry's company**, who are barred from profiting from this hunt at
+ *     all, which is the entire point of recording them.
+ */
+export declare function participants(hunt: Hunt, winnerSteam?: string): Array<{
+    steam: string;
+    amount: number;
+}>;
+/** Pays them, and reports how many so it can be announced. */
+export declare function payParticipants(ctx: Ctx, hunt: Hunt, winnerSteam?: string): {
+    paid: number;
+    each: number;
+};
+export declare const chasedAnnounce: (paid: number, each: number) => string;
 export declare const huntChannel: (ctx: Ctx) => string | null;
 export declare const setHuntChannel: (ctx: Ctx, channelId: string | null) => void;
 /**

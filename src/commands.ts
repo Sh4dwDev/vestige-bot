@@ -787,7 +787,18 @@ export const commandData = [
             .addUserOption((o) => o.setName('user').setDescription('Who').setRequired(true)))
         .addSubcommand((c) =>
           c.setName('goto').setDescription('Teleport yourself to a player')
-            .addUserOption((o) => o.setName('user').setDescription('Who').setRequired(true))),
+            .addUserOption((o) => o.setName('user').setDescription('Who').setRequired(true)))
+        .addSubcommand((c) =>
+          c.setName('grow').setDescription('Grow everyone to a size')
+            .addIntegerOption((o) =>
+              o.setName('percent').setDescription('5 to 100')
+                .setMinValue(5).setMaxValue(100).setRequired(true))
+            .addBooleanOption((o) =>
+              o.setName('heal').setDescription('Also fill them up'))
+            .addBooleanOption((o) =>
+              o.setName('keep').setDescription('Keep it up on respawn')))
+        .addSubcommand((c) =>
+          c.setName('growoff').setDescription('Stop the growth floor')),
     )
     .addSubcommandGroup((g) =>
       g.setName('species').setDescription('Per-species population caps')

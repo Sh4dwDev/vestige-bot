@@ -20,7 +20,7 @@ export type Verb =
   | 'store' | 'restore' | 'list' | 'delete' | 'slay' | 'players'
   | 'give' | 'teleport' | 'where' | 'skinget' | 'skinmany' | 'pattern'
   | 'notify' | 'heal' | 'prime' | 'nest' | 'look' | 'skinfields'
-  | 'transfer' | 'slotinfo';
+  | 'transfer' | 'slotinfo' | 'grow';
 
 export interface StoredSlot {
   slot: string;

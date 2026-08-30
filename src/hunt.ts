@@ -4,6 +4,9 @@ import { SERVER, SIGNATURE } from './brand.js';
 import type { PlayerRow } from './bridge.js';
 import type { Ctx } from './commands.js';
 import { hud } from './contest.js';
+// Shared with the drop on purpose: two events describing distance and
+// direction in different words would read as two different games.
+import { bearingWord, distanceWord } from './drop.js';
 
 /**
  * One player is the quarry. Kill them and the prize is yours; keep them alive
@@ -67,6 +70,14 @@ export interface Hunt {
   /** Whether the disappearance was announced, so it is said once, not per tick. */
   goneTold?: boolean;
   /**
+   * Everybody who ever got close enough to be told they were warm.
+   *
+   * Accumulated rather than derived from `bands`, which is current state and is
+   * cleared the moment somebody drifts back out. Turning up and chasing is the
+   * thing being paid for, and it is over by the time anybody is counting.
+   */
+  chased?: string[];
+  /**
    * Who was standing with the quarry when the hunt was called.
    *
    * These are the people who cannot claim it. A quarry's own group killing
@@ -88,22 +99,21 @@ export interface Hunt {
  * given `Lat -317, Long 120` and can read their own coordinates off the same
  * display, so a distance in the same scale is one they can act on.
  */
-export const BANDS: Array<{ within: number; hunter: string; target: string }> = [
-  {
-    within: 8,
-    hunter: 'You are right on top of them.',
-    target: 'They are right on top of you.',
-  },
-  {
-    within: 20,
-    hunter: 'You are close.',
-    target: 'Somebody is close.',
-  },
-  {
-    within: 45,
-    hunter: 'You are getting warm.',
-    target: 'Somebody is getting warm.',
-  },
+/**
+ * How close counts as warm, in HUD units, tightest first.
+ *
+ * Only the distance is used now. The wording that used to live here was
+ * replaced by a bearing worked out per hunter, and the quarry is told nothing
+ * at all: a proximity alarm they can act on turns every hunt into the quarry
+ * leaving the moment it fires.
+ *
+ * Band 0, the innermost, is deliberately silent. Everything inside it is meant
+ * to be done by eye.
+ */
+export const BANDS: Array<{ within: number }> = [
+  { within: 8 },
+  { within: 20 },
+  { within: 45 },
 ];
 
 export function activeHunt(ctx: Ctx): Hunt | null {
@@ -394,6 +404,7 @@ export function companyOf(targetSteam: string, players: PlayerRow[]): string[] {
 export function proximityStep(hunt: Hunt, players: PlayerRow[]): ProximityStep {
   const target = players.find((p) => p.steam === hunt.targetSteam);
   const bands = { ...(hunt.bands ?? {}) };
+  const chased = [...(hunt.chased ?? [])];
   const notices: ProximityNotice[] = [];
 
   if (!target || target.x === undefined || target.y === undefined) {
@@ -428,39 +439,90 @@ export function proximityStep(hunt: Hunt, players: PlayerRow[]): ProximityStep {
     }
 
     bands[player.steam] = band;
+    if (!chased.includes(player.steam)) chased.push(player.steam);
+
     // Only on the way in. Drifting from "close" back to "warm" already says
     // enough by not saying "right on top of them" any more.
-    if (was < 0 || band < was) {
+    // The innermost band says nothing. Being told "you are right on top of
+    // them" replaces looking: hunters stop searching and start reading the
+    // notice, and a quarry hiding in cover ten metres away is found by the HUD
+    // rather than by anybody's eyes. The last stretch is meant to be visual.
+    if (band > 0 && (was < 0 || band < was)) {
+      // A bearing from where this hunter is standing, in the same shape the
+      // drop uses. A distance alone says how far without saying which way,
+      // which is the half that matters while searching.
       notices.push({
         steam: player.steam,
-        text: `HUNT: ${BANDS[band]?.hunter ?? ''} ${hunt.targetName} is `
-          + `about ${Math.round(away)} out.`,
+        text: `HUNT: the scent is ${bearingWord(target.x - player.x, target.y - player.y)}`
+          + `, ${distanceWord(away, 3, 'them')}`,
       });
     }
   }
 
-  const targetBand = BANDS.findIndex((b) => closest <= b.within);
-  const targetWas = bands[hunt.targetSteam] ?? -1;
+  // The quarry is told nothing. They were warned before, on the reasoning that
+  // somebody who cannot tell they are being closed on cannot run, but in play
+  // it hands them a proximity alarm the hunters have no answer to: they simply
+  // leave every time the warning fires, and the hunt never resolves. Being
+  // hunted should feel like not knowing.
+  delete bands[hunt.targetSteam];
 
-  if (targetBand !== targetWas) {
-    if (targetBand < 0) {
-      delete bands[hunt.targetSteam];
-      if (targetWas >= 0) {
-        notices.push({ steam: hunt.targetSteam, text: 'HUNT: you have lost them.' });
-      }
-    } else {
-      bands[hunt.targetSteam] = targetBand;
-      if (targetWas < 0 || targetBand < targetWas) {
-        notices.push({
-          steam: hunt.targetSteam,
-          text: `HUNT: ${BANDS[targetBand]?.target ?? ''} Run.`,
-        });
-      }
-    }
-  }
-
-  return { hunt: { ...hunt, bands }, notices };
+  return { hunt: { ...hunt, bands, chased }, notices };
 }
+
+/**
+ * A tenth of the prize, for turning up and actually chasing.
+ *
+ * Small on purpose. It should be worth logging in for and never worth more than
+ * winning, and a share that scales with the reward means a bigger hunt pays its
+ * also-rans more without anybody having to set a second number.
+ */
+export const PARTICIPATION_SHARE = 0.1;
+
+/** Never less than this, so a small hunt still pays something meaningful. */
+export const PARTICIPATION_MIN = 50;
+
+export const participationAward = (reward: number): number =>
+  Math.max(PARTICIPATION_MIN, Math.round(reward * PARTICIPATION_SHARE));
+
+/**
+ * Who gets the consolation, and how much.
+ *
+ * Pure, so the exclusions can be read at a glance and tested. Three people are
+ * left out, each for a different reason:
+ *
+ *   * **the winner**, who has the whole prize already;
+ *   * **the quarry**, who was not chasing anybody;
+ *   * **the quarry's company**, who are barred from profiting from this hunt at
+ *     all, which is the entire point of recording them.
+ */
+export function participants(
+  hunt: Hunt,
+  winnerSteam?: string,
+): Array<{ steam: string; amount: number }> {
+  const amount = participationAward(hunt.reward);
+  const barred = new Set(hunt.company ?? []);
+
+  return (hunt.chased ?? [])
+    .filter((steam) => steam !== hunt.targetSteam
+      && steam !== winnerSteam
+      && !barred.has(steam))
+    .map((steam) => ({ steam, amount }));
+}
+
+/** Pays them, and reports how many so it can be announced. */
+export function payParticipants(
+  ctx: Ctx,
+  hunt: Hunt,
+  winnerSteam?: string,
+): { paid: number; each: number } {
+  const owed = participants(hunt, winnerSteam);
+  for (const row of owed) ctx.db.addPoints(row.steam, row.amount, 0);
+
+  return { paid: owed.length, each: participationAward(hunt.reward) };
+}
+
+export const chasedAnnounce = (paid: number, each: number): string =>
+  `HUNT: ${paid} hunter${paid === 1 ? '' : 's'} took part and get ${each} points each.`;
 
 const CHANNEL_KEY = 'hunt_channel';
 

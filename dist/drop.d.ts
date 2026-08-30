@@ -101,7 +101,7 @@ export declare function bearingWord(dx: number, dy: number): string;
  * direction and still have to search. The last one says plainly that it is
  * within sight, because by then the point is to be found rather than hunted.
  */
-export declare function distanceWord(units: number, stage: number): string;
+export declare function distanceWord(units: number, stage: number, subject?: string): string;
 /**
  * What one player is told, from where they are standing.
  *

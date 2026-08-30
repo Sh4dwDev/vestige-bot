@@ -1,7 +1,9 @@
 import { EmbedBuilder, MessageFlags, type ChatInputCommandInteraction } from 'discord.js';
 
 import { SIGNATURE } from './brand.js';
+import { toPlainAscii, type PlayerRow } from './bridge.js';
 import { describeError, type Ctx } from './commands.js';
+import { growthFloor, setGrowthFloor } from './growth.js';
 import { tell } from './tell.js';
 
 /**
@@ -223,12 +225,101 @@ export async function handleModeration(
  * `bring` and `goto` are the same mod verb with the ends swapped, which is why
  * they read as one thing here rather than two.
  */
+/**
+ * Grows everybody in game to one size, and optionally fills them up.
+ *
+ * One round trip each, run in order rather than all at once: the mod bridge
+ * serialises anyway, and firing thirty writes in parallel only makes a failure
+ * harder to read. Each is reported separately, so a partial run says exactly
+ * who it reached.
+ *
+ * Vitals are filled by the mod after the growth, never before, because
+ * SetGrowth recomputes every maximum as it lands and a fill against the old
+ * ones leaves a grown dinosaur hungry.
+ */
+async function growEveryone(ctx: Ctx, i: ChatInputCommandInteraction): Promise<void> {
+  const percent = i.options.getInteger('percent', true);
+  const heal = i.options.getBoolean('heal') ?? true;
+  const keep = i.options.getBoolean('keep') ?? false;
+  const growth = percent / 100;
+
+  // Recorded before the sweep, so somebody who respawns during it is caught by
+  // the floor rather than missed by both.
+  if (keep) setGrowthFloor(ctx, percent, heal);
+
+  const players = await ctx.mod.players().catch(() => [] as PlayerRow[]);
+  const online = players.filter((p) => p.steam);
+
+  if (online.length === 0) {
+    await i.editReply({
+      embeds: [embed(COLORS.warn, 'Nobody is in game',
+        'There is nobody on a dinosaur to grow right now.')],
+    });
+    return;
+  }
+
+  const grown: string[] = [];
+  const failed: string[] = [];
+
+  for (const player of online) {
+    const steamId = player.steam as string;
+    try {
+      const result = await ctx.mod.run('grow', steamId, { growth, heal }, { quiet: true });
+      if (result.ok) grown.push(steamId);
+      else failed.push(`${ctx.db.gameName(steamId) ?? steamId}: ${result.msg}`);
+    } catch (err) {
+      failed.push(`${ctx.db.gameName(steamId) ?? steamId}: ${describeError(err)}`);
+    }
+  }
+
+  if (grown.length > 0) {
+    await ctx.rcon
+      .announce(toPlainAscii(
+        `An admin has grown everyone to ${percent}%${heal ? ' and filled them up' : ''}.`))
+      .catch(() => undefined);
+  }
+
+  await i.editReply({
+    embeds: [embed(failed.length === 0 ? COLORS.good : COLORS.warn,
+      `Grown to ${percent}%`,
+      `**${grown.length}** of **${online.length}** in game`
+      + (heal ? ', filled up as well' : ', vitals untouched') + '.'
+      + (failed.length > 0
+        ? `\n\n**Did not take:**\n${failed.slice(0, 10).join('\n')}`
+        : '')
+      + '\n\n-# Growing is not reversible in any way that feels like undoing it: '
+      + 'setting it back down leaves them the size they were, without the time '
+      + 'they spent getting there.')],
+  });
+}
+
 export async function handleInGame(
   ctx: Ctx,
   i: ChatInputCommandInteraction,
   action: string,
 ): Promise<void> {
   await i.deferReply({ flags: MessageFlags.Ephemeral });
+
+  // Everybody at once, so there is no user to resolve and no need for the
+  // caller to be linked themselves.
+  if (action === 'grow') {
+    await growEveryone(ctx, i);
+    return;
+  }
+
+  if (action === 'growoff') {
+    const was = growthFloor(ctx);
+    setGrowthFloor(ctx, null);
+    await i.editReply({
+      embeds: [embed(COLORS.good, was ? 'Growth floor off' : 'It was already off',
+        was
+          ? `Nobody is grown automatically any more. Everybody keeps the size `
+            + 'they are; this only stops new arrivals being brought up to '
+            + `**${Math.round(was.growth * 100)}%**.`
+          : 'There was no growth floor running.')],
+    });
+    return;
+  }
 
   const me = ctx.db.linkFor(i.user.id);
   if (!me && action !== 'heal') {
