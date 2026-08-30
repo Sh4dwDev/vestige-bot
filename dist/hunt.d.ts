@@ -139,6 +139,18 @@ export declare const backAnnounce: (hunt: Hunt) => string;
 /** ASCII only: these go out over RCON, which drops anything else silently. */
 export declare const huntAnnounce: (hunt: Hunt) => string;
 export declare const revealAnnounce: (hunt: Hunt, x: number, y: number, species: string) => string;
+/**
+ * The position call, written for one hunter from where they are standing.
+ *
+ * The call used to be a server-wide line of coordinates. Players do not read
+ * coordinates: "Lat -164, Long -112" is a number to everybody except the
+ * handful who have learned the map, and everybody else ignored it. A bearing
+ * needs nothing but the direction you are already facing.
+ *
+ * Returns null for the quarry and for anybody the server cannot place, both of
+ * whom have nothing useful to be told.
+ */
+export declare function revealScent(hunt: Hunt, x: number, y: number, player: PlayerRow): string | null;
 export declare const caughtAnnounce: (hunt: Hunt, killer: string) => string;
 export declare const survivedAnnounce: (hunt: Hunt) => string;
 export declare const colludedAnnounce: (hunt: Hunt) => string;

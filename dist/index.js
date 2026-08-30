@@ -41,7 +41,7 @@ import { activeDrop, buildDropEmbed, buildDropOverEmbed, claimDrop, dropChannel,
 import { handleDuty, reconcileDuty } from './duty.js';
 import { handleWardrobe } from './wardrobe.js';
 import { advanceTryout } from './tryout.js';
-import { activeHunt, buildHuntEmbed, caughtAnnounce, backAnnounce, chasedAnnounce, claimHunt, colludedAnnounce, goneAnnounce, payParticipants, presenceStep, huntChannel, huntStep, proximityStep, markRevealed, revealAnnounce, saveHunt, survivedAnnounce, } from './hunt.js';
+import { activeHunt, buildHuntEmbed, caughtAnnounce, backAnnounce, chasedAnnounce, claimHunt, colludedAnnounce, goneAnnounce, payParticipants, presenceStep, revealScent, huntChannel, huntStep, proximityStep, markRevealed, revealAnnounce, saveHunt, survivedAnnounce, } from './hunt.js';
 import { activeContest, advanceContest, buildContestWonEmbed, contestChannel, enterNotice, leaveNotice, winnersAnnounce, } from './contest.js';
 import { EvrimaRcon } from './rcon.js';
 import { tell } from './tell.js';
@@ -700,8 +700,16 @@ async function runHunt(ctx, client, players, log) {
     // Marked before announcing: a failed announcement must not mean trying again
     // every minute for the rest of the hunt.
     markRevealed(ctx, presence.hunt, Date.now(), step.species);
-    await ctx.rcon.announce(toPlainAscii(revealAnnounce(hunt, step.x, step.y, step.species)))
-        .catch(() => undefined);
+    // Coordinates go to the log, where staff read them. Players get a bearing
+    // from where they are standing: "Lat -164, Long -112" is a number to
+    // everybody except the few who have learned the map, and everybody else
+    // ignored the call entirely.
+    log(`hunt: ${revealAnnounce(hunt, step.x, step.y, step.species)}`);
+    for (const player of players) {
+        const line = revealScent(presence.hunt, step.x, step.y, player);
+        if (line)
+            void tell(ctx, player.steam, line, { persist: true });
+    }
 }
 async function sayInHuntChannel(ctx, client, embed) {
     const channelId = huntChannel(ctx);

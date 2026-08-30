@@ -12,7 +12,7 @@ const {
   huntStep, claimHunt, saveHunt, activeHunt, markRevealed,
   buildHuntEmbed, huntAnnounce, revealAnnounce, survivedAnnounce, proximityStep,
   companyOf, COMPANY_WITHIN, presenceStep, GONE_AFTER_MS, buildHuntStatusEmbed,
-  goneAnnounce, backAnnounce, participants, participationAward, payParticipants,
+  goneAnnounce, backAnnounce, participants, participationAward, payParticipants, revealScent,
   PARTICIPATION_MIN,
 } = await load('hunt.js');
 const { Database } = await load('db.js');
@@ -325,6 +325,37 @@ const at = (steam, x, y, species = 'Rex') =>
     String(db.pointsFor(HUNTER).balance));
 
   db.close();
+}
+
+// ---- the position call ------------------------------------------------------
+
+{
+  // It used to be one server-wide line of coordinates. Players do not read
+  // coordinates: "Lat -164, Long -112" is a number to everybody except the few
+  // who have learned the map, and everybody else ignored the call.
+  const h = base();
+  const tx = -112_000;
+  const ty = -164_000;
+
+  const south = revealScent(h, tx, ty, at('H1', -112_000, 300_000));
+  check('a hunter south of the quarry is sent north', /is north of you/.test(south), south);
+
+  const west = revealScent(h, tx, ty, at('H2', -600_000, -164_000));
+  check('and one to the west is sent east', /is east of you/.test(west), west);
+
+  check('the call carries no coordinates at all',
+    !/Lat|Long|-?\d{2,}/.test(south), south);
+  check('and names who they are looking for', south.includes('Shadow'), south);
+  check('with a sense of how far', /way off|far|close|on top/.test(south), south);
+
+  // Nothing useful to tell either of these.
+  check('the quarry is not told where they are',
+    revealScent(h, tx, ty, at(TARGET, tx, ty)) === null);
+  check('nor is somebody the server cannot place',
+    revealScent(h, tx, ty, { steam: 'H3', species: 'Rex' }) === null);
+
+  check('and it stays plain ASCII, since the mod drops the rest',
+    /^[ -~]*$/.test(south), south);
 }
 
 // ---- paying the people who turned up ----------------------------------------

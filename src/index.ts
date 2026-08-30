@@ -92,6 +92,7 @@ import {
   goneAnnounce,
   payParticipants,
   presenceStep,
+  revealScent,
   huntChannel,
   huntStep,
   proximityStep,
@@ -851,8 +852,17 @@ async function runHunt(
   // Marked before announcing: a failed announcement must not mean trying again
   // every minute for the rest of the hunt.
   markRevealed(ctx, presence.hunt, Date.now(), step.species);
-  await ctx.rcon.announce(toPlainAscii(revealAnnounce(hunt, step.x, step.y, step.species)))
-    .catch(() => undefined);
+
+  // Coordinates go to the log, where staff read them. Players get a bearing
+  // from where they are standing: "Lat -164, Long -112" is a number to
+  // everybody except the few who have learned the map, and everybody else
+  // ignored the call entirely.
+  log(`hunt: ${revealAnnounce(hunt, step.x, step.y, step.species)}`);
+
+  for (const player of players) {
+    const line = revealScent(presence.hunt, step.x, step.y, player);
+    if (line) void tell(ctx, player.steam as string, line, { persist: true });
+  }
 }
 
 async function sayInHuntChannel(

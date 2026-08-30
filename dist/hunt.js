@@ -129,6 +129,26 @@ export const huntAnnounce = (hunt) => `HUNT: ${hunt.targetName} is the target`
     + `Their position is called out every ${Math.round(hunt.revealEveryMs / 60000)} minutes.`;
 export const revealAnnounce = (hunt, x, y, species) => `HUNT: ${hunt.targetName} was last seen at Lat ${hud(y)}, Long ${hud(x)}`
     + (species ? ` playing ${species}.` : '.');
+/**
+ * The position call, written for one hunter from where they are standing.
+ *
+ * The call used to be a server-wide line of coordinates. Players do not read
+ * coordinates: "Lat -164, Long -112" is a number to everybody except the
+ * handful who have learned the map, and everybody else ignored it. A bearing
+ * needs nothing but the direction you are already facing.
+ *
+ * Returns null for the quarry and for anybody the server cannot place, both of
+ * whom have nothing useful to be told.
+ */
+export function revealScent(hunt, x, y, player) {
+    if (!player.steam || player.steam === hunt.targetSteam)
+        return null;
+    if (player.x === undefined || player.y === undefined)
+        return null;
+    const away = hud(Math.hypot(x - player.x, y - player.y));
+    return `HUNT: ${hunt.targetName} is ${bearingWord(x - player.x, y - player.y)}`
+        + ` of you, ${distanceWord(away, 3, 'them')}`;
+}
 export const caughtAnnounce = (hunt, killer) => `HUNT: ${killer} killed ${hunt.targetName} and takes ${hunt.reward} points.`;
 export const survivedAnnounce = (hunt) => `HUNT: ${hunt.targetName} survived. Nobody wins.`;
 export const colludedAnnounce = (hunt) => `HUNT: ${hunt.targetName} was killed by their own group. Nobody wins.`;
